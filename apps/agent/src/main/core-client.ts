@@ -87,7 +87,9 @@ export class CoreClient {
     this.socket = socket
 
     socket.on('open', () => {
-      this.backoffMs = this.initialBackoffMs
+      // Không reset backoff ở đây: bắt tay WebSocket xong không có nghĩa là phiên
+      // hợp lệ — Core có thể mở socket rồi vẫn từ chối (quá tải, đang triển khai
+      // bản mới, giới hạn tải...). Chỉ reset khi 'hello' thật sự được ack.
       socket.send(
         JSON.stringify({
           type: 'hello',
@@ -133,6 +135,9 @@ export class CoreClient {
     if (message.type === 'ack') {
       if (!this.helloAcked) {
         this.helloAcked = true
+        // Chỉ reset backoff khi phiên thật sự thành công (hello đã được ack) —
+        // không phải khi socket vừa mở.
+        this.backoffMs = this.initialBackoffMs
         this.emitter.emit('status', 'connected')
         this.startHeartbeat()
         this.pump()

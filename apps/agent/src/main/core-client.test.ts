@@ -179,4 +179,58 @@ describe('CoreClient', () => {
 
     await waitFor(() => outbox.depth() === 0, 10_000)
   })
+
+  it('backoff giãn dần rồi chững ở trần khi server bắt tay xong nhưng luôn từ chối phiên', async () => {
+    // Server khác: hoàn tất bắt tay WebSocket (sự kiện 'open' phía client sẽ bắn),
+    // rồi đóng ngay với mã KHÁC 4401 — mô phỏng Core còn sống nhưng từ chối phiên
+    // (quá tải, đang triển khai bản mới, giới hạn tải...).
+    const rejectHttp = createServer()
+    const rejectWss = new WebSocketServer({ server: rejectHttp, path: '/agent' })
+    const connectTimes: number[] = []
+    rejectWss.on('connection', (socket: WebSocket) => {
+      connectTimes.push(Date.now())
+      socket.close(1011, 'Core đang quá tải')
+    })
+    await new Promise<void>((resolve) => rejectHttp.listen(0, resolve))
+    const rejectPort = (rejectHttp.address() as { port: number }).port
+
+    try {
+      client = new CoreClient({
+        url: `ws://localhost:${rejectPort}/agent`,
+        agentKey: 'lis_agent_dung',
+        agentVersion: '0.1.0',
+        hostname: 'LAB-PC-01',
+        outbox,
+        initialBackoffMs: 50,
+        maxBackoffMs: 400,
+      })
+      client.start()
+
+      await waitFor(() => connectTimes.length >= 6, 10_000)
+
+      const gaps: number[] = []
+      for (let i = 1; i < connectTimes.length; i += 1) {
+        gaps.push(connectTimes[i]! - connectTimes[i - 1]!)
+      }
+
+      // Giãn dần: mỗi khoảng cách (trừ khi đã chạm trần) phải lớn hơn khoảng trước,
+      // với biên độ dung sai cho jitter của lịch trình hệ điều hành.
+      for (let i = 1; i < gaps.length; i += 1) {
+        const prev = gaps[i - 1]!
+        const curr = gaps[i]!
+        const prevAtCeiling = prev >= 400 * 0.8
+        expect(curr >= prev * 0.7 || prevAtCeiling).toBe(true)
+      }
+
+      // Chững ở trần: khoảng cách cuối cùng không vượt xa maxBackoffMs.
+      const lastGap = gaps[gaps.length - 1]!
+      expect(lastGap).toBeLessThan(400 * 1.8)
+      // Và không đứng yên ở initialBackoffMs suốt: phải có ít nhất một khoảng
+      // giãn ra rõ rệt so với initialBackoffMs.
+      expect(Math.max(...gaps)).toBeGreaterThan(50 * 1.8)
+    } finally {
+      rejectWss.close()
+      await new Promise<void>((resolve) => rejectHttp.close(() => resolve()))
+    }
+  })
 })
