@@ -124,12 +124,17 @@ describe('cô lập giữa các tenant', () => {
   })
 
   it('evictIdle đóng pool không dùng tới', async () => {
-    await registry.forTenant(tenantA)
+    const before = await registry.forTenant(tenantA)
     const closed = await registry.evictIdle(0)
     expect(closed).toBeGreaterThan(0)
 
-    // Sau khi đóng, gọi lại vẫn phải hoạt động.
+    // Pool cũ phải thực sự bị đóng (destroy), không chỉ gỡ khỏi cache — một
+    // bản cài đặt chỉ xoá Map mà quên gọi destroy() vẫn để lộ kết nối treo.
+    await expect(before.selectFrom('devices').selectAll().execute()).rejects.toThrow()
+
+    // Sau khi đóng, gọi lại vẫn phải hoạt động (tạo pool mới).
     const db = await registry.forTenant(tenantA)
+    expect(db).not.toBe(before)
     const rows = await db.selectFrom('devices').selectAll().execute()
     expect(rows.length).toBe(1)
   })
@@ -152,6 +157,44 @@ describe('cô lập giữa các tenant', () => {
 
     await expect(registry.forTenant(suspended.id)).rejects.toThrow(/tạm ngưng/)
   })
+
+  it('forTenant từ chối tenant đã cache nhưng vừa bị tạm ngưng', async () => {
+    await dropIfExists('lis_t_iso_d')
+    const d = await admin
+      .insertInto('tenants')
+      .values({ code: 'iso-d', name: 'Bệnh viện D', database_name: 'lis_t_iso_d', status: 'active' })
+      .returningAll()
+      .executeTakeFirstOrThrow()
+    await migrator.provisionDatabase(d.id)
+
+    // Cache pool trong khi tenant còn active.
+    await registry.forTenant(d.id)
+
+    await admin.updateTable('tenants').set({ status: 'suspended' }).where('id', '=', d.id).execute()
+
+    // Lần gọi sau, dù pool đã cache, vẫn phải bị từ chối ngay — không được
+    // đợi tới evictIdle hay khởi động lại tiến trình mới có hiệu lực.
+    await expect(registry.forTenant(d.id)).rejects.toThrow(/tạm ngưng/)
+  }, 20_000)
+
+  it('nhiều lời gọi đồng thời cho tenant chưa cache trả về cùng một instance', async () => {
+    await dropIfExists('lis_t_iso_e')
+    const e = await admin
+      .insertInto('tenants')
+      .values({ code: 'iso-e', name: 'Bệnh viện E', database_name: 'lis_t_iso_e', status: 'active' })
+      .returningAll()
+      .executeTakeFirstOrThrow()
+    await migrator.provisionDatabase(e.id)
+
+    const [r1, r2, r3] = await Promise.all([
+      registry.forTenant(e.id),
+      registry.forTenant(e.id),
+      registry.forTenant(e.id),
+    ])
+
+    expect(r1).toBe(r2)
+    expect(r2).toBe(r3)
+  }, 20_000)
 })
 
 describe('TenantContext', () => {
@@ -188,14 +231,31 @@ describe('AgentKeyService', () => {
     const issued = await keys.issue(tenantB, 'PC huyết học')
     const row = await admin
       .selectFrom('agent_keys')
-      .select('key_hash')
+      .selectAll()
       .where('id', '=', issued.keyId)
       .executeTakeFirstOrThrow()
-    expect(row.key_hash).not.toContain(issued.plainKey)
+    // Kiểm mọi cột, không chỉ key_hash — khoá gốc không được lưu ở bất kỳ đâu.
+    for (const value of Object.values(row)) {
+      expect(String(value)).not.toContain(issued.plainKey)
+    }
   })
 
   it('từ chối khoá sai', async () => {
     expect(await keys.verify('lis_agent_khong_ton_tai')).toBeNull()
+  })
+
+  it('từ chối khoá của tenant đã tạm ngưng', async () => {
+    await dropIfExists('lis_t_iso_f')
+    const f = await admin
+      .insertInto('tenants')
+      .values({ code: 'iso-f', name: 'Bệnh viện F', database_name: 'lis_t_iso_f', status: 'active' })
+      .returningAll()
+      .executeTakeFirstOrThrow()
+
+    const issued = await keys.issue(f.id, 'PC sắp bị tạm ngưng')
+    await admin.updateTable('tenants').set({ status: 'suspended' }).where('id', '=', f.id).execute()
+
+    expect(await keys.verify(issued.plainKey)).toBeNull()
   })
 
   it('từ chối khoá đã thu hồi', async () => {

@@ -8,6 +8,7 @@ import {
 } from 'kysely'
 import pg from 'pg'
 import type { AdminDatabase } from '../admin-db/schema.js'
+import { assertValidDatabaseName } from './database-name.js'
 import * as initial from './migrations/001-initial.js'
 import type { TenantDatabase } from './tenant-schema.js'
 
@@ -36,8 +37,9 @@ export class TenantMigratorService {
       .where('id', '=', tenantId)
       .executeTakeFirst()
     if (!tenant) throw new Error(`không tìm thấy tenant ${tenantId}`)
+    assertValidDatabaseName(tenant.database_name)
     return {
-      url: this.urlTemplate.replace('{db}', tenant.database_name),
+      url: this.urlTemplate.replace('{db}', () => tenant.database_name),
       databaseName: tenant.database_name,
     }
   }
@@ -64,11 +66,8 @@ export class TenantMigratorService {
     try {
       const exists = await root.query('select 1 from pg_database where datname = $1', [databaseName])
       if (exists.rowCount === 0) {
-        // Tên database lấy từ cột đã ràng buộc varchar(63) trong DB quản trị;
-        // vẫn chặn thêm ở đây vì CREATE DATABASE không nhận tham số bind.
-        if (!/^[a-z0-9_]{1,63}$/.test(databaseName)) {
-          throw new Error(`tên database không hợp lệ: ${databaseName}`)
-        }
+        // CREATE DATABASE không nhận tham số bind; databaseName đã được
+        // assertValidDatabaseName kiểm ở urlFor() phía trên.
         await root.query(`CREATE DATABASE ${databaseName}`)
       }
     } finally {

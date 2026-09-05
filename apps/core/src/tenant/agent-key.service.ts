@@ -32,13 +32,22 @@ export class AgentKeyService {
   async verify(plainKey: string): Promise<{ tenantId: string; keyId: string } | null> {
     if (!plainKey.startsWith(KEY_PREFIX)) return null
     const expected = hashKey(plainKey)
+    // Join sang `tenants` để đóng cửa xác thực ngay khi bệnh viện bị tạm
+    // ngưng, thay vì chỉ chặn ở TenantRegistryService phía sau.
     const row = await this.admin
       .selectFrom('agent_keys')
-      .select(['id', 'tenant_id', 'key_hash', 'status'])
-      .where('key_hash', '=', expected)
+      .innerJoin('tenants', 'tenants.id', 'agent_keys.tenant_id')
+      .select([
+        'agent_keys.id as id',
+        'agent_keys.tenant_id as tenant_id',
+        'agent_keys.key_hash as key_hash',
+        'agent_keys.status as status',
+        'tenants.status as tenant_status',
+      ])
+      .where('agent_keys.key_hash', '=', expected)
       .executeTakeFirst()
 
-    if (!row || row.status !== 'active') return null
+    if (!row || row.status !== 'active' || row.tenant_status !== 'active') return null
 
     // So sánh thời gian hằng số để không rò rỉ thông tin qua thời gian phản hồi.
     const a = Buffer.from(row.key_hash)
