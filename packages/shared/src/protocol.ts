@@ -9,9 +9,12 @@ export class ProtocolError extends Error {
   }
 }
 
-const base64 = z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/, {
-  message: 'không phải base64 hợp lệ',
-})
+const base64 = z
+  .string()
+  .min(1, { message: 'payload không được rỗng' })
+  .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/, {
+    message: 'không phải base64 hợp lệ',
+  })
 
 const envelope = z.object({
   messageId: z.string().uuid(),

@@ -44,4 +44,16 @@ describe('parseAgentToCore', () => {
       ProtocolError,
     )
   })
+
+  it('rejects an empty base64 payload', () => {
+    expect(() => parseAgentToCore({ ...validRaw, payloadBase64: '' })).toThrow(ProtocolError)
+  })
+
+  it('accepts a minimal valid base64 payload (single byte)', () => {
+    const minimalPayload = Buffer.from([0x05]).toString('base64')
+    const msg = parseAgentToCore({ ...validRaw, payloadBase64: minimalPayload })
+    expect(msg.type).toBe('raw_message')
+    if (msg.type !== 'raw_message') throw new Error('narrowing failed')
+    expect(msg.payloadBase64).toBe(minimalPayload)
+  })
 })
