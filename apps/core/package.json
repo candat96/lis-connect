@@ -19,8 +19,10 @@
     "ws": "8.18.0"
   },
   "devDependencies": {
+    "@nestjs/testing": "11",
     "@types/pg": "8.11.10",
     "@types/ws": "8.5.13",
+    "dotenv": "16.4.7",
     "tsx": "4.19.2"
   }
 }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { AdminDbModule } from './admin-db/admin-db.module.js'
+import { IngestModule } from './ingest/ingest.module.js'
 import { TenantModule } from './tenant/tenant.module.js'
 
-@Module({ imports: [AdminDbModule, TenantModule] })
+@Module({ imports: [AdminDbModule, TenantModule, IngestModule] })
 export class AppModule {}
