@@ -68,15 +68,44 @@ export class AstmE1394Driver implements Driver {
           continue
         }
 
+        if (!this.inSession) {
+          // Frame hợp lệ nhưng đến khi chưa có phiên (không ENQ trước đó): nhiễu
+          // dây, gói truyền lại lạc, hay máy khởi động sai trình tự. Không được
+          // âm thầm giữ tạm rồi vứt khi ENQ thật sự tới — phải báo error kèm
+          // nguyên văn byte để tầng trên còn lưu được vào raw_messages.
+          events.push({
+            kind: 'error',
+            reason: 'frame hợp lệ nhưng đến khi chưa có phiên (thiếu ENQ mở phiên)',
+            raw: Buffer.from(rawFrame),
+          })
+          continue
+        }
+
         this.sessionFrames.push(verified.content)
         this.sessionRaw.push(Buffer.from(rawFrame))
         events.push({ kind: 'reply', data: Buffer.from([ACK]) })
         continue
       }
 
-      // Byte không thuộc khung nào: bỏ đi. Máy thật hay phát rác lúc khởi động
-      // hoặc khi dây bị nhiễu; bỏ qua chúng thay vì để hỏng cả phiên sau đó.
-      this.buffer = this.buffer.subarray(1)
+      // Byte không thuộc khung nào: gom các byte rác liên tiếp thành MỘT sự
+      // kiện error duy nhất (chốt khi gặp byte có ý nghĩa tiếp theo hoặc khi
+      // hết buffer hiện tại), thay vì bỏ lặng lẽ từng byte hoặc phát một sự
+      // kiện cho mỗi byte — một dây nhiễu dài không được tạo hàng nghìn sự
+      // kiện vô nghĩa, nhưng byte rác vẫn phải được báo lại nguyên văn.
+      {
+        let end = 1
+        while (
+          end < this.buffer.length &&
+          this.buffer[end] !== ENQ &&
+          this.buffer[end] !== EOT &&
+          this.buffer[end] !== STX
+        ) {
+          end += 1
+        }
+        const junk = this.buffer.subarray(0, end)
+        this.buffer = this.buffer.subarray(end)
+        events.push({ kind: 'error', reason: 'byte rác không thuộc khung nào', raw: Buffer.from(junk) })
+      }
     }
 
     return events

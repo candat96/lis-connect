@@ -106,6 +106,37 @@ describe('AstmE1394Driver', () => {
     expect(events.some((e) => e.kind === 'message')).toBe(false)
   })
 
+  it('phát sự kiện error kèm nguyên văn byte khi frame hợp lệ đến trước ENQ', () => {
+    const driver = new AstmE1394Driver()
+    const strayFrame = frame(1, 'R|1|^^^GLU|5.4|mmol/L||N||F')
+    const events = driver.feed(strayFrame)
+
+    expect(events.some((e) => e.kind === 'message')).toBe(false)
+    const error = events.find((e) => e.kind === 'error')
+    if (error?.kind !== 'error') throw new Error('sai loại sự kiện')
+    expect(error.raw.equals(strayFrame)).toBe(true)
+
+    // phiên thật sau đó vẫn hoạt động bình thường, không bị lẫn với frame lạc
+    driver.feed(Buffer.from([ENQ]))
+    driver.feed(frame(1, 'R|1|^^^URE|6.1|mmol/L||N||F'))
+    const laterEvents = driver.feed(Buffer.from([EOT]))
+    const message = laterEvents.find((e) => e.kind === 'message')
+    if (message?.kind !== 'message') throw new Error('sai loại sự kiện')
+    expect(message.parsed.records[0]?.fields[3]).toBe('6.1')
+  })
+
+  it('gom rác liên tiếp thành một sự kiện error duy nhất chứa toàn bộ byte rác', () => {
+    const driver = new AstmE1394Driver()
+    const junk = Buffer.from([0x41, 0x42, 0x99, 0x50, 0x7a])
+    const events = driver.feed(junk)
+
+    const errorEvents = events.filter((e) => e.kind === 'error')
+    expect(errorEvents).toHaveLength(1)
+    const error = errorEvents[0]
+    if (error?.kind !== 'error') throw new Error('sai loại sự kiện')
+    expect(error.raw.equals(junk)).toBe(true)
+  })
+
   it('một phiên kết thúc rồi phiên mới bắt đầu được ngay', () => {
     const driver = new AstmE1394Driver()
     driver.feed(Buffer.from([ENQ]))
