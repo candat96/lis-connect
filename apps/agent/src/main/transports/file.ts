@@ -13,9 +13,22 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${escaped}$`, 'i')
 }
 
+interface FileSnapshot {
+  size: number
+  mtimeMs: number
+}
+
 export class FileTransport implements Transport {
   private readonly emitter = new EventEmitter()
   private readonly seen = new Set<string>()
+  /**
+   * File khớp mẫu, đã qua STABLE_AFTER_MS nhưng chưa được xác nhận ổn định:
+   * ghi lại {size, mtimeMs} thấy ở lần quét trước để so sánh với lần quét
+   * tiếp theo. Chỉ khi cả size lẫn mtime giống hệt nhau ở hai lần quét liên
+   * tiếp mới coi là máy đã ghi xong — tránh đọc cụt khi máy tạm dừng ghi giữa
+   * hai đợt lâu hơn STABLE_AFTER_MS (thường gặp trên ổ mạng).
+   */
+  private readonly pending = new Map<string, FileSnapshot>()
   private timer: NodeJS.Timeout | null = null
   private readonly matcher: RegExp
 
@@ -52,6 +65,8 @@ export class FileTransport implements Transport {
       return
     }
 
+    const currentPaths = new Set<string>()
+
     for (const name of entries) {
       if (!this.matcher.test(name)) continue
       const path = join(this.config.directory, name)
@@ -64,8 +79,21 @@ export class FileTransport implements Transport {
         continue
       }
       if (!stat.isFile()) continue
+      currentPaths.add(path)
       if (Date.now() - stat.mtimeMs < STABLE_AFTER_MS) continue
 
+      const snapshot: FileSnapshot = { size: stat.size, mtimeMs: stat.mtimeMs }
+      const previous = this.pending.get(path)
+      if (!previous || previous.size !== snapshot.size || previous.mtimeMs !== snapshot.mtimeMs) {
+        // Chưa thấy lần nào, hoặc kích thước/mtime vừa đổi so với lần quét
+        // trước: file có thể vẫn đang được ghi tiếp — ghi lại và chờ nhịp
+        // quét sau xác nhận.
+        this.pending.set(path, snapshot)
+        continue
+      }
+
+      // size và mtime giống hệt lần quét trước: file đã ổn định, an toàn để đọc.
+      this.pending.delete(path)
       try {
         const content = readFileSync(path)
         this.seen.add(path)
@@ -80,6 +108,12 @@ export class FileTransport implements Transport {
           detail: `đọc file ${name} thất bại: ${String(error)}`,
         })
       }
+    }
+
+    // Dọn pending cho file đã biến mất khỏi thư mục (bị xoá bên ngoài, hoặc
+    // không còn khớp mẫu), để map không phình vô hạn.
+    for (const path of this.pending.keys()) {
+      if (!currentPaths.has(path)) this.pending.delete(path)
     }
   }
 
