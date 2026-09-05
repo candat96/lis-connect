@@ -3,7 +3,7 @@ import type { INestApplication } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { PROTOCOL_VERSION, newMessageId } from '@lis/shared'
 import WebSocket from 'ws'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { AppModule } from '../src/app.module.js'
 import { AdminDbService } from '../src/admin-db/admin-db.service.js'
 import { AgentGateway } from '../src/agent-gateway/agent.gateway.js'
@@ -129,5 +129,47 @@ describe('AgentGateway', () => {
     expect(reply.retryable).toBe(false)
     expect(ws.readyState).toBe(WebSocket.OPEN)
     ws.close()
+  })
+
+  it('trả nack (retryable) khi hello gặp lỗi hạ tầng, không đóng kết nối và không phát unhandled rejection', async () => {
+    const registry = app.get(TenantRegistryService)
+    const spy = vi
+      .spyOn(registry, 'forTenant')
+      .mockRejectedValueOnce(new Error('mất kết nối DB (giả lập)'))
+
+    let unhandled: unknown = null
+    const onUnhandledRejection = (reason: unknown) => {
+      unhandled = reason
+    }
+    process.on('unhandledRejection', onUnhandledRejection)
+
+    try {
+      const ws = new WebSocket(`ws://localhost:${port}/agent?key=${agentKey}`)
+      await new Promise((r) => ws.once('open', r))
+
+      const messageId = newMessageId()
+      ws.send(
+        JSON.stringify({
+          type: 'hello',
+          messageId,
+          sentAt: new Date().toISOString(),
+          protocolVersion: PROTOCOL_VERSION,
+          agentVersion: '0.1.0',
+          hostname: 'LAB-PC-04',
+        }),
+      )
+
+      const reply = await nextMessage(ws)
+      expect(reply).toMatchObject({ type: 'nack', messageId, retryable: true })
+      expect(ws.readyState).toBe(WebSocket.OPEN)
+      ws.close()
+
+      // Nhường vòng lặp sự kiện để một unhandledRejection (nếu có) kịp bắn ra.
+      await new Promise((r) => setTimeout(r, 50))
+      expect(unhandled).toBeNull()
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection)
+      spy.mockRestore()
+    }
   })
 })

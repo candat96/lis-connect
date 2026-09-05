@@ -131,33 +131,52 @@ export class AgentGateway implements OnModuleDestroy {
         )
         return
       }
-      await TenantContext.run(session.tenantId, async () => {
-        const db = await this.registry.forTenant(session.tenantId)
-        const agent = await db
-          .insertInto('agents')
-          .values({
-            agent_key_id: session.agentKeyId,
-            hostname: message.hostname,
-            agent_version: message.agentVersion,
-            last_seen_at: new Date(),
-          })
-          .onConflict((oc) =>
-            oc.column('agent_key_id').doUpdateSet({
+      try {
+        await TenantContext.run(session.tenantId, async () => {
+          const db = await this.registry.forTenant(session.tenantId)
+          const agent = await db
+            .insertInto('agents')
+            .values({
+              agent_key_id: session.agentKeyId,
               hostname: message.hostname,
               agent_version: message.agentVersion,
               last_seen_at: new Date(),
-            }),
-          )
-          .returning('id')
-          .executeTakeFirstOrThrow()
-        session.agentId = agent.id
-        session.hostname = message.hostname
-      })
+            })
+            .onConflict((oc) =>
+              oc.column('agent_key_id').doUpdateSet({
+                hostname: message.hostname,
+                agent_version: message.agentVersion,
+                last_seen_at: new Date(),
+              }),
+            )
+            .returning('id')
+            .executeTakeFirstOrThrow()
+          session.agentId = agent.id
+          session.hostname = message.hostname
+        })
+      } catch (error) {
+        // Lỗi hạ tầng (mất kết nối DB, vi phạm ràng buộc...) không được để
+        // rơi thành unhandled rejection: onMessage được gọi kiểu
+        // `void this.onMessage(...)` từ listener 'message', nên một promise
+        // rejected ở đây không ai bắt sẽ tuỳ cấu hình Node mà hạ cả tiến
+        // trình Core — ảnh hưởng tới MỌI Agent đang kết nối, không riêng
+        // socket này. Hạ xuống thành nack, coi là lỗi thoáng qua nên
+        // retryable: true, và không đóng kết nối.
+        this.logger.error(`xử lý hello thất bại: ${String(error)}`)
+        this.send(session.socket, {
+          type: 'nack',
+          messageId: message.messageId,
+          reason: error instanceof Error ? error.message : 'lỗi không xác định',
+          retryable: true,
+        })
+        return
+      }
       this.send(session.socket, { type: 'ack', messageId: message.messageId })
       return
     }
 
-    if (!session.agentId) {
+    const agentId = session.agentId
+    if (!agentId) {
       this.send(session.socket, {
         type: 'nack',
         messageId: message.messageId,
@@ -169,7 +188,7 @@ export class AgentGateway implements OnModuleDestroy {
 
     try {
       await TenantContext.run(session.tenantId, () =>
-        this.ingest.handle(session.tenantId, session.agentId!, message),
+        this.ingest.handle(session.tenantId, agentId, message),
       )
       this.send(session.socket, { type: 'ack', messageId: message.messageId })
     } catch (error) {
