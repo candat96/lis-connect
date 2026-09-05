@@ -23,6 +23,10 @@
 - Ngôn ngữ giao diện: tiếng Việt có dấu đầy đủ. Mã nguồn, tên hàm, tên biến, thông điệp commit: tiếng Anh.
 - Mọi thời điểm lưu dạng `timestamptz`, sinh bằng `now()` của Postgres hoặc `new Date()` UTC. Không lưu giờ địa phương.
 - Commit sau mỗi task. Thông điệp theo Conventional Commits.
+- **Trong `apps/core`, mọi tham số constructor được tiêm phải khai `@Inject(...)` tường minh.**
+  `esbuild` — thứ mà cả `vitest` lẫn `tsx` dùng — không phát metadata `design:paramtypes`, nên
+  cơ chế suy luận kiểu ngầm của NestJS lặng lẽ tiêm `undefined` thay vì báo lỗi lúc khởi động.
+  Tệp test nào không đi qua `main.ts` cũng phải tự `import 'reflect-metadata'` ở dòng đầu.
 - Monorepo dùng **TypeScript project references**: gốc repo có `tsconfig.json` với mảng
   `references`, và mọi package đặt `composite: true` (kế thừa từ `tsconfig.base.json`).
   **Mỗi task tạo package mới phải thêm một mục vào `references` của `tsconfig.json` gốc**,
