@@ -188,11 +188,130 @@ thì chỉ cần nó thấy được Core là đủ.
 
 ## 4. Luồng dữ liệu
 
-*(đang brainstorm)*
+### 4.1 Chiều xuôi: chỉ định → máy xét nghiệm
+
+```
+HIS ──POST /api/orders──► Core (hoặc Agent :8080 khi HIS không ra được internet)
+                           │ tạo Order + Sample, cấp barcode/SID
+                           │ tra Routing: test nào chạy máy nào
+                           ▼
+                      OrderTask (mỗi máy một task, PENDING)
+                           │
+        ┌──────────────────┴──── hai chế độ, cấu hình theo từng máy ────┐
+        ▼                                                              ▼
+  BROADCAST (đẩy trước)                              HOST-QUERY (máy hỏi)
+  Core đẩy task xuống Agent ngay khi có;             KTV quét barcode, máy gửi
+  Agent gửi vào máy bất kể mẫu đã tới chưa           lệnh hỏi "SID này làm gì?"
+                                                     Agent trả lời từ cache cục bộ
+```
+
+Đa số máy đời mới dùng **host-query**: kỹ thuật viên đặt ống có barcode lên máy,
+máy đọc barcode rồi hỏi ngược lên hệ thống. Máy đời cũ hơn phải **broadcast**
+trước. Hai luồng khác hẳn nhau nên hỗ trợ cả hai ngay từ đầu, chọn bằng cấu hình
+từng máy.
+
+Với host-query, **hệ thống phải trả lời trong 1-3 giây** hoặc máy bỏ qua mẫu. Vì
+Core nằm trên cloud, Agent trả lời hoàn toàn từ cache SQLite cục bộ, không gọi
+lên cloud trong luồng nóng (xem mục 3.6).
+
+### 4.2 Chiều ngược: kết quả → HIS / màn hình / máy in
+
+```
+Máy XN ──► Agent: parse → RawMessage (lưu nguyên văn) + Result đã chuẩn hóa
+                    │ đệm ra đĩa, gửi lên Core, chờ ACK mới xóa đệm
+                    ▼
+                  Core: khớp SID → Order, map mã test, tính cờ (cao/thấp/nguy hiểm)
+                    │
+                    ├──► trạng thái RECEIVED — hiện ngay trên Web UI
+                    │
+                    ├──► KTV duyệt (hoặc auto-verify nếu được bật)
+                    │
+                    └──► VERIFIED ──┬──► gửi HIS (webhook POST, có retry)
+                                    └──► in phiếu
+```
+
+### 4.3 Ba quyết định trong luồng dữ liệu
+
+**Kết quả thô lưu nguyên văn, vĩnh viễn.** Mọi tin nhắn máy gửi lên được lưu dạng
+byte gốc trước khi parse. Khi driver parse sai — chuyện chắc chắn xảy ra với máy
+mới — sửa driver rồi *chạy lại* trên dữ liệu cũ: không mất kết quả, không phải
+chạy lại mẫu.
+
+**Kết quả chưa duyệt mặc định không ra khỏi hệ thống.** HIS chỉ nhận cái đã
+`VERIFIED`. Đây là hành vi mặc định, nhưng **cấu hình được theo từng khách**: khách
+nào muốn HIS nhận sớm thì bật chế độ gửi ngay kèm cờ "chưa duyệt", và gửi lại bản
+cập nhật khi KTV duyệt. Ngoài ra có auto-verify theo từng xét nghiệm với điều kiện
+rõ ràng (trong khoảng tham chiếu, không có cờ nguy hiểm, delta check bình thường) —
+mặc định tắt.
+
+**Trả kết quả cho HIS là webhook có hàng đợi và retry**, không phải gọi đồng bộ.
+HIS của khách sẽ sập, sẽ bảo trì, sẽ chậm. Kèm theo đó luôn có
+`GET /api/results?since=...` để HIS tự kéo lại khi vừa hồi phục — thiếu cái này
+thì mỗi lần HIS sập là một cuộc gọi hỗ trợ.
+
+### 4.4 In ấn
+
+Máy in nằm ở phòng xét nghiệm, Core nằm trên cloud. Core sinh PDF, trình duyệt máy
+trạm in ra máy in cục bộ của nó. Trường hợp cần in tự động không người bấm (in
+ngay khi duyệt xong) thì giao cho Agent, vì Agent đã nằm sẵn trong LAN.
+
+---
 
 ## 5. Mô hình dữ liệu
 
-*(đang brainstorm)*
+### 5.1 DB quản trị (một, dùng chung)
+
+`tenants` (mã, tên, chuỗi kết nối DB, trạng thái, gói license) · `users` (đăng nhập,
+thuộc tenant nào, vai trò) · `agent_keys` (khóa cấp cho từng Agent, gắn cứng tenant) ·
+`api_keys` (khóa cấp cho HIS từng khách) · `migrations_state` (mỗi tenant đang ở
+version nào).
+
+### 5.2 DB nghiệp vụ (mỗi khách một)
+
+**Danh mục** — `analytes` (xét nghiệm: mã nội bộ, tên, đơn vị, kiểu giá trị số/chữ,
+số lẻ) · `reference_ranges` (khoảng tham chiếu theo tuổi/giới, ngưỡng nguy hiểm) ·
+`profiles` (bộ xét nghiệm) · `specimen_types`.
+
+**Thiết bị** — `devices` (tên, driver, kiểu kết nối, thuộc Agent nào, chế độ
+broadcast hay host-query) · `device_analyte_map` (mã test trên máy ↔ analyte nội bộ) ·
+`agents` (lần cuối online, version).
+
+`device_analyte_map` là nơi trú ngụ của gần như mọi sự cố "máy trả về mà không hiện
+lên", nên **phải sửa được từ Web UI**, không phải sửa file cấu hình trên máy.
+
+**Nghiệp vụ** — `patients` · `orders` (từ HIS hay tự nhập, bác sĩ chỉ định, chẩn
+đoán, ưu tiên) · `samples` (`sid`/barcode, loại bệnh phẩm, thời điểm lấy/nhận) ·
+`order_tests` (từng xét nghiệm trong chỉ định, trạng thái riêng) · `order_tasks`
+(việc giao cho một máy cụ thể).
+
+**Kết quả** — `results` (giá trị, đơn vị, cờ H/L/critical, máy nào chạy, lúc nào,
+ai duyệt, trạng thái) · `result_revisions` (mọi lần sửa: giá trị cũ, giá trị mới,
+ai sửa, lý do). Kết quả xét nghiệm **không bao giờ bị ghi đè mất dấu** — sửa là
+thêm bản ghi mới.
+
+**Dữ liệu thô** — `raw_messages`: nguyên văn byte từ máy, đã parse hay chưa, parse
+ra kết quả nào. Đây là thứ cho phép chạy lại khi driver có lỗi.
+
+**Log kết nối** — `connection_events` (mở/đóng/timeout/lỗi cổng) · `device_status`
+(trạng thái hiện tại từng máy, phục vụ màn hình theo dõi).
+
+**Tích hợp và kiểm toán** — `outbound_deliveries` (mỗi lần gửi kết quả cho HIS:
+payload, số lần thử, lỗi lần cuối) · `access_logs` (ai xem/in kết quả của bệnh nhân
+nào, lúc nào).
+
+### 5.3 Ba quyết định trong mô hình dữ liệu
+
+**`analyte` là mã nội bộ, không phải mã của máy và cũng không phải mã của HIS.** Ở
+giữa có hai bảng ánh xạ: máy→analyte, và analyte→mã HIS. Thoạt nhìn là thừa một
+lớp, nhưng thiếu nó thì đổi máy sẽ phải sửa cấu hình HIS, và mỗi khách một kiểu mã
+sẽ nhân bản logic khắp nơi.
+
+**`sid` (barcode ống) là khóa nối thực sự giữa máy và hệ thống**, không phải mã bệnh
+nhân — máy chỉ biết cái nó đọc được trên ống. `sid` duy nhất trong phạm vi một tenant.
+
+**`order_tasks` tách khỏi `order_tests`** vì một chỉ định có thể chạy trên hai máy
+(điện giải máy A, sinh hóa máy B) và có thể chạy lại lần hai khi kết quả bất thường.
+Gộp chung thì không biểu diễn được việc chạy lại.
 
 ## 6. Xử lý lỗi và khả năng phục hồi
 
