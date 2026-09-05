@@ -16,6 +16,9 @@
 - **Không bao giờ vứt dữ liệu từ máy xét nghiệm.** Mọi byte nhận được phải được lưu vào `raw_messages` trước khi parse. Parse lỗi thì đánh dấu, không xoá.
 - **Mọi message Agent → Core mang `messageId` (UUID v7 do Agent sinh) và Core xử lý idempotent.** Nhận lại `messageId` đã có thì trả ACK và bỏ qua, không tạo bản ghi mới.
 - **Không có truy vấn nghiệp vụ nào được tự chọn database.** Mọi truy cập DB nghiệp vụ đi qua `TenantContext` do middleware/guard gán. Vi phạm quy tắc này là rò dữ liệu bệnh nhân giữa hai bệnh viện.
+- **Đúng một Postgres host cho toàn hệ thống.** Bên trong nó: một database quản trị
+  `lis_admin` và mỗi khách một database con `lis_t_<mã khách>`. Không có tenant nào
+  trỏ sang host khác.
 - Tên bảng và cột trong Postgres viết `snake_case`. Kiểu TypeScript viết `PascalCase`, biến `camelCase`.
 - Ngôn ngữ giao diện: tiếng Việt có dấu đầy đủ. Mã nguồn, tên hàm, tên biến, thông điệp commit: tiếng Anh.
 - Mọi thời điểm lưu dạng `timestamptz`, sinh bằng `now()` của Postgres hoặc `new Date()` UTC. Không lưu giờ địa phương.
@@ -519,7 +522,7 @@ git commit -m "feat(shared): define agent-core protocol with zod validation"
   - `runAdminMigrations(db: Kysely<AdminDatabase>): Promise<void>`
   - `loadConfig(): CoreConfig` với `{ adminDatabaseUrl: string; tenantDatabaseUrlTemplate: string; port: number }`
 
-**Ghi chú thiết kế:** `tenantDatabaseUrlTemplate` chứa `{db}` và được thay bằng `tenants.database_name`. Nhờ vậy một biến môi trường duy nhất mô tả được cả cụm, và việc tách một tenant nặng sang Postgres khác chỉ là ghi đè `tenants.database_url`.
+**Ghi chú thiết kế:** toàn hệ thống dùng **đúng một Postgres host**. Bên trong host đó có database quản trị `lis_admin` và mỗi khách một database con `lis_t_<mã>`. `tenantDatabaseUrlTemplate` chứa `{db}`, được thay bằng `tenants.database_name` — nên một biến môi trường duy nhất mô tả được toàn bộ. Không có cơ chế trỏ tenant sang host khác; nếu về sau cần, đó là thêm một cột, làm sau.
 
 - [ ] **Step 1: Tạo package và cài phụ thuộc**
 
@@ -630,7 +633,7 @@ describe('admin database', () => {
       .executeTakeFirstOrThrow()
 
     expect(tenant.code).toBe('bvA')
-    expect(tenant.database_url).toBeNull()
+    expect(tenant.database_name).toBe('lis_t_bva')
   })
 
   it('rejects two tenants with the same code', async () => {
@@ -696,8 +699,6 @@ export interface TenantsTable {
   name: string
   /** Tên database nghiệp vụ của tenant, ghép vào TENANT_DATABASE_URL_TEMPLATE. */
   database_name: string
-  /** Ghi đè toàn bộ URL khi tenant được tách sang cụm Postgres khác. */
-  database_url: ColumnType<string | null, string | null | undefined, string | null>
   status: TenantStatus
   created_at: Generated<Date>
 }
@@ -739,7 +740,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('code', 'varchar(64)', (c) => c.notNull().unique())
     .addColumn('name', 'text', (c) => c.notNull())
     .addColumn('database_name', 'varchar(63)', (c) => c.notNull().unique())
-    .addColumn('database_url', 'text')
     .addColumn('status', 'varchar(16)', (c) => c.notNull().defaultTo('active'))
     .addColumn('created_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
     .execute()
@@ -1232,16 +1232,16 @@ export class TenantMigratorService {
     private readonly urlTemplate: string,
   ) {}
 
-  /** URL kết nối tới DB nghiệp vụ của một tenant. */
+  /** URL kết nối tới DB nghiệp vụ của một tenant, trên cùng một Postgres host. */
   private async urlFor(tenantId: string): Promise<{ url: string; databaseName: string }> {
     const tenant = await this.admin
       .selectFrom('tenants')
-      .select(['database_name', 'database_url'])
+      .select(['database_name'])
       .where('id', '=', tenantId)
       .executeTakeFirst()
     if (!tenant) throw new Error(`không tìm thấy tenant ${tenantId}`)
     return {
-      url: tenant.database_url ?? this.urlTemplate.replace('{db}', tenant.database_name),
+      url: this.urlTemplate.replace('{db}', tenant.database_name),
       databaseName: tenant.database_name,
     }
   }
@@ -1655,14 +1655,14 @@ export class TenantRegistryService implements OnModuleDestroy {
 
     const tenant = await this.admin
       .selectFrom('tenants')
-      .select(['database_name', 'database_url', 'status'])
+      .select(['database_name', 'status'])
       .where('id', '=', tenantId)
       .executeTakeFirst()
 
     if (!tenant) throw new Error(`không tìm thấy tenant ${tenantId}`)
     if (tenant.status !== 'active') throw new Error(`tenant ${tenantId} đang tạm ngưng`)
 
-    const url = tenant.database_url ?? this.urlTemplate.replace('{db}', tenant.database_name)
+    const url = this.urlTemplate.replace('{db}', tenant.database_name)
     const db = new Kysely<TenantDatabase>({
       dialect: new PostgresDialect({
         pool: new pg.Pool({ connectionString: url, max: 4, idleTimeoutMillis: 10_000 }),

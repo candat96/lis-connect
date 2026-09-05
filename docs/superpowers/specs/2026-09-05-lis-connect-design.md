@@ -17,7 +17,7 @@ tích hợp với HIS. Các ràng buộc đã chốt:
 | Tích hợp HIS | REST API JSON do LIS Connect định nghĩa; HIS của khách gọi vào |
 | Phạm vi standalone | Tối thiểu: nhập bệnh nhân + chỉ định, sinh barcode, gửi máy, nhận kết quả, duyệt, in phiếu. **Không** thu ngân, kho hóa chất, QC nội kiểm trong giai đoạn này |
 | Mô hình triển khai | **Cloud multi-tenant là chính**: Core chạy trên hạ tầng của nhà cung cấp, khách chỉ cài Agent tại phòng xét nghiệm. On-premise là ngoại lệ cho khách bắt buộc giữ dữ liệu trong viện — cùng một codebase, chạy với đúng một tenant |
-| Cô lập dữ liệu | Mỗi khách một database riêng (database-per-tenant) |
+| Cô lập dữ liệu | Một Postgres host duy nhất; bên trong là một database quản trị và mỗi khách một database riêng (database-per-tenant) |
 | Mạng tại cơ sở | LAN bệnh viện có internet ra ngoài, nhưng **không giả định HIS gọi ra được internet** |
 
 **Không làm trong phạm vi này (YAGNI):** thu ngân/viện phí, quản lý kho hóa chất,
@@ -125,8 +125,9 @@ kết nối máy, in phiếu.
 
 ### 3.5 Multi-tenant: một Core, nhiều database
 
-Có một **DB quản trị** (danh sách khách hàng, chuỗi kết nối, license, tài khoản)
-và **mỗi khách một DB nghiệp vụ** riêng.
+Toàn hệ thống dùng **đúng một Postgres host**. Bên trong host đó có một **database
+quản trị** `lis_admin` (danh sách khách hàng, khoá Agent, license, tài khoản) và
+**mỗi khách một database nghiệp vụ** riêng, đặt tên `lis_t_<mã khách>`.
 
 Định tuyến tenant lấy từ ba nguồn:
 
@@ -147,8 +148,7 @@ giữa hai bệnh viện.
 - Sao lưu, khôi phục, xuất dữ liệu cho một khách là thao tác trên đúng một database.
 - Khách đòi toàn bộ dữ liệu của mình, hoặc muốn chuyển về chạy tại chỗ — làm được
   ngay, không phải bóc tách.
-- Một bệnh viện lớn chạy nặng không kéo chậm phần còn lại; cần thì tách riêng nó
-  sang một Postgres khác, chỉ đổi chuỗi kết nối.
+- Ranh giới dữ liệu rõ ràng khi cần rà soát hoặc bàn giao.
 
 **Cái giá phải trả, phải xử lý ngay từ đầu:**
 
