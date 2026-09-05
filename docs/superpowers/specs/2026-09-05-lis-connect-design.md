@@ -38,14 +38,12 @@ Ba phương án đã cân nhắc:
   sản phẩm bán nhiều nơi.
 
 **Lý do chọn B:** thứ duy nhất *bắt buộc* phải nằm cạnh máy xét nghiệm là phần
-đọc/ghi cổng. Tách đúng phần đó ra thành Agent giúp toàn bộ phần còn lại chạy
-được ở bất cứ đâu, trong khi khách nhỏ vẫn thấy sản phẩm là "cài một lần trên
-một máy" — vì bản mặc định gói Core + Agent trong cùng một installer.
+đọc/ghi cổng. Tách đúng phần đó ra thành Agent giúp toàn bộ phần còn lại chạy tập
+trung trên cloud, trong khi khách chỉ phải cài đúng một chương trình nhỏ tại phòng
+xét nghiệm.
 
-### Ghi chú về mô hình cloud
-
-Phương án B được chọn từ trước khi chốt mô hình cloud, và càng đúng hơn sau đó:
-phần đọc/ghi cổng bắt buộc ở tại chỗ, phần còn lại chạy tập trung trên cloud.
+Với khách on-premise (ngoại lệ), cùng bộ mã được cài trọn trên hạ tầng của họ và
+chạy với đúng một tenant. Không có nhánh mã riêng, không có bản dựng riêng.
 
 ### Stack
 
@@ -74,15 +72,22 @@ Chọn Node cho Agent để đồng nhất ngôn ngữ với Core và tái dùng
 
 ### 3.1 Agent
 
-Chương trình nhẹ chạy như Windows Service trên mỗi PC có cắm máy xét nghiệm. Là
-thành phần duy nhất biết tới cổng COM, socket và thư mục.
+Chạy như Windows Service trên mỗi PC có cắm máy xét nghiệm. Là thành phần duy nhất
+biết tới cổng COM, socket và thư mục. Mang ba vai, tách thành ba module rõ ràng bên
+trong nó:
 
-Trách nhiệm:
+**Vai 1 — nói chuyện với máy:**
 
 - Giữ kết nối tới các máy được Core giao cho.
 - Dịch xuôi/ngược giữa khung dữ liệu của máy và một message JSON nội bộ.
 - Ghi log mọi byte vào/ra.
 - Đệm ra đĩa khi mất kết nối tới Core, gửi lại khi nối lại.
+
+**Vai 2 — cache chỉ định:** giữ bản sao SQLite các chỉ định chưa làm để trả lời
+host-query tại chỗ trong 1-3 giây (mục 3.6).
+
+**Vai 3 — cổng LAN cho HIS:** mở REST API trên `:8080` cho HIS trong mạng nội bộ
+gọi vào (mục 3.6).
 
 Agent **không** biết gì về bệnh nhân, giá dịch vụ hay HIS. Cấu hình của nó do Core
 đẩy xuống chứ không sửa tay trên từng máy — đây là điều kiện để vận hành được
@@ -420,3 +425,29 @@ báo thì không ai biết cho tới khi muộn.
 
 Không E2E toàn bộ giao diện. Đắt, giòn, và không bắt được loại lỗi thật sự nguy hiểm
 ở đây. Ưu tiên test ở tầng driver, tầng Core, và ranh giới Agent ↔ Core.
+
+---
+
+## 8. Phân giai đoạn triển khai
+
+Bản thiết kế này quá lớn cho một kế hoạch thực thi duy nhất. Đề xuất tách thành ba
+giai đoạn, mỗi giai đoạn có spec và kế hoạch riêng, và mỗi giai đoạn đều cho ra thứ
+dùng được.
+
+**Giai đoạn 1 — Xương sống một chiều.** Core với multi-tenant và định tuyến DB, một
+Agent, một driver duy nhất (chọn máy phổ biến nhất trong tệp khách đầu tiên), máy
+giả lập, kênh WebSocket có hàng đợi và idempotency, màn hình theo dõi kết nối, màn
+hình xem kết quả thô. Chưa có chỉ định, chưa có HIS: chỉ hứng kết quả từ máy và hiện
+lên. Đây là phần rủi ro kỹ thuật cao nhất nên phải làm trước.
+
+**Giai đoạn 2 — Hai chiều và chế độ độc lập.** Danh mục xét nghiệm, bệnh nhân, chỉ
+định nhập tay, barcode/SID, `order_tasks`, broadcast và host-query, cache cục bộ ở
+Agent, duyệt kết quả, khoảng tham chiếu và cờ, in phiếu. Kết thúc giai đoạn này là
+một LIS độc lập bán được.
+
+**Giai đoạn 3 — Tích hợp HIS.** REST API cho HIS ở cả hai điểm vào (cloud và cổng
+LAN của Agent), ánh xạ analyte ↔ mã HIS, webhook trả kết quả có retry, API kéo lại
+theo `since`, cấu hình gửi sớm/gửi sau khi duyệt theo từng khách, nhật ký truy cập.
+
+Việc brainstorm và lập kế hoạch chi tiết sẽ đi theo từng giai đoạn, bắt đầu từ
+giai đoạn 1.
