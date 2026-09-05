@@ -1,6 +1,6 @@
 import { connect, type Socket } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ACK, ENQ, EOT, ETX, STX, checksum, buildFrame } from './astm-frames.js'
+import { ACK, ENQ, EOT, ETX, NAK, STX, checksum, buildFrame } from './astm-frames.js'
 import { AstmSimulator } from './simulator.js'
 
 let sim: AstmSimulator | null = null
@@ -165,5 +165,42 @@ describe('AstmSimulator', () => {
     const enqIndex = buffer.indexOf(ENQ)
     // ENQ không nằm ở byte thứ nhất, vì có rác trước nó
     expect(enqIndex).toBeGreaterThan(0)
+  })
+
+  it('khi bị NAK liên tục thì gửi lại đúng frame rồi bỏ cuộc sau số lần giới hạn', async () => {
+    sim = new AstmSimulator({ misbehaviour: 'none' })
+    const port = await sim.start(0)
+    client = connect({ host: '127.0.0.1', port })
+
+    const frameBodies: string[] = []
+    let eotSeen = false
+    client.on('data', (chunk: Buffer) => {
+      if (chunk.includes(ENQ)) {
+        setImmediate(() => client!.write(Buffer.from([ACK])))
+        return
+      }
+      if (chunk.includes(STX)) {
+        frameBodies.push(chunk.toString('latin1'))
+        // Luôn từ chối: mô phỏng máy host báo checksum/nội dung sai mãi mãi.
+        setImmediate(() => client!.write(Buffer.from([NAK])))
+        return
+      }
+      if (chunk.includes(EOT)) eotSeen = true
+    })
+    await new Promise((r) => client!.once('connect', r))
+    await waitFor(() => sim!.hasClient())
+
+    await sim.sendResults([{ sid: 'SID005', testCode: 'GLU', value: '5.4', unit: 'mmol/L' }])
+    // sendResults() chỉ đợi write() được xếp hàng, không đợi client thực sự
+    // nhận được EOT — chờ riêng để tránh race với việc gói tin tới muộn hơn.
+    await waitFor(() => eotSeen)
+
+    // Dòng đầu tiên (H) bị NAK liên tục: đúng 6 lần thử (kể cả lần đầu) rồi
+    // simulator phải bỏ cuộc — không lặp vô hạn, không chuyển sang dòng kế.
+    expect(frameBodies.length).toBe(6)
+    // Cả 6 lần gửi đều là chính xác cùng một frame (cùng nội dung/checksum),
+    // không phải một frame mới mỗi lần.
+    expect(new Set(frameBodies).size).toBe(1)
+    expect(eotSeen).toBe(true)
   })
 })

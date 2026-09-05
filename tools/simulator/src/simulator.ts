@@ -1,5 +1,5 @@
 import { createServer, type Server, type Socket } from 'node:net'
-import { ACK, ENQ, EOT, buildFrame } from './astm-frames.js'
+import { ACK, ENQ, EOT, NAK, buildFrame } from './astm-frames.js'
 
 export interface SimResult {
   sid: string
@@ -15,6 +15,16 @@ export interface SimulatorOptions {
 }
 
 const ACK_TIMEOUT_MS = 3000
+
+/**
+ * Số lần tối đa gửi một frame (kể cả lần đầu) trước khi bỏ cuộc vì bị NAK
+ * liên tục. Theo ASTM E1381/E1394, bên gửi thử lại tối đa 6 lần một frame bị
+ * từ chối rồi mới huỷ phiên truyền — máy thật không đứng im chờ hết giờ như
+ * khi mất kết nối, nó gửi lại ngay khi thấy NAK.
+ */
+const MAX_FRAME_ATTEMPTS = 6
+
+type AckOutcome = 'ack' | 'nak' | 'timeout'
 
 /**
  * Máy xét nghiệm giả lập nói ASTM E1381/E1394 qua TCP.
@@ -64,19 +74,32 @@ export class AstmSimulator {
     this.socket?.write(Buffer.from([ACK]))
   }
 
-  private waitForAck(): Promise<void> {
-    return new Promise((resolve, reject) => {
+  /**
+   * Chờ phản hồi cho một frame vừa gửi. Phân biệt ACK, NAK, và im lặng
+   * (timeout): NAK nghĩa là bên kia còn đó và đang từ chối nội dung (checksum
+   * sai chẳng hạn) — máy thật gửi lại ngay, không đứng chờ hết giờ. Timeout
+   * là trường hợp bên kia thực sự im lặng (mất kết nối, misbehaviour
+   * 'no-ack'), lúc đó chờ hết giờ mới là hành vi đúng.
+   */
+  private waitForAck(): Promise<AckOutcome> {
+    return new Promise((resolve) => {
       const socket = this.socket
-      if (!socket) return reject(new Error('chưa có kết nối'))
+      if (!socket) return resolve('timeout')
       const timer = setTimeout(() => {
         socket.off('data', onData)
-        reject(new Error('hết giờ chờ ACK'))
+        resolve('timeout')
       }, ACK_TIMEOUT_MS)
       const onData = (chunk: Buffer): void => {
+        if (chunk.includes(NAK)) {
+          clearTimeout(timer)
+          socket.off('data', onData)
+          resolve('nak')
+          return
+        }
         if (!chunk.includes(ACK)) return
         clearTimeout(timer)
         socket.off('data', onData)
-        resolve()
+        resolve('ack')
       }
       socket.on('data', onData)
     })
@@ -92,7 +115,8 @@ export class AstmSimulator {
     }
 
     socket.write(Buffer.from([ENQ]))
-    await this.waitForAck()
+    const handshake = await this.waitForAck()
+    if (handshake !== 'ack') throw new Error('hết giờ chờ ACK')
 
     const lines = [
       'H|\\^&|||LIS-SIM^1.0|||||||P|1',
@@ -121,8 +145,23 @@ export class AstmSimulator {
         return
       }
 
-      socket.write(frame)
-      await this.waitForAck().catch(() => undefined)
+      // Gửi lại đúng frame vừa bị từ chối (NAK), tối đa MAX_FRAME_ATTEMPTS
+      // lần kể cả lần đầu. Timeout (im lặng thật) không được thử lại ở đây —
+      // giữ nguyên hành vi cũ: bỏ qua và coi như đã "xong" frame này, để
+      // không đứng chờ vô thời hạn khi bên kia mất kết nối giữa chừng.
+      let outcome: AckOutcome = 'timeout'
+      for (let attempt = 1; attempt <= MAX_FRAME_ATTEMPTS; attempt += 1) {
+        socket.write(frame)
+        outcome = await this.waitForAck()
+        if (outcome !== 'nak') break
+      }
+
+      if (outcome === 'nak') {
+        // Hết số lần cho phép mà vẫn bị từ chối: bỏ cuộc, kết thúc phiên
+        // ngay bằng EOT thay vì tiếp tục gửi các dòng còn lại.
+        socket.write(Buffer.from([EOT]))
+        return
+      }
     }
 
     socket.write(Buffer.from([EOT]))

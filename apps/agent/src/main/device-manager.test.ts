@@ -63,6 +63,7 @@ describe('DeviceManager', () => {
   it('đưa raw message vào hàng đợi khi máy gửi kết quả', async () => {
     await manager.applyConfig([deviceConfig(simPort)])
     await waitFor(() => manager.statusOf('may-sinh-hoa') === 'connected')
+    await waitFor(() => sim.hasClient())
 
     await sim.sendResults([{ sid: 'SID001', testCode: 'GLU', value: '5.4', unit: 'mmol/L' }])
 
@@ -80,6 +81,7 @@ describe('DeviceManager', () => {
 
     await manager.applyConfig([deviceConfig(simPort)])
     await waitFor(() => manager.statusOf('may-sinh-hoa') === 'connected')
+    await waitFor(() => sim.hasClient())
     await sim.sendResults([{ sid: 'SID002', testCode: 'URE', value: '6.1', unit: 'mmol/L' }])
 
     await waitFor(() => traffic.some((t) => t.direction === 'inbound'))
@@ -118,6 +120,7 @@ describe('DeviceManager', () => {
 
     await manager.applyConfig([deviceConfig(simPort)])
     await waitFor(() => manager.statusOf('may-sinh-hoa') === 'connected')
+    await waitFor(() => sim.hasClient())
     await sim.sendResults([{ sid: 'SID003', testCode: 'CRE', value: '88', unit: 'umol/L' }])
 
     await waitFor(() => outbox.peek(50).some((e) => e.message.type === 'raw_message'))

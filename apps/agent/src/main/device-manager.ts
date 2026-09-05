@@ -17,19 +17,6 @@ interface RunningDevice {
   closed: boolean
 }
 
-/**
- * Độ trễ cố ý trước khi công bố trạng thái 'connected' ra ngoài (statusOf,
- * connection_event). Khi transport là TCP client nối tới một socket lắng
- * nghe trên CÙNG một máy (điển hình khi test với simulator), sự kiện
- * 'connect' phía client có thể xảy ra TRƯỚC khi phía kia (accept()) xử lý
- * xong kết nối ở tầng hệ điều hành — đã kiểm chứng thực nghiệm trên môi
- * trường phát triển (Node 22 / macOS). Nếu DeviceManager báo 'connected'
- * ngay tức khắc, một tiến trình khác quan sát statusOf() rồi gửi dữ liệu
- * ngay lập tức có thể thấy đầu nhận chưa sẵn sàng. Với thiết bị thật (khác
- * tiến trình/máy), độ trễ 1ms này không thể nhận thấy được.
- */
-const CONNECTED_SETTLE_MS = 1
-
 export interface TrafficEvent {
   deviceKey: string
   direction: 'inbound' | 'outbound'
@@ -116,7 +103,7 @@ export class DeviceManager {
     }
 
     const transport = createTransport(config.transport)
-    const applyStatus = (status: TransportStatus): void => {
+    const onStatus = (status: TransportStatus): void => {
       if (running.closed) return
       running.status = status.status
       this.enqueue({
@@ -128,13 +115,6 @@ export class DeviceManager {
         ...(status.detail !== undefined ? { detail: status.detail } : {}),
       })
       if (status.status !== 'connected') driver.reset()
-    }
-    const onStatus = (status: TransportStatus): void => {
-      if (status.status === 'connected') {
-        setTimeout(() => applyStatus(status), CONNECTED_SETTLE_MS)
-      } else {
-        applyStatus(status)
-      }
     }
     const onData = (chunk: Buffer): void => {
       this.emitter.emit('traffic', {
