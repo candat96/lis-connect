@@ -66,7 +66,7 @@ describe('AstmSimulator', () => {
     client = connect({ host: '127.0.0.1', port })
     const received = collect(client)
     await new Promise((r) => client!.once('connect', r))
-    await new Promise((r) => setTimeout(r, 150))
+    await waitFor(() => sim!.hasClient())
 
     const sendPromise = sim.sendResults([{ sid: 'SID001', testCode: 'GLU', value: '5.4', unit: 'mmol/L' }])
 
@@ -92,7 +92,7 @@ describe('AstmSimulator', () => {
     client = connect({ host: '127.0.0.1', port })
     const received = collect(client)
     await new Promise((r) => client!.once('connect', r))
-    await new Promise((r) => setTimeout(r, 150))
+    await waitFor(() => sim!.hasClient())
 
     const sendPromise = sim.sendResults([{ sid: 'SID002', testCode: 'URE', value: '6.1', unit: 'mmol/L' }])
     await waitFor(() => received.all().includes(ENQ))
@@ -113,7 +113,7 @@ describe('AstmSimulator', () => {
     client = connect({ host: '127.0.0.1', port })
     const received = collect(client)
     await new Promise((r) => client!.once('connect', r))
-    await new Promise((r) => setTimeout(r, 150))
+    await waitFor(() => sim!.hasClient())
 
     void sim.sendResults([{ sid: 'SID003', testCode: 'CRE', value: '88', unit: 'umol/L' }])
     await waitFor(() => received.all().includes(ENQ))
@@ -145,5 +145,25 @@ describe('AstmSimulator', () => {
     client.write(Buffer.from([ENQ]))
     await waitFor(() => received.all().includes(ACK))
     expect(received.all().includes(ACK)).toBe(true)
+  })
+
+  it('với misbehaviour garbage-prefix thì rác xuất hiện trước ENQ', async () => {
+    sim = new AstmSimulator({ misbehaviour: 'garbage-prefix' })
+    const port = await sim.start(0)
+    client = connect({ host: '127.0.0.1', port })
+    const received = collect(client)
+    await new Promise((r) => client!.once('connect', r))
+    await waitFor(() => sim!.hasClient())
+
+    const sendPromise = sim.sendResults([{ sid: 'SID004', testCode: 'URE', value: '6.1', unit: 'mmol/L' }])
+    await waitFor(() => received.all().includes(ENQ))
+    client.write(Buffer.from([ACK]))
+    await waitFor(() => received.all().toString('latin1').includes('SID004'), 5000)
+    await sendPromise.catch(() => undefined)
+
+    const buffer = received.all()
+    const enqIndex = buffer.indexOf(ENQ)
+    // ENQ không nằm ở byte thứ nhất, vì có rác trước nó
+    expect(enqIndex).toBeGreaterThan(0)
   })
 })

@@ -30,6 +30,11 @@ export class AstmSimulator {
 
   constructor(private readonly options: SimulatorOptions) {}
 
+  /** Kiểm tra xem có client kết nối chưa. Dùng trong test để tránh race condition. */
+  hasClient(): boolean {
+    return this.socket !== null
+  }
+
   async start(port: number): Promise<number> {
     return new Promise((resolve, reject) => {
       const server = createServer((socket) => {
