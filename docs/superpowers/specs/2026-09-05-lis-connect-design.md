@@ -16,7 +16,9 @@ tích hợp với HIS. Các ràng buộc đã chốt:
 | Giao tiếp máy XN | Serial RS-232 (ASTM E1381), TCP/IP socket (ASTM/HL7 MLLP), file-based (watch folder) |
 | Tích hợp HIS | REST API JSON do LIS Connect định nghĩa; HIS của khách gọi vào |
 | Phạm vi standalone | Tối thiểu: nhập bệnh nhân + chỉ định, sinh barcode, gửi máy, nhận kết quả, duyệt, in phiếu. **Không** thu ngân, kho hóa chất, QC nội kiểm trong giai đoạn này |
-| Hạ tầng khách hàng | On-premise trong LAN, có internet ra ngoài (cho phép tự cập nhật, remote support, kiểm tra license) |
+| Mô hình triển khai | **Cloud multi-tenant là chính**: Core chạy trên hạ tầng của nhà cung cấp, khách chỉ cài Agent tại phòng xét nghiệm. On-premise là ngoại lệ cho khách bắt buộc giữ dữ liệu trong viện — cùng một codebase, chạy với đúng một tenant |
+| Cô lập dữ liệu | Mỗi khách một database riêng (database-per-tenant) |
+| Mạng tại cơ sở | LAN bệnh viện có internet ra ngoài, nhưng **không giả định HIS gọi ra được internet** |
 
 **Không làm trong phạm vi này (YAGNI):** thu ngân/viện phí, quản lý kho hóa chất,
 QC nội kiểm Levey-Jennings/Westgard, đọc trực tiếp DB của HIS, kết nối qua API
@@ -40,6 +42,11 @@ Ba phương án đã cân nhắc:
 được ở bất cứ đâu, trong khi khách nhỏ vẫn thấy sản phẩm là "cài một lần trên
 một máy" — vì bản mặc định gói Core + Agent trong cùng một installer.
 
+### Ghi chú về mô hình cloud
+
+Phương án B được chọn từ trước khi chốt mô hình cloud, và càng đúng hơn sau đó:
+phần đọc/ghi cổng bắt buộc ở tại chỗ, phần còn lại chạy tập trung trên cloud.
+
 ### Stack
 
 | Thành phần | Công nghệ |
@@ -55,20 +62,14 @@ Chọn Node cho Agent để đồng nhất ngôn ngữ với Core và tái dùng
 ## 3. Kiến trúc tổng thể
 
 ```
-   HIS của khách                     Phòng xét nghiệm
-        │                        ┌──────────────────────┐
-        │ REST (JSON)            │  PC-1   PC-2         │
-        ▼                        │   │      │           │
-┌───────────────────┐  WebSocket │ Agent  Agent         │
-│      CORE         │◄───────────┼───┤      ├──── COM1 ─┼─► Máy sinh hóa
-│  NestJS + Postgres│            │   │      └──── LAN ──┼─► Máy huyết học
-│                   │            │   └──────  folder ───┼─► Máy nước tiểu
-│  ├ HIS API        │            └──────────────────────┘
-│  ├ Order/Result   │
-│  ├ Device Registry│      ┌──────────────┐
-│  ├ Log & Monitor  │◄─────┤  WEB UI      │  (trình duyệt máy trạm)
-│  └ Print service  │      │  React       │
-└───────────────────┘      └──────────────┘
+        CLOUD (nhà cung cấp)                  BỆNH VIỆN A (LAN)
+┌────────────────────────────┐         ┌──────────────────────────┐
+│  Core (NestJS)             │         │                          │
+│   ├ tenant router          │◄────────┤  Agent ──► máy XN        │
+│   ├ DB quản trị            │  WSS    │   ├ SQLite cache         │
+│   └ DB-A  DB-B  DB-C ...   │         │   ├ hàng đợi kết quả     │
+│  Web UI (React)            │◄──HTTPS─┤   └ REST :8080 ◄── HIS-A │
+└────────────────────────────┘         └──────────────────────────┘
 ```
 
 ### 3.1 Agent
@@ -114,7 +115,68 @@ Nói chuyện với các Agent qua một kênh WebSocket duy nhất.
 Nhập chỉ định (chế độ standalone), worklist, duyệt kết quả, theo dõi và xem log
 kết nối máy, in phiếu.
 
-### 3.5 Quyết định: hướng kết nối Core ↔ Agent
+### 3.5 Multi-tenant: một Core, nhiều database
+
+Có một **DB quản trị** (danh sách khách hàng, chuỗi kết nối, license, tài khoản)
+và **mỗi khách một DB nghiệp vụ** riêng.
+
+Định tuyến tenant lấy từ ba nguồn:
+
+- **Agent** — mỗi Agent cầm một `agentKey` đã gắn cứng với tenant khi cấp phát;
+  Agent không tự khai mình thuộc khách nào.
+- **HIS** — API key cấp riêng cho từng khách, gửi qua header `X-Api-Key`.
+- **Người dùng web** — tenant nằm trong JWT sau khi đăng nhập.
+
+Tenant được gán ở tầng ngoài cùng của request, rồi mọi truy vấn phía dưới đi qua
+đúng connection của tenant đó. Đây phải là **middleware một cửa**: service tầng
+dưới không được tự chọn database. Chỉ cần một chỗ quên là rò dữ liệu bệnh nhân
+giữa hai bệnh viện.
+
+**Vì sao DB riêng thay vì schema chung:**
+
+- Rò dữ liệu giữa hai khách bị chặn ở tầng vật lý, không phụ thuộc việc lập trình
+  viên có nhớ `WHERE tenant_id = ?` hay không.
+- Sao lưu, khôi phục, xuất dữ liệu cho một khách là thao tác trên đúng một database.
+- Khách đòi toàn bộ dữ liệu của mình, hoặc muốn chuyển về chạy tại chỗ — làm được
+  ngay, không phải bóc tách.
+- Một bệnh viện lớn chạy nặng không kéo chậm phần còn lại; cần thì tách riêng nó
+  sang một Postgres khác, chỉ đổi chuỗi kết nối.
+
+**Cái giá phải trả, phải xử lý ngay từ đầu:**
+
+- **Migration chạy trên N database.** Cần trình chạy migration lặp qua toàn bộ
+  tenant, ghi nhận tenant nào đang ở version nào, và xử lý được trường hợp chạy
+  nửa chừng thì lỗi.
+- **Connection pool.** Nhiều tenant × pool riêng sẽ ăn hết kết nối Postgres. Dùng
+  pool nhỏ theo tenant, đóng pool của tenant không hoạt động, đặt PgBouncer phía trước.
+- **Báo cáo xuyên khách hàng** trở nên phiền. Với phạm vi hiện tại thì hiếm dùng
+  nên chấp nhận được.
+
+### 3.6 Hệ quả của mô hình cloud
+
+**Host-query phải trả lời tại chỗ.** Máy xét nghiệm cho 1-3 giây để trả lời
+"SID này làm xét nghiệm gì". Đường từ phòng xét nghiệm ra cloud không đảm bảo được
+con số đó. Vì vậy Agent giữ bản sao cục bộ (SQLite) các chỉ định chưa làm và trả
+lời máy hoàn toàn tại chỗ — không gọi lên cloud trong luồng nóng. Core đẩy chỉ
+định xuống trước. Mất internet vài giờ, phòng xét nghiệm vẫn chạy bình thường;
+kết quả dồn trong hàng đợi và tự đẩy lên khi có mạng.
+
+**HIS thường không gọi ra được internet.** HIS nằm trong mạng nội bộ bệnh viện,
+nhiều nơi chặn cứng chiều ra. Nếu API chỉ tồn tại trên cloud thì tích hợp hỏng
+ngay từ khách đầu tiên. Vì vậy **Agent kiêm cổng LAN cho HIS**: mở cùng bộ REST
+API trên `http://<ip-agent>:8080`, HIS gọi vào đó trong mạng nội bộ, Agent chuyển
+tiếp lên Core — riêng chỉ định thì ghi thẳng vào cache cục bộ, nên việc nhận chỉ
+định vẫn chạy khi mất mạng. Khách nào HIS ra được internet thì trỏ thẳng lên
+cloud. Cùng một đặc tả API, hai điểm vào.
+
+**Dữ liệu bệnh nhân rời khỏi bệnh viện.** Kéo theo: TLS bắt buộc mọi chặng, mã
+hóa at-rest, nhật ký truy cập (ai xem kết quả của ai, lúc nào), và chính sách lưu
+trữ. Nhật ký truy cập phải có từ đầu — thêm vào khi đã có dữ liệu thật thì rất phiền.
+
+Agent do đó mang ba vai — nói chuyện với máy, cache chỉ định, cổng LAN cho HIS —
+vẫn tách thành ba module rõ ràng bên trong nó.
+
+### 3.7 Quyết định: hướng kết nối Core ↔ Agent
 
 Kênh WebSocket do **Agent chủ động mở lên Core**, không phải Core gọi xuống Agent.
 
