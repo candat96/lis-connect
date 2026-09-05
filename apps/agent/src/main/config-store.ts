@@ -53,6 +53,31 @@ const DEFAULT_CONFIG: AgentConfig = {
 }
 
 /**
+ * Chuyển dữ liệu JSON đã parse (kiểu bất kỳ, có thể do người dùng sửa tay bằng
+ * Notepad) thành một `AgentConfig` hợp lệ. Mỗi trường được kiểm kiểu riêng —
+ * trường nào sai kiểu (kể cả khi JSON hợp lệ về mặt cú pháp) thì lấy giá trị
+ * mặc định thay vì lọt nguyên xi ra ngoài, để `upsertDevice`/`removeDevice`
+ * (dùng `Array.prototype` trên `devices`) không bao giờ ném lỗi không ai bắt.
+ */
+function normalizeConfig(parsed: unknown): AgentConfig {
+  const raw: Record<string, unknown> =
+    typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+
+  return {
+    coreUrl: typeof raw.coreUrl === 'string' ? raw.coreUrl : DEFAULT_CONFIG.coreUrl,
+    agentKey: typeof raw.agentKey === 'string' ? raw.agentKey : DEFAULT_CONFIG.agentKey,
+    proxyUrl: typeof raw.proxyUrl === 'string' ? raw.proxyUrl : null,
+    hisPort:
+      typeof raw.hisPort === 'number' && Number.isFinite(raw.hisPort)
+        ? raw.hisPort
+        : DEFAULT_CONFIG.hisPort,
+    devices: Array.isArray(raw.devices) ? (raw.devices as DeviceConfig[]) : [],
+  }
+}
+
+/**
  * Cấu hình cục bộ của Agent, lưu dạng JSON.
  *
  * Chọn JSON thay vì SQLite vì người triển khai cần mở được bằng Notepad khi hỗ trợ
@@ -64,14 +89,8 @@ export class ConfigStore {
   load(): AgentConfig {
     if (!existsSync(this.filePath)) return { ...DEFAULT_CONFIG, devices: [] }
     try {
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AgentConfig>
-      return {
-        coreUrl: parsed.coreUrl ?? DEFAULT_CONFIG.coreUrl,
-        agentKey: parsed.agentKey ?? DEFAULT_CONFIG.agentKey,
-        proxyUrl: parsed.proxyUrl ?? null,
-        hisPort: parsed.hisPort ?? DEFAULT_CONFIG.hisPort,
-        devices: parsed.devices ?? [],
-      }
+      const parsed: unknown = JSON.parse(readFileSync(this.filePath, 'utf8'))
+      return normalizeConfig(parsed)
     } catch {
       // File hỏng không được làm Agent không khởi động được: nó vẫn phải chạy lên
       // để người dùng mở cửa sổ cấu hình và nhập lại.

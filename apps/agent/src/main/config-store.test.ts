@@ -90,4 +90,50 @@ describe('ConfigStore', () => {
     const config = new ConfigStore(path).load()
     expect(config.devices).toEqual([])
   })
+
+  it('devices sai kiểu (chuỗi thay vì mảng) không làm load() hay upsertDevice() sập', () => {
+    const path = join(dir, 'config.json')
+    writeFileSync(path, JSON.stringify({ devices: 'not-an-array' }), 'utf8')
+    const configStore = new ConfigStore(path)
+
+    const config = configStore.load()
+    expect(config.devices).toEqual([])
+    expect(() => configStore.upsertDevice(serialDevice)).not.toThrow()
+  })
+
+  it('hisPort sai kiểu (chuỗi thay vì số) dùng lại giá trị mặc định', () => {
+    const path = join(dir, 'config.json')
+    writeFileSync(path, JSON.stringify({ hisPort: 'tám nghìn' }), 'utf8')
+    const configStore = new ConfigStore(path)
+
+    const config = configStore.load()
+    expect(config.hisPort).toBe(8080)
+    expect(() => configStore.upsertDevice(serialDevice)).not.toThrow()
+  })
+
+  it('coreUrl sai kiểu (số thay vì chuỗi) dùng lại giá trị mặc định', () => {
+    const path = join(dir, 'config.json')
+    writeFileSync(path, JSON.stringify({ coreUrl: 12345 }), 'utf8')
+    const configStore = new ConfigStore(path)
+
+    const config = configStore.load()
+    expect(config.coreUrl).toBe('')
+    expect(() => configStore.upsertDevice(serialDevice)).not.toThrow()
+  })
+
+  it('toàn bộ tệp là một mảng JSON thay vì object thì trả về cấu hình mặc định', () => {
+    const path = join(dir, 'config.json')
+    writeFileSync(path, JSON.stringify([1, 2, 3]), 'utf8')
+    const configStore = new ConfigStore(path)
+
+    const config = configStore.load()
+    expect(config).toEqual({
+      coreUrl: '',
+      agentKey: '',
+      proxyUrl: null,
+      hisPort: 8080,
+      devices: [],
+    })
+    expect(() => configStore.upsertDevice(serialDevice)).not.toThrow()
+  })
 })
