@@ -315,7 +315,60 @@ Gộp chung thì không biểu diễn được việc chạy lại.
 
 ## 6. Xử lý lỗi và khả năng phục hồi
 
-*(đang brainstorm)*
+Với middleware xét nghiệm, phần lớn giá trị sản phẩm nằm ở chỗ nó cư xử thế nào khi
+mọi thứ hỏng. Dưới đây chia theo bốn ranh giới có thể đứt.
+
+**Nguyên tắc xuyên suốt:** hệ thống không được phép **mất** kết quả xét nghiệm, và
+không được phép **bịa ra** kết quả. Khi nghi ngờ thì giữ lại, đánh dấu, và bắt con
+người quyết định. Mọi lựa chọn dưới đây rút ra từ nguyên tắc này.
+
+### 6.1 Đứt ở dây: Agent ↔ máy xét nghiệm
+
+Mất kết nối cổng COM hay socket không phải lỗi, là trạng thái. Agent tự kết nối lại
+theo backoff (1s, 2s, 4s… trần 30s) và không bao giờ bỏ cuộc. Mỗi lần đổi trạng
+thái ghi một `connection_event` và đẩy lên Core để màn hình theo dõi thấy được.
+
+Máy im lặng quá lâu (ví dụ 15 phút không có byte nào trong khi lịch sử cho thấy giờ
+này thường có) thì sinh cảnh báo "nghi mất kết nối" — vì cổng COM có thể vẫn mở
+trong khi dây đã tuột.
+
+### 6.2 Đứt ở mạng: Agent ↔ Core
+
+Ranh giới quan trọng nhất, vì Core nằm trên cloud.
+
+**Mất Core không được làm phòng xét nghiệm dừng.** Agent trả lời host-query từ
+cache, nhận chỉ định từ HIS qua cổng LAN, thu kết quả và xếp vào hàng đợi trên đĩa.
+Khi mạng về thì đẩy lên theo thứ tự. Hàng đợi giữ tối thiểu 7 ngày và có trần dung
+lượng — đầy thì cảnh báo lớn, không âm thầm xóa.
+
+Mọi message từ Agent lên Core mang một `messageId` do Agent sinh, và Core xử lý
+**idempotent**: nhận lại message cũ thì bỏ qua, không tạo kết quả trùng. Thiếu cái
+này thì mỗi lần mạng chập chờn sẽ sinh kết quả nhân đôi — lỗi kinh điển của
+middleware xét nghiệm.
+
+### 6.3 Đứt ở ngữ nghĩa: dữ liệu về nhưng không hiểu được
+
+- **Parse lỗi** → `raw_message` vẫn lưu, đánh dấu `PARSE_ERROR`, sinh cảnh báo. Sửa
+  driver rồi chạy lại trên dữ liệu cũ.
+- **SID không khớp chỉ định nào** → không vứt đi. Vào hàng **"kết quả mồ côi"**, KTV
+  gán tay vào đúng bệnh nhân trên Web UI. Chuyện này xảy ra hằng ngày ở phòng xét
+  nghiệm thật: quét nhầm, hoặc ống chạy trước khi chỉ định kịp vào.
+- **Mã test máy trả về chưa có trong `device_analyte_map`** → lưu kết quả nhưng để
+  trạng thái "chưa ánh xạ", hiện trên màn hình cấu hình kèm nút "ánh xạ ngay". Đây
+  là thứ biến một cuộc gọi hỗ trợ thành một cú bấm chuột.
+
+### 6.4 Đứt ở đầu ra: Core ↔ HIS
+
+Webhook thất bại thì retry với backoff, tối đa khoảng 24 giờ, mỗi lần thử ghi vào
+`outbound_deliveries`. Quá hạn thì chuyển trạng thái "cần can thiệp" và hiện trên
+bảng điều khiển. Cộng với `GET /api/results?since=...` để HIS tự kéo lại. Không bao
+giờ im lặng bỏ cuộc.
+
+### 6.5 Màn hình theo dõi
+
+Mặt trước của tất cả những cái trên: danh sách máy với đèn xanh/vàng/đỏ, lần cuối
+nhận dữ liệu, số kết quả hôm nay, hàng đợi đang tồn, và nút xem log thô theo thời
+gian thực của từng máy — có bộ lọc, xem được byte gốc dạng hex khi cần dò lỗi driver.
 
 ## 7. Chiến lược kiểm thử
 
