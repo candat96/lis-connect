@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start:dev": "node --import tsx/esm --watch src/main.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@lis/shared": "workspace:^",

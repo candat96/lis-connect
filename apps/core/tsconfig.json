@@ -2,9 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
+    "rootDir": "src",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "moduleResolution": "Bundler"
   },
-  "include": ["src", "test"]
+  "include": ["src"]
 }
