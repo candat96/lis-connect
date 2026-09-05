@@ -1,7 +1,7 @@
 # LIS Connect — Thiết kế hệ thống
 
 **Ngày:** 2026-09-05
-**Trạng thái:** đang soạn — phần 1/5 đã chốt, phần 2-5 đang brainstorm
+**Trạng thái:** hoàn tất bản thiết kế, chờ rà soát
 
 ---
 
@@ -372,4 +372,51 @@ gian thực của từng máy — có bộ lọc, xem được byte gốc dạng
 
 ## 7. Chiến lược kiểm thử
 
-*(đang brainstorm)*
+Vấn đề trung tâm: **không có máy xét nghiệm để chạy thử trong lúc phát triển.** Máy
+nằm ở bệnh viện, đang chạy mẫu bệnh nhân thật. Mọi thứ dưới đây xoay quanh ràng
+buộc đó.
+
+### 7.1 Máy giả lập (Instrument Simulator)
+
+Công cụ quan trọng nhất của dự án. Một chương trình giả làm máy xét nghiệm: mở cổng
+serial ảo (`com0com`) hoặc socket TCP, nói đúng giao thức của một model cụ thể, và
+làm được cả những hành vi xấu — trả về giữa chừng rồi ngắt, sai checksum, gửi ký tự
+lạ, im lặng không ACK, trả kết quả cho SID không tồn tại.
+
+Không có nó thì toàn bộ mục 6 chỉ là lý thuyết. Nó còn có giá trị thứ hai: **demo
+bán hàng và huấn luyện** mà không cần máy thật. Đáng đầu tư sớm.
+
+### 7.2 Driver test bằng kho tin nhắn thật
+
+Mỗi driver có một thư mục chứa bản ghi thô lấy từ máy thật, kèm kết quả kỳ vọng đã
+parse. Test là chạy parse trên toàn bộ kho và so khớp.
+
+Khi ra hiện trường gặp tin nhắn lạ, `raw_messages` cho phép lấy nguyên văn về, thêm
+vào kho, viết test, sửa driver. Kho này lớn dần theo số khách hàng và trở thành lưới
+an toàn thật sự — đây là lý do việc lưu byte gốc (mục 4.3) quan trọng đến vậy.
+
+### 7.3 Test cô lập tenant
+
+Không thể thương lượng. Một bộ test riêng khẳng định dữ liệu tenant A không bao giờ
+lộ sang tenant B: gọi mọi endpoint bằng khóa của A trong khi DB của B có dữ liệu, và
+ngược lại. Chạy trên mọi commit.
+
+Rò dữ liệu bệnh nhân giữa hai bệnh viện là loại lỗi kết thúc sản phẩm, không phải
+loại lỗi vá sau.
+
+### 7.4 Test khả năng phục hồi
+
+Chạy Agent và Core thật, cắt mạng giữa chừng, kiểm tra: hàng đợi giữ đủ, gửi lại
+đúng thứ tự, gửi lại hai lần không sinh kết quả trùng, host-query vẫn trả lời khi
+Core tắt hoàn toàn.
+
+### 7.5 Test tính toán lâm sàng
+
+Cờ cao/thấp/nguy hiểm theo tuổi và giới, làm tròn số lẻ, kết quả dạng `<0.05` hay
+`âm tính`. Sai thầm lặng ở đây nguy hiểm hơn crash: một kết quả sai không có cờ cảnh
+báo thì không ai biết cho tới khi muộn.
+
+### 7.6 Cố tình không làm
+
+Không E2E toàn bộ giao diện. Đắt, giòn, và không bắt được loại lỗi thật sự nguy hiểm
+ở đây. Ưu tiên test ở tầng driver, tầng Core, và ranh giới Agent ↔ Core.
