@@ -51,8 +51,7 @@ chạy với đúng một tenant. Không có nhánh mã riêng, không có bản
 |---|---|
 | Core | NestJS + PostgreSQL |
 | Web UI | React |
-| Agent Service | Node.js (`serialport`), chạy như Windows Service, không giao diện |
-| Agent Console | Electron (React), app cấu hình mở khi cần |
+| Agent | Một app Electron duy nhất: `main` (Node, `serialport`) chạy nền liên tục, `renderer` (React) là cửa sổ cấu hình mở khi cần |
 
 Chọn Node cho Agent để đồng nhất ngôn ngữ với Core và tái dùng cùng bộ kiểu dữ liệu.
 
@@ -192,31 +191,37 @@ Cấu hình nghiệp vụ do Core đẩy xuống, nhưng lúc cài đặt lần 
 tenant nào. Bắt họ mở Web UI trên cloud để dò cổng COM của cái máy ngay trước mặt là
 vô lý. Vì vậy Agent có ứng dụng cấu hình riêng chạy tại chỗ.
 
-#### Tách hai tiến trình
+#### Một app, hai tiến trình có sẵn của Electron
 
-Electron cần có người đăng nhập Windows mới chạy, còn Agent phải chạy 24/7 kể cả khi
-không ai ngồi trước máy. Gộp làm một thì chỉ cần ai đó đóng cửa sổ, hoặc máy khởi
-động lại mà chưa login, là phòng xét nghiệm mất kết nối. Nên tách làm hai tiến trình,
-cài chung một bộ:
+Electron vốn đã tách sẵn hai tiến trình, nên không cần đóng gói hai chương trình:
 
 ```
-┌─ lisconnect-agent.exe ──── Windows Service, không giao diện ─┐
-│   serialport ──► COM3        net ──► máy TCP      fs.watch  │
-│   SQLite cache · hàng đợi · WSS lên Core · REST :8080 cho HIS│
-│   ────────────── HTTP + WebSocket trên :8081 ────────────────│
-└──────────────────────────────┬───────────────────────────────┘
-                               │ (localhost)
-┌─ LIS Connect Console.exe ────┴─ Electron, mở khi cần ────────┐
-│   4 tab: Kết nối Core · Máy XN · Terminal thô · Nhật ký      │
-└──────────────────────────────────────────────────────────────┘
+LIS Connect Agent.exe   ← một app, một installer, một icon tray
+ ├─ main (Node)        chạy liên tục: COM/TCP/file, cache, hàng đợi, WSS lên Core,
+ │                     REST :8080 cho HIS, HTTP/WS :8081 cho cửa sổ cấu hình
+ └─ renderer (cửa sổ)  mở khi cần, đóng thì huỷ, main không đụng gì
 ```
 
-Service tự khởi động cùng Windows, không cần ai đăng nhập. Console mở lên để cấu
-hình và xem log, đóng lại thì máy vẫn chạy. Cả hai đều là Node nên dùng chung code
-và kiểu dữ liệu.
+Toàn bộ phần kết nối nằm ở `main`. Đóng cửa sổ chỉ huỷ `renderer`; `main` vẫn chạy
+nền và RAM tụt xuống phần nhỏ. App thu về khay hệ thống chứ không thoát.
 
-Console trỏ được tới Agent ở **máy khác trong LAN** (`http://192.168.1.20:8081`), nên
-kỹ thuật viên ngồi một chỗ cấu hình được cả nhiều máy trong phòng.
+**Đánh đổi:** app kiểu này chỉ chạy khi đã có người đăng nhập Windows. Máy khởi động
+lại lúc nửa đêm rồi dừng ở màn hình đăng nhập thì Agent không chạy, và máy xét nghiệm
+gửi kết quả vào hư không.
+
+Khắc phục ở mức đủ dùng: bật **tự động đăng nhập** trên PC phòng xét nghiệm và đăng
+ký app qua **Task Scheduler** với "run at logon" cộng "restart on failure". Thực tế
+PC phòng xét nghiệm gần như luôn để sẵn một tài khoản dùng chung, nên thường chấp
+nhận được. Việc này phải nằm trong tài liệu triển khai và trong bộ cài, không phó mặc
+cho người cài nhớ.
+
+Vì code kết nối nằm gọn trong `main`, nếu về sau gặp khách có chính sách máy trạm
+siết chặt và bắt buộc phải là Windows Service thì bọc thêm chế độ headless là việc
+nhỏ, không phải viết lại. Chọn gộp bây giờ không khoá đường về.
+
+Cửa sổ cấu hình trỏ được tới Agent ở **máy khác trong LAN**
+(`http://192.168.1.20:8081`), nên kỹ thuật viên ngồi một chỗ cấu hình được nhiều máy
+trong phòng.
 
 #### Bốn tab
 
