@@ -20,6 +20,11 @@
 - Ngôn ngữ giao diện: tiếng Việt có dấu đầy đủ. Mã nguồn, tên hàm, tên biến, thông điệp commit: tiếng Anh.
 - Mọi thời điểm lưu dạng `timestamptz`, sinh bằng `now()` của Postgres hoặc `new Date()` UTC. Không lưu giờ địa phương.
 - Commit sau mỗi task. Thông điệp theo Conventional Commits.
+- **Mọi task có giao diện (Task 15, Task 16) BẮT BUỘC gọi skill `ui-ux-pro-max`
+  trước khi viết dòng JSX đầu tiên**, và thiết kế theo hướng dẫn skill trả về. Các
+  đoạn JSX và CSS trong kế hoạch này là bản dựng chức năng để chốt luồng dữ liệu và
+  hợp đồng IPC/API — không phải bản thiết kế cuối cùng. Skill quyết định hệ thống
+  màu, khoảng cách, kiểu chữ, trạng thái rỗng, trạng thái tải và cách thể hiện lỗi.
 
 ---
 
@@ -5948,6 +5953,16 @@ git commit -m "feat(agent): device manager wiring transports, drivers and outbox
 
 ## Task 15: Agent — giao diện ba tab
 
+> **Bắt buộc trước khi bắt đầu:** gọi skill `ui-ux-pro-max` và thiết kế giao diện
+> theo hướng dẫn nó trả về. JSX và CSS dưới đây là bản dựng chức năng, dùng để chốt
+> luồng dữ liệu và hợp đồng IPC — giữ nguyên tên kênh IPC, tên trường và hành vi,
+> nhưng phần trình bày làm lại theo skill.
+>
+> Bối cảnh cần nói với skill: đây là công cụ kỹ thuật dùng trong phòng xét nghiệm,
+> người dùng là kỹ thuật viên triển khai, thường dùng trên màn hình nhỏ và độ phân
+> giải thấp, cần đọc được trạng thái kết nối trong một cái liếc, và tab Terminal thô
+> phải dễ đọc khi chữ chạy liên tục.
+
 **Files:**
 - Create: `apps/agent/src/renderer/api.ts`, `apps/agent/src/renderer/App.tsx`
 - Create: `apps/agent/src/renderer/tabs/CoreTab.tsx`, `DevicesTab.tsx`, `TerminalTab.tsx`
@@ -6627,6 +6642,17 @@ git commit -m "feat(agent): configuration ui with core, devices and raw terminal
 ---
 
 ## Task 16: Web UI — màn hình theo dõi máy và kết quả thô
+
+> **Bắt buộc trước khi bắt đầu:** gọi skill `ui-ux-pro-max` và thiết kế giao diện
+> theo hướng dẫn nó trả về. JSX và CSS dưới đây là bản dựng chức năng, dùng để chốt
+> hợp đồng API — giữ nguyên đường dẫn API, tên trường và hành vi, nhưng phần trình
+> bày làm lại theo skill.
+>
+> Bối cảnh cần nói với skill: đây là màn hình treo trong phòng xét nghiệm, thường
+> hiện cả ngày trên một máy trạm; người dùng là kỹ thuật viên xét nghiệm, không phải
+> dân kỹ thuật; thứ quan trọng nhất là **nhận ra ngay máy nào đang mất kết nối**, kể
+> cả khi nhìn từ xa vài mét. Đây cũng là màn hình khách hàng nhìn thấy đầu tiên khi
+> bạn demo, nên nó quyết định ấn tượng về sản phẩm.
 
 **Files:**
 - Create: `apps/web/package.json`, `apps/web/tsconfig.json`, `apps/web/vite.config.ts`, `apps/web/index.html`
@@ -7436,6 +7462,576 @@ git commit -m "feat: end-to-end test, windows packaging and deployment guide"
 
 ---
 
+## Task 18: Đóng gói Core bằng Docker
+
+**Files:**
+- Create: `apps/core/Dockerfile`, `.dockerignore`
+- Create: `deploy/docker-compose.prod.yml`, `deploy/pgbouncer/pgbouncer.ini`, `deploy/pgbouncer/userlist.txt.example`
+- Create: `deploy/caddy/Caddyfile`
+- Create: `apps/core/src/health/health.controller.ts`, `apps/core/src/health/health.module.ts`
+- Modify: `apps/core/src/admin-db/admin-db.service.ts` (bỏ migration tự động khi khởi động)
+- Modify: `apps/core/src/main.ts` (đọc CORS từ biến môi trường)
+- Test: `apps/core/test/health.test.ts`
+
+**Interfaces:**
+- Consumes: Task 3–8 (toàn bộ Core), Task 17 (`admin-cli.ts` với lệnh `migrate-all`)
+- Produces:
+  - image `lis-connect-core` chạy được với `ADMIN_DATABASE_URL`, `TENANT_DATABASE_URL_TEMPLATE`, `CORE_PORT`, `CORS_ORIGINS`
+  - `GET /health` → `{ status: 'ok' }` khi kết nối được DB quản trị, `503` khi không
+  - `docker compose -f deploy/docker-compose.prod.yml up -d` dựng đủ Postgres, PgBouncer, Core và reverse proxy
+
+**Ba quyết định:**
+
+1. **Migration KHÔNG chạy khi container khởi động.** Với nhiều replica, hai container sẽ cùng migrate; và migration DB nghiệp vụ của N tenant chạy lâu, cần biết tenant nào thất bại. Thay bằng một job riêng chạy `admin migrate-all` trước khi rollout.
+2. **PgBouncer nằm giữa Core và Postgres ngay từ đầu.** Mỗi replica giữ pool riêng cho mỗi tenant đang hoạt động; ba replica nhân bốn mươi tenant nhân bốn kết nối đã vượt mặc định của Postgres. Đây là ràng buộc của kiến trúc database-per-tenant, không phải tối ưu về sau.
+3. **Reverse proxy phải được cấu hình riêng cho `/agent`.** Agent giữ kết nối WebSocket hàng giờ nên cần tắt buffering và đặt timeout dài; và **không được ghi query string vào log**, vì khoá Agent nằm ở đó.
+
+- [ ] **Step 1: Viết test cho endpoint health**
+
+`apps/core/test/health.test.ts`:
+```ts
+import type { INestApplication } from '@nestjs/common'
+import { Test } from '@nestjs/testing'
+import request from 'supertest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { AppModule } from '../src/app.module.js'
+import { resetAdminDatabase } from './helpers.js'
+
+let app: INestApplication
+
+beforeAll(async () => {
+  await resetAdminDatabase()
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile()
+  app = moduleRef.createNestApplication()
+  await app.init()
+}, 90_000)
+
+afterAll(async () => {
+  await app.close()
+})
+
+describe('GET /health', () => {
+  it('trả về ok khi kết nối được DB quản trị', async () => {
+    const res = await request(app.getHttpServer()).get('/health').expect(200)
+    expect(res.body).toMatchObject({ status: 'ok' })
+  })
+
+  it('không yêu cầu header tenant', async () => {
+    await request(app.getHttpServer()).get('/health').expect(200)
+  })
+
+  it('báo phiên bản migration của DB quản trị', async () => {
+    const res = await request(app.getHttpServer()).get('/health').expect(200)
+    expect(res.body.adminMigration).toBeTruthy()
+  })
+})
+```
+
+- [ ] **Step 2: Chạy test, xác nhận fail**
+
+Run: `pnpm --filter @lis/core test test/health.test.ts`
+Expected: FAIL — `/health` trả 404.
+
+- [ ] **Step 3: Viết health controller**
+
+`apps/core/src/health/health.controller.ts`:
+```ts
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common'
+import { sql } from 'kysely'
+import { AdminDbService } from '../admin-db/admin-db.service.js'
+
+@Controller('health')
+export class HealthController {
+  constructor(private readonly admin: AdminDbService) {}
+
+  @Get()
+  async check(): Promise<{ status: 'ok'; adminMigration: string }> {
+    try {
+      const result = await sql<{ name: string }>`
+        select name from kysely_migration order by timestamp desc limit 1
+      `.execute(this.admin.db)
+      return { status: 'ok', adminMigration: result.rows[0]?.name ?? 'chưa migrate' }
+    } catch (error) {
+      // Trả 503 chứ không phải 500: đây là tín hiệu cho load balancer rút container
+      // này ra khỏi vòng phục vụ, không phải lỗi của người gọi.
+      throw new ServiceUnavailableException(
+        `không kết nối được DB quản trị: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+}
+```
+
+`apps/core/src/health/health.module.ts`:
+```ts
+import { Module } from '@nestjs/common'
+import { HealthController } from './health.controller.js'
+
+@Module({ controllers: [HealthController] })
+export class HealthModule {}
+```
+
+Thêm `HealthModule` vào `imports` của `AppModule`.
+
+- [ ] **Step 4: Bỏ migration tự động khi khởi động**
+
+Trong `apps/core/src/admin-db/admin-db.service.ts`, bỏ `OnModuleInit` và lời gọi `runAdminMigrations`:
+
+```ts
+import { Injectable, type OnModuleDestroy } from '@nestjs/common'
+import { Kysely, PostgresDialect } from 'kysely'
+import pg from 'pg'
+import { loadConfig } from '../config.js'
+import type { AdminDatabase } from './schema.js'
+
+@Injectable()
+export class AdminDbService implements OnModuleDestroy {
+  readonly db: Kysely<AdminDatabase>
+
+  constructor() {
+    const config = loadConfig()
+    this.db = new Kysely<AdminDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({ connectionString: config.adminDatabaseUrl, max: 10 }),
+      }),
+    })
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.db.destroy()
+  }
+}
+```
+
+Migration giờ chỉ chạy qua CLI. Bổ sung lệnh `migrate-admin` vào `apps/core/src/admin-cli.ts`, ngay trước nhánh `create-tenant`:
+
+```ts
+    if (command === 'migrate-admin') {
+      const { runAdminMigrations } = await import('./admin-db/migrator.js')
+      await runAdminMigrations(admin.db)
+      console.log('đã migrate DB quản trị')
+      return
+    }
+```
+
+Và cập nhật dòng trợ giúp cuối hàm:
+```ts
+    console.log('các lệnh: migrate-admin, create-tenant, issue-key, migrate-all')
+```
+
+**Hệ quả với test:** các test tích hợp trước đây dựa vào migration tự động lúc `app.init()`. Sửa `apps/core/test/helpers.ts`, thêm lời gọi migration vào `resetAdminDatabase`:
+
+```ts
+import { Kysely, PostgresDialect } from 'kysely'
+import { runAdminMigrations } from '../src/admin-db/migrator.js'
+import type { AdminDatabase } from '../src/admin-db/schema.js'
+
+export async function resetAdminDatabase(): Promise<void> {
+  const url = new URL(process.env.ADMIN_DATABASE_URL ?? '')
+  const name = url.pathname.slice(1)
+  const root = new pg.Client({ connectionString: ROOT })
+  await root.connect()
+  await root.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`)
+  await root.query(`CREATE DATABASE ${name}`)
+  await root.end()
+
+  const db = new Kysely<AdminDatabase>({
+    dialect: new PostgresDialect({
+      pool: new pg.Pool({ connectionString: process.env.ADMIN_DATABASE_URL }),
+    }),
+  })
+  await runAdminMigrations(db)
+  await db.destroy()
+}
+```
+
+- [ ] **Step 5: Đọc CORS từ biến môi trường**
+
+Trong `apps/core/src/config.ts`, thêm vào `CoreConfig` và `loadConfig`:
+
+```ts
+export interface CoreConfig {
+  port: number
+  adminDatabaseUrl: string
+  tenantDatabaseUrlTemplate: string
+  corsOrigins: string[]
+}
+```
+
+và trong `loadConfig`, trước `return`:
+```ts
+  const corsOrigins = (env.CORS_ORIGINS ?? 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0)
+```
+rồi thêm `corsOrigins` vào object trả về.
+
+Trong `apps/core/src/main.ts`, thay dòng CORS cứng bằng:
+```ts
+  app.enableCors({
+    origin: config.corsOrigins,
+    allowedHeaders: ['Content-Type', 'X-Tenant-Id', 'Authorization'],
+  })
+```
+
+- [ ] **Step 6: Chạy test, xác nhận pass**
+
+Run: `pnpm --filter @lis/core test`
+Expected: toàn bộ test PASS, gồm 3 test health.
+
+- [ ] **Step 7: Viết Dockerfile**
+
+`.dockerignore` ở gốc repo:
+```
+node_modules
+**/node_modules
+**/dist
+**/out
+.git
+docs
+apps/agent
+tools/simulator
+```
+
+`apps/core/Dockerfile` (build từ gốc repo vì là monorepo):
+```dockerfile
+# syntax=docker/dockerfile:1.7
+
+FROM node:22-bookworm-slim AS base
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /repo
+
+# --- Cài phụ thuộc, tách riêng để tận dụng cache khi mã nguồn đổi ---
+FROM base AS deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/core/package.json apps/core/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter @lis/core... --prod=false
+
+# --- Biên dịch TypeScript ---
+FROM deps AS build
+COPY tsconfig.base.json ./
+COPY packages/shared packages/shared
+COPY apps/core apps/core
+RUN pnpm --filter @lis/core exec tsc -p tsconfig.json
+RUN pnpm --filter @lis/shared exec tsc -p tsconfig.json
+
+# --- Chỉ giữ phụ thuộc chạy thật ---
+FROM base AS prod-deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/core/package.json apps/core/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter @lis/core... --prod
+
+# --- Ảnh cuối ---
+FROM node:22-bookworm-slim AS runtime
+ENV NODE_ENV=production
+WORKDIR /repo
+
+COPY --from=prod-deps /repo/node_modules node_modules
+COPY --from=prod-deps /repo/apps/core/node_modules apps/core/node_modules
+COPY --from=prod-deps /repo/packages/shared/node_modules packages/shared/node_modules
+COPY --from=build /repo/apps/core/dist apps/core/dist
+COPY --from=build /repo/packages/shared/dist packages/shared/dist
+COPY apps/core/package.json apps/core/
+COPY packages/shared/package.json packages/shared/
+
+# Chạy bằng người dùng thường, không phải root.
+USER node
+EXPOSE 3000
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.CORE_PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "apps/core/dist/main.js"]
+```
+
+`packages/shared/package.json` phải trỏ `main`/`types` vào `dist` khi chạy production. Thêm trường `exports` để cả hai chế độ cùng chạy:
+```json
+{
+  "name": "@lis/shared",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "production": "./dist/index.js",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": { "test": "vitest run" }
+}
+```
+
+- [ ] **Step 8: Dựng image và chạy thử một mình**
+
+Run:
+```bash
+docker build -f apps/core/Dockerfile -t lis-connect-core:dev .
+docker run --rm --network host \
+  -e CORE_PORT=3000 \
+  -e ADMIN_DATABASE_URL=postgres://lis:lis@localhost:55432/lis_admin \
+  -e TENANT_DATABASE_URL_TEMPLATE=postgres://lis:lis@localhost:55432/{db} \
+  lis-connect-core:dev
+```
+Expected: in ra `LIS Connect Core đang chạy ở cổng 3000`; `curl localhost:3000/health` trả `{"status":"ok",...}`.
+
+- [ ] **Step 9: Viết compose cho môi trường chạy thật**
+
+`deploy/pgbouncer/pgbouncer.ini`:
+```ini
+[databases]
+; Định tuyến mọi database về Postgres thật; tên database do Core truyền vào.
+* = host=postgres port=5432
+
+[pgbouncer]
+listen_addr = 0.0.0.0
+listen_port = 6432
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+
+; transaction pooling: Core mở pool riêng cho mỗi tenant, nên số kết nối phía
+; client rất lớn còn số kết nối thật cần rất ít.
+pool_mode = transaction
+max_client_conn = 2000
+default_pool_size = 20
+min_pool_size = 0
+server_idle_timeout = 60
+
+; Prepared statement ở chế độ transaction pooling: bật để Kysely dùng được.
+max_prepared_statements = 200
+```
+
+`deploy/pgbouncer/userlist.txt.example`:
+```
+"lis" "SCRAM-SHA-256$4096:...thay bằng hash lấy từ pg_shadow..."
+```
+
+Lấy hash bằng:
+```bash
+docker compose exec postgres psql -U lis -tAc "select rolname||' '||rolpassword from pg_authid where rolname='lis'"
+```
+
+`deploy/caddy/Caddyfile`:
+```
+core.example.vn {
+	encode gzip
+
+	# Khoá Agent nằm ở query string của /agent, nên KHÔNG ghi query vào log.
+	log {
+		output stdout
+		format json
+	}
+
+	@agent path /agent*
+	handle @agent {
+		reverse_proxy core:3000 {
+			# Agent giữ kết nối hàng giờ; timeout mặc định sẽ cắt ngang.
+			transport http {
+				read_timeout 0
+				write_timeout 0
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy core:3000
+	}
+}
+```
+
+`deploy/docker-compose.prod.yml`:
+```yaml
+name: lis-connect
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.23.1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+
+  core:
+    image: lis-connect-core:${CORE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      pgbouncer:
+        condition: service_started
+    environment:
+      CORE_PORT: 3000
+      NODE_ENV: production
+      # Core nói với PgBouncer, không nói thẳng với Postgres.
+      ADMIN_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/lis_admin
+      TENANT_DATABASE_URL_TEMPLATE: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/{db}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+    deploy:
+      replicas: 2
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - core
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
+```
+
+**Lưu ý về việc tạo database tenant:** `provisionDatabase` chạy `CREATE DATABASE`, mà PgBouncer ở chế độ transaction pooling không cho phép lệnh này. Vì vậy CLI quản trị phải nối **thẳng vào Postgres**, không qua PgBouncer. Thêm biến môi trường riêng cho CLI trong `apps/core/src/config.ts`:
+
+```ts
+export interface CoreConfig {
+  port: number
+  adminDatabaseUrl: string
+  tenantDatabaseUrlTemplate: string
+  corsOrigins: string[]
+  /** Kết nối thẳng tới Postgres, bỏ qua PgBouncer. Chỉ CLI quản trị dùng, vì
+   *  CREATE DATABASE không chạy được qua transaction pooling. */
+  directDatabaseUrlTemplate: string
+}
+```
+và trong `loadConfig`:
+```ts
+  const directDatabaseUrlTemplate =
+    env.DIRECT_DATABASE_URL_TEMPLATE ?? tenantDatabaseUrlTemplate
+```
+
+Trong `apps/core/src/tenant/tenant.module.ts`, đổi provider `TenantMigratorService` sang dùng `directDatabaseUrlTemplate`:
+```ts
+    {
+      provide: TenantMigratorService,
+      inject: [AdminDbService],
+      useFactory: (admin: AdminDbService) =>
+        new TenantMigratorService(admin.db, loadConfig().directDatabaseUrlTemplate),
+    },
+```
+
+- [ ] **Step 10: Viết quy trình rollout**
+
+`deploy/README.md`:
+```markdown
+# Triển khai Core
+
+## Lần đầu
+
+1. Tạo `deploy/.env`:
+   ```
+   POSTGRES_USER=lis
+   POSTGRES_PASSWORD=<mật khẩu mạnh>
+   CORS_ORIGINS=https://app.example.vn
+   CORE_TAG=0.1.0
+   ```
+2. Sinh `deploy/pgbouncer/userlist.txt` từ `userlist.txt.example` (xem hướng dẫn
+   lấy hash trong file đó).
+3. `docker compose -f deploy/docker-compose.prod.yml up -d postgres pgbouncer`
+4. Tạo DB quản trị và migrate:
+   ```bash
+   docker compose -f deploy/docker-compose.prod.yml exec postgres \
+     psql -U lis -c "CREATE DATABASE lis_admin"
+   docker run --rm --network lis-connect_default \
+     -e ADMIN_DATABASE_URL=... -e TENANT_DATABASE_URL_TEMPLATE=... \
+     -e DIRECT_DATABASE_URL_TEMPLATE=postgres://lis:...@postgres:5432/{db} \
+     lis-connect-core:0.1.0 node apps/core/dist/admin-cli.js migrate-admin
+   ```
+5. `docker compose -f deploy/docker-compose.prod.yml up -d`
+
+## Mỗi lần lên phiên bản mới
+
+Thứ tự quan trọng: **migrate trước, đổi image sau**.
+
+1. Dựng và đẩy image mới với tag mới.
+2. Chạy job migration một lần (KHÔNG phải trong container ứng dụng):
+   ```bash
+   docker run --rm --network lis-connect_default \
+     -e ADMIN_DATABASE_URL=... -e DIRECT_DATABASE_URL_TEMPLATE=... \
+     lis-connect-core:<tag mới> node apps/core/dist/admin-cli.js migrate-admin
+   docker run --rm --network lis-connect_default \
+     -e ADMIN_DATABASE_URL=... -e DIRECT_DATABASE_URL_TEMPLATE=... \
+     lis-connect-core:<tag mới> node apps/core/dist/admin-cli.js migrate-all
+   ```
+   Lệnh `migrate-all` **không dừng ở tenant lỗi đầu tiên** và in ra danh sách
+   thất bại. Xử lý từng cơ sở thất bại trước khi đổi image.
+3. Đổi `CORE_TAG` trong `.env` rồi `docker compose ... up -d core`.
+
+Vì migration chạy trước, phiên bản Core cũ phải đọc được schema mới trong khoảng
+thời gian rollout. Nghĩa là: chỉ thêm cột, không xoá hay đổi tên cột trong cùng một
+lần lên phiên bản. Việc xoá cột để sang lần sau, khi mọi replica đã dùng mã mới.
+
+## Thêm một cơ sở khách hàng
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml exec core \
+  node apps/core/dist/admin-cli.js create-tenant bvA "Bệnh viện A"
+docker compose -f deploy/docker-compose.prod.yml exec core \
+  node apps/core/dist/admin-cli.js issue-key bvA "PC phòng sinh hóa"
+```
+
+Khoá Agent chỉ hiện một lần. Chép ngay và gửi cho người đi cài đặt.
+
+## Sao lưu
+
+Mỗi cơ sở một database, nên sao lưu và khôi phục làm được cho từng khách:
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml exec postgres \
+  pg_dump -U lis -Fc lis_t_bva > lis_t_bva-$(date +%F).dump
+```
+```
+
+- [ ] **Step 11: Thử toàn bộ ngăn xếp**
+
+Run:
+```bash
+docker build -f apps/core/Dockerfile -t lis-connect-core:0.1.0 .
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d
+curl -sf http://localhost/health
+```
+Expected: trả về `{"status":"ok",...}`. Sau đó trỏ một Agent vào `wss://<tên miền>/agent` và xác nhận kết nối đứng vững quá 5 phút, không bị proxy cắt.
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add -A
+git commit -m "feat(core): dockerfile, pgbouncer stack and rollout procedure"
+```
+
+---
+
 ## Định nghĩa hoàn thành giai đoạn 1
 
 Giai đoạn 1 xong khi tất cả các mục sau đúng:
@@ -7448,3 +8044,6 @@ Giai đoạn 1 xong khi tất cả các mục sau đúng:
 - [ ] Tab Terminal thô hiện đúng byte khi thử với cổng ảo `com0com`
 - [ ] Web UI hiện danh sách máy với đèn trạng thái và xem được dữ liệu thô
 - [ ] Tài liệu triển khai đủ để một người chưa từng cài làm được mà không hỏi
+- [ ] Core dựng được image Docker, `/health` trả ok, Agent giữ kết nối WebSocket
+      qua reverse proxy trên 5 phút không đứt
+- [ ] Giao diện Agent Console và Web UI đã đi qua skill `ui-ux-pro-max`
