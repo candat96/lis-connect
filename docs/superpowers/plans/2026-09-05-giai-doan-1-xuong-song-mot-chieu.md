@@ -23,6 +23,15 @@
 - Ngôn ngữ giao diện: tiếng Việt có dấu đầy đủ. Mã nguồn, tên hàm, tên biến, thông điệp commit: tiếng Anh.
 - Mọi thời điểm lưu dạng `timestamptz`, sinh bằng `now()` của Postgres hoặc `new Date()` UTC. Không lưu giờ địa phương.
 - Commit sau mỗi task. Thông điệp theo Conventional Commits.
+- Monorepo dùng **TypeScript project references**: gốc repo có `tsconfig.json` với mảng
+  `references`, và mọi package đặt `composite: true` (kế thừa từ `tsconfig.base.json`).
+  **Mỗi task tạo package mới phải thêm một mục vào `references` của `tsconfig.json` gốc**,
+  nếu không `pnpm typecheck` sẽ bỏ qua package đó.
+- Package nào để test ở thư mục `test/` cạnh `src/` thì `tsconfig.json` của nó phải giữ
+  `rootDir: "src"` và `include: ["src"]` — để `dist/` phẳng và **mã kiểm thử không lọt vào
+  bản dựng production** — kèm một `tsconfig.test.json` riêng (`composite: false`,
+  `noEmit: true`, `include: ["src", "test"]`) để test vẫn được kiểm kiểu. Lệnh
+  `pnpm typecheck` chạy cả hai.
 - **Mọi task có giao diện (Task 15, Task 16) BẮT BUỘC gọi skill `ui-ux-pro-max`
   trước khi viết dòng JSX đầu tiên**, và thiết kế theo hướng dẫn skill trả về. Các
   đoạn JSX và CSS trong kế hoạch này là bản dựng chức năng để chốt luồng dữ liệu và
