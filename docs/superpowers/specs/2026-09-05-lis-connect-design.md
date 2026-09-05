@@ -51,7 +51,8 @@ chạy với đúng một tenant. Không có nhánh mã riêng, không có bản
 |---|---|
 | Core | NestJS + PostgreSQL |
 | Web UI | React |
-| Agent | Node.js (thư viện `serialport`), đóng gói thành `.exe` chạy như Windows Service |
+| Agent Service | Node.js (`serialport`), chạy như Windows Service, không giao diện |
+| Agent Console | Electron (React), app cấu hình mở khi cần |
 
 Chọn Node cho Agent để đồng nhất ngôn ngữ với Core và tái dùng cùng bộ kiểu dữ liệu.
 
@@ -88,6 +89,9 @@ host-query tại chỗ trong 1-3 giây (mục 3.6).
 
 **Vai 3 — cổng LAN cho HIS:** mở REST API trên `:8080` cho HIS trong mạng nội bộ
 gọi vào (mục 3.6).
+
+**Vai 4 — phục vụ Agent Console:** mở HTTP + WebSocket trên `:8081` cho ứng dụng
+cấu hình tại chỗ (mục 3.8).
 
 Agent **không** biết gì về bệnh nhân, giá dịch vụ hay HIS. Cấu hình của nó do Core
 đẩy xuống chứ không sửa tay trên từng máy — đây là điều kiện để vận hành được
@@ -181,7 +185,85 @@ trữ. Nhật ký truy cập phải có từ đầu — thêm vào khi đã có 
 Agent do đó mang ba vai — nói chuyện với máy, cache chỉ định, cổng LAN cho HIS —
 vẫn tách thành ba module rõ ràng bên trong nó.
 
-### 3.7 Quyết định: hướng kết nối Core ↔ Agent
+### 3.7 Agent Console — ứng dụng Windows cấu hình tại chỗ
+
+Cấu hình nghiệp vụ do Core đẩy xuống, nhưng lúc cài đặt lần đầu thì chưa có gì để
+đẩy: kỹ thuật viên đang đứng cạnh máy, chưa biết cổng COM nào, Agent chưa ghép với
+tenant nào. Bắt họ mở Web UI trên cloud để dò cổng COM của cái máy ngay trước mặt là
+vô lý. Vì vậy Agent có ứng dụng cấu hình riêng chạy tại chỗ.
+
+#### Tách hai tiến trình
+
+Electron cần có người đăng nhập Windows mới chạy, còn Agent phải chạy 24/7 kể cả khi
+không ai ngồi trước máy. Gộp làm một thì chỉ cần ai đó đóng cửa sổ, hoặc máy khởi
+động lại mà chưa login, là phòng xét nghiệm mất kết nối. Nên tách làm hai tiến trình,
+cài chung một bộ:
+
+```
+┌─ lisconnect-agent.exe ──── Windows Service, không giao diện ─┐
+│   serialport ──► COM3        net ──► máy TCP      fs.watch  │
+│   SQLite cache · hàng đợi · WSS lên Core · REST :8080 cho HIS│
+│   ────────────── HTTP + WebSocket trên :8081 ────────────────│
+└──────────────────────────────┬───────────────────────────────┘
+                               │ (localhost)
+┌─ LIS Connect Console.exe ────┴─ Electron, mở khi cần ────────┐
+│   4 tab: Kết nối Core · Máy XN · Terminal thô · Nhật ký      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Service tự khởi động cùng Windows, không cần ai đăng nhập. Console mở lên để cấu
+hình và xem log, đóng lại thì máy vẫn chạy. Cả hai đều là Node nên dùng chung code
+và kiểu dữ liệu.
+
+Console trỏ được tới Agent ở **máy khác trong LAN** (`http://192.168.1.20:8081`), nên
+kỹ thuật viên ngồi một chỗ cấu hình được cả nhiều máy trong phòng.
+
+#### Bốn tab
+
+**Kết nối Core** — URL Core, dán `agentKey` (hoặc mã ghép 6 số lấy từ Web UI), cấu
+hình proxy nếu bệnh viện bắt đi qua proxy. Nút **Kiểm tra kết nối** báo rõ: thông
+mạng chưa, khóa đúng chưa, đang thuộc cơ sở nào.
+
+**Máy xét nghiệm** — danh sách máy kèm đèn trạng thái. Thêm/sửa một máy:
+
+- *Serial*: dropdown liệt kê sẵn các cổng COM đang có trên máy tính, kèm tên thiết bị
+  để phân biệt các bộ USB-Serial; baudrate/parity/databits/stopbits; chọn driver.
+- *TCP*: IP, cổng, Agent làm client hay server.
+- *File*: thư mục, mẫu tên file, có xóa file sau khi đọc không.
+
+Nút **Test kết nối** mở cổng thử, báo mở được không, và nếu máy có bắt tay
+(ENQ/ACK) thì báo bắt tay được không.
+
+**Terminal thô** — xem byte vào/ra theo thời gian thực, dạng text lẫn hex, có ô gửi
+chuỗi tự soạn xuống máy. Đây là công cụ khi dò một máy lạ chưa có driver: ngồi xem nó
+nói gì rồi mới viết driver.
+
+**Nhật ký** — log của Agent, hàng đợi còn tồn bao nhiêu, nút xuất gói chẩn đoán
+(log + cấu hình, đã che thông tin bệnh nhân) để gửi về khi hỗ trợ từ xa.
+
+#### Ai sở hữu cấu hình nào
+
+Phải rõ, nếu không sẽ có hai nguồn sự thật đánh nhau.
+
+| Loại cấu hình | Sửa ở đâu | Vì sao |
+|---|---|---|
+| URL Core, `agentKey`, proxy, cổng REST LAN | **Chỉ Agent Console** | Là thông tin về chính máy tính đó; Core không thể biết trước |
+| Cổng COM, baudrate, IP máy, thư mục | **Agent Console**, đồng bộ ngược lên Core | Thứ vật lý tại chỗ. Core lưu bản sao để hiển thị và sao lưu, nhưng không tự ý ghi đè |
+| Driver nào, chế độ broadcast/host-query | Cả hai, Core là nguồn sự thật | Là quyết định nghiệp vụ |
+| Ánh xạ mã test, danh mục xét nghiệm, khoảng tham chiếu | **Chỉ Web UI** | Dùng chung toàn cơ sở, không thuộc về một máy tính nào |
+
+Quy tắc: **thứ gì mô tả phần cứng thì thuộc về Agent; thứ gì mô tả nghiệp vụ thì
+thuộc về Core.** Nhờ vậy cài đặt tại chỗ vẫn làm được khi chưa có mạng, còn quản lý
+từ xa vẫn nắm được toàn cảnh.
+
+#### Ghi chú kỹ thuật
+
+`serialport` là native module. `electron-builder` cùng `electron-rebuild` xử lý việc
+biên dịch và đóng gói native module đã chín, nên chọn Electron cũng gỡ luôn rủi ro
+đóng gói mà `pkg`/Node SEA hay vướng. Cái giá là dung lượng bộ cài (~150MB) — chấp
+nhận được.
+
+### 3.8 Quyết định: hướng kết nối Core ↔ Agent
 
 Kênh WebSocket do **Agent chủ động mở lên Core**, không phải Core gọi xuống Agent.
 
@@ -434,10 +516,11 @@ Bản thiết kế này quá lớn cho một kế hoạch thực thi duy nhất.
 giai đoạn, mỗi giai đoạn có spec và kế hoạch riêng, và mỗi giai đoạn đều cho ra thứ
 dùng được.
 
-**Giai đoạn 1 — Xương sống một chiều.** Core với multi-tenant và định tuyến DB, một
-Agent, một driver duy nhất (chọn máy phổ biến nhất trong tệp khách đầu tiên), máy
-giả lập, kênh WebSocket có hàng đợi và idempotency, màn hình theo dõi kết nối, màn
-hình xem kết quả thô. Chưa có chỉ định, chưa có HIS: chỉ hứng kết quả từ máy và hiện
+**Giai đoạn 1 — Xương sống một chiều.** Core với multi-tenant và định tuyến DB, Agent
+Service, **Agent Console với tab Kết nối Core, Máy xét nghiệm và Terminal thô**, một
+driver duy nhất (chọn máy phổ biến nhất trong tệp khách đầu tiên), máy giả lập, kênh
+WebSocket có hàng đợi và idempotency, màn hình theo dõi kết nối, màn hình xem kết quả
+thô. Chưa có chỉ định, chưa có HIS: chỉ hứng kết quả từ máy và hiện
 lên. Đây là phần rủi ro kỹ thuật cao nhất nên phải làm trước.
 
 **Giai đoạn 2 — Hai chiều và chế độ độc lập.** Danh mục xét nghiệm, bệnh nhân, chỉ
