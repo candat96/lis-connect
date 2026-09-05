@@ -5,8 +5,23 @@ import type { AdminDatabase } from '../admin-db/schema.js'
 import { assertValidDatabaseName } from './database-name.js'
 import type { TenantDatabase } from './tenant-schema.js'
 
+interface PoolHandle {
+  db: Kysely<TenantDatabase>
+  /**
+   * Tham chiếu trực tiếp tới `pg.Pool` đã truyền cho `PostgresDialect`.
+   *
+   * `Kysely.destroy()` là no-op nếu driver của nó chưa từng khởi tạo (driver
+   * chỉ khởi tạo khi có truy vấn đầu tiên chạy qua) — một pool được tạo và
+   * cache nhưng chưa từng query thì `db.destroy()` không đóng gì cả, và
+   * `pg.Pool` bên dưới vẫn sống, giữ nguyên kết nối tới Postgres. Vì vậy việc
+   * đóng pool không được phụ thuộc vào vòng đời driver của Kysely — phải tự
+   * gọi `pool.end()` trực tiếp.
+   */
+  pool: pg.Pool
+}
+
 interface Entry {
-  dbPromise: Promise<Kysely<TenantDatabase>>
+  handlePromise: Promise<PoolHandle>
   lastUsedAt: number
 }
 
@@ -42,18 +57,18 @@ export class TenantRegistryService implements OnModuleDestroy {
     const cached = this.entries.get(tenantId)
     if (cached) {
       cached.lastUsedAt = Date.now()
-      return cached.dbPromise
+      return (await cached.handlePromise).db
     }
 
     assertValidDatabaseName(tenant.database_name)
     const entry: Entry = {
-      dbPromise: this.createPool(tenant.database_name),
+      handlePromise: this.createPool(tenant.database_name),
       lastUsedAt: Date.now(),
     }
     this.entries.set(tenantId, entry)
 
     try {
-      return await entry.dbPromise
+      return (await entry.handlePromise).db
     } catch (err) {
       // Tạo pool thất bại: gỡ entry hỏng để lần gọi sau được thử lại từ đầu.
       if (this.entries.get(tenantId) === entry) this.entries.delete(tenantId)
@@ -80,16 +95,14 @@ export class TenantRegistryService implements OnModuleDestroy {
     return tenant
   }
 
-  private async createPool(databaseName: string): Promise<Kysely<TenantDatabase>> {
+  private async createPool(databaseName: string): Promise<PoolHandle> {
     // `{db}` được nội suy bằng hàm thay vì chuỗi để `String.replace` không
     // diễn giải các mẫu đặc biệt ($&, $`, $', $<n>...) có thể xuất hiện trong
     // databaseName.
     const url = this.urlTemplate.replace('{db}', () => databaseName)
-    return new Kysely<TenantDatabase>({
-      dialect: new PostgresDialect({
-        pool: new pg.Pool({ connectionString: url, max: 4, idleTimeoutMillis: 10_000 }),
-      }),
-    })
+    const pool = new pg.Pool({ connectionString: url, max: 4, idleTimeoutMillis: 10_000 })
+    const db = new Kysely<TenantDatabase>({ dialect: new PostgresDialect({ pool }) })
+    return { db, pool }
   }
 
   /** Gỡ và đóng hẳn pool đang cache của một tenant, nếu có. */
@@ -101,11 +114,28 @@ export class TenantRegistryService implements OnModuleDestroy {
   }
 
   private async destroyEntry(entry: Entry): Promise<void> {
+    let handle: PoolHandle
     try {
-      const db = await entry.dbPromise
-      await db.destroy()
+      handle = await entry.handlePromise
     } catch {
-      // Pool chưa từng kết nối thành công thì không có gì để đóng.
+      // Tạo pool thất bại: không có gì để đóng.
+      return
+    }
+
+    try {
+      // Dọn phần Kysely quản lý (không làm gì nếu driver chưa từng khởi tạo).
+      await handle.db.destroy()
+    } catch {
+      // Không để lỗi dọn dẹp phía Kysely chặn việc đóng pool thật bên dưới.
+    }
+
+    try {
+      // Đóng thẳng pg.Pool: đây mới là bước thực sự trả kết nối cho Postgres,
+      // bất kể driver của Kysely đã khởi tạo hay chưa.
+      await handle.pool.end()
+    } catch {
+      // `pg` ném lỗi nếu end() được gọi khi pool đã đóng rồi (ví dụ
+      // db.destroy() ở trên đã tự đóng vì driver có khởi tạo) — bỏ qua.
     }
   }
 

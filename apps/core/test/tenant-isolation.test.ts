@@ -139,6 +139,29 @@ describe('cô lập giữa các tenant', () => {
     expect(rows.length).toBe(1)
   })
 
+  it('evictIdle đóng cả pool chưa từng chạy truy vấn nào', async () => {
+    // Kysely.destroy() là no-op nếu driver của nó chưa từng khởi tạo (driver
+    // chỉ khởi tạo khi có truy vấn đầu tiên chạy qua). Test evictIdle ở trên
+    // vô tình luôn xanh vì tenantA đã được query ở các test trước trong cùng
+    // tệp; test này dùng một tenant MỚI, chưa từng chạy truy vấn nào, để
+    // không có "may mắn" nào che giấu việc pool.destroy() không đóng gì cả.
+    await dropIfExists('lis_t_iso_g')
+    const g = await admin
+      .insertInto('tenants')
+      .values({ code: 'iso-g', name: 'Bệnh viện G', database_name: 'lis_t_iso_g', status: 'active' })
+      .returningAll()
+      .executeTakeFirstOrThrow()
+    await migrator.provisionDatabase(g.id)
+
+    const before = await registry.forTenant(g.id)
+    // Cố ý KHÔNG chạy truy vấn nào trên `before` trước khi evict.
+
+    const closed = await registry.evictIdle(0)
+    expect(closed).toBeGreaterThan(0)
+
+    await expect(before.selectFrom('devices').selectAll().execute()).rejects.toThrow()
+  }, 20_000)
+
   it('forTenant từ chối tenant không tồn tại', async () => {
     await expect(registry.forTenant(crypto.randomUUID())).rejects.toThrow(/không tìm thấy tenant/)
   })
@@ -167,14 +190,21 @@ describe('cô lập giữa các tenant', () => {
       .executeTakeFirstOrThrow()
     await migrator.provisionDatabase(d.id)
 
-    // Cache pool trong khi tenant còn active.
-    await registry.forTenant(d.id)
+    // Cache pool trong khi tenant còn active. Không chạy truy vấn nào trên
+    // handle này — pool cache lại đúng ca "chưa từng query" mà Kysely.destroy()
+    // một mình không đóng nổi.
+    const cachedBeforeSuspend = await registry.forTenant(d.id)
 
     await admin.updateTable('tenants').set({ status: 'suspended' }).where('id', '=', d.id).execute()
 
     // Lần gọi sau, dù pool đã cache, vẫn phải bị từ chối ngay — không được
     // đợi tới evictIdle hay khởi động lại tiến trình mới có hiệu lực.
     await expect(registry.forTenant(d.id)).rejects.toThrow(/tạm ngưng/)
+
+    // Handle cũ giữ lại từ trước lúc tạm ngưng cũng phải không dùng được nữa —
+    // registry phải tự đóng pool khi phát hiện tenant không còn active, không
+    // chỉ từ chối cấp phát mới.
+    await expect(cachedBeforeSuspend.selectFrom('devices').selectAll().execute()).rejects.toThrow()
   }, 20_000)
 
   it('nhiều lời gọi đồng thời cho tenant chưa cache trả về cùng một instance', async () => {
@@ -194,6 +224,12 @@ describe('cô lập giữa các tenant', () => {
 
     expect(r1).toBe(r2)
     expect(r2).toBe(r3)
+
+    // Đúng một pool được tạo, nên evictIdle phải đóng được nó và làm nó
+    // không dùng được nữa — không có pool mồ côi nào đứng ngoài cache.
+    const closed = await registry.evictIdle(0)
+    expect(closed).toBeGreaterThan(0)
+    await expect(r1.selectFrom('devices').selectAll().execute()).rejects.toThrow()
   }, 20_000)
 })
 
