@@ -7,5 +7,6 @@
     "emitDecoratorMetadata": true,
     "moduleResolution": "Bundler"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["**/*.test.ts"]
 }
