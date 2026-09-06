@@ -464,6 +464,72 @@ button.danger:hover:not(:disabled) {
 
 /* ---------- Terminal thô ---------- */
 
+/*
+ * Bộ chọn máy dạng dãy nút (segmented tabs), không dùng <select> — kỹ thuật
+ * viên cần thấy số dòng của TẤT CẢ các máy cùng lúc để biết máy nào đang nói,
+ * máy nào im lặng, mà không cần mở dropdown ra từng cái một.
+ */
+.device-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 var(--space-3);
+}
+
+.device-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.2;
+  max-width: 220px;
+}
+
+.device-chip:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-muted);
+}
+
+.device-chip.active {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: #fff;
+}
+
+.device-chip.active .device-chip-count {
+  color: #fff;
+  opacity: 0.85;
+}
+
+.device-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-chip-flag {
+  flex: none;
+  font-size: 11px;
+  color: var(--color-text-faint);
+}
+
+.device-chip.active .device-chip-flag {
+  color: #fff;
+  opacity: 0.75;
+}
+
+.device-chip-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
 .terminal-toolbar {
   display: flex;
   gap: var(--space-3);
