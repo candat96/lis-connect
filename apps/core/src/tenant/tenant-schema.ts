@@ -125,7 +125,8 @@ export interface DeviceAnalyteMapTable {
 
 export interface ResultMappingsTable {
   id: Generated<string>
-  device_id: string
+  /** NULL nghĩa là quy tắc áp dụng cho mọi máy (ví dụ: diễn giải TPHA). */
+  device_id: ColumnType<string | null, string | null | undefined, string | null>
   analyte_code: string
   result_in: string
   result_out: ColumnType<string | null, string | null | undefined, string | null>

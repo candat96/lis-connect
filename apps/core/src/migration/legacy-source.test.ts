@@ -73,6 +73,18 @@ describe('loadLegacySource', () => {
     expect(src.resultMappings[0]!.analyteCode).toBe('141ULeu')
   })
 
+  it('đọc luật áp dụng cho mọi máy khi InstrumentID rỗng (ví dụ diễn giải TPHA)', () => {
+    write('ResultMapping.json', [
+      { InstrumentID: null, TestCode: '131TPHA', ResultIn: '1:160', Result: '1:160', Comment: 'Dương tính', Color: 0 },
+      { InstrumentID: 19, TestCode: '141ULeu', ResultIn: '100', Result: '100', Comment: null, Color: 0 },
+    ])
+    const src = loadLegacySource(dir)
+    expect(src.resultMappings).toHaveLength(2)
+    expect(src.resultMappings[0]!.insId).toBeNull()
+    expect(src.resultMappings[0]!.analyteCode).toBe('131TPHA')
+    expect(src.resultMappings[1]!.insId).toBe(19)
+  })
+
   it('đọc máy xét nghiệm kèm giao thức', () => {
     write('Instrument.json', [
       { InsID: 1, InsName: 'AU640', ProtocolID: 'AU', ConType: 'C', LocationID: 'DK10', Active: true },

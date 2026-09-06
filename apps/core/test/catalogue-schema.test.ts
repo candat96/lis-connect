@@ -159,4 +159,83 @@ describe('schema danh mục', () => {
       .execute()
     expect(members).toHaveLength(1)
   })
+
+  it('lưu được quy tắc ghi đè áp dụng cho mọi máy khi device_id rỗng', async () => {
+    const db = await registry.forTenant(tenantId)
+    // Thêm xét nghiệm nếu chưa có
+    await db
+      .insertInto('analytes')
+      .values({
+        code: '131TPHA',
+        name: 'Giang mai (TPHA)',
+        result_is_comment: false,
+        source: 'legacy',
+      })
+      .onConflict((oc) => oc.doNothing())
+      .execute()
+    const commonRule = await db
+      .insertInto('result_mappings')
+      .values({
+        device_id: null,
+        analyte_code: '131TPHA',
+        result_in: '1:160',
+        result_out: '1:160',
+        comment: 'Dương tính',
+        color: 0,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow()
+    expect(commonRule.device_id).toBeNull()
+    expect(commonRule.comment).toBe('Dương tính')
+  })
+
+  it('chặn hai quy tắc chung trùng (device_id rỗng)', async () => {
+    const db = await registry.forTenant(tenantId)
+    // Đã lưu ở test trước: (device_id: null, analyte_code: '131TPHA', result_in: '1:160')
+    // Thử lưu lại → phải báo lỗi vì partial unique index
+    await expect(
+      db
+        .insertInto('result_mappings')
+        .values({
+          device_id: null,
+          analyte_code: '131TPHA',
+          result_in: '1:160',
+          result_out: 'Khác',
+          comment: 'Xung đột',
+        })
+        .execute(),
+    ).rejects.toThrow()
+  })
+
+  it('cho phép luật gắn máy và luật chung cùng (analyte_code, result_in)', async () => {
+    const db = await registry.forTenant(tenantId)
+    const device = await db.selectFrom('devices').selectAll().executeTakeFirstOrThrow()
+
+    // Luật chung: (device_id: null, '034NEU%', '50')
+    await db
+      .insertInto('result_mappings')
+      .values({
+        device_id: null,
+        analyte_code: '034NEU%',
+        result_in: '50',
+        result_out: '50',
+        comment: 'Luật chung',
+      })
+      .execute()
+
+    // Luật gắn máy cùng (analyte_code, result_in) nhưng khác device → OK
+    const deviceRule = await db
+      .insertInto('result_mappings')
+      .values({
+        device_id: device.id,
+        analyte_code: '034NEU%',
+        result_in: '50',
+        result_out: '50 trên AU640',
+        comment: 'Luật gắn máy',
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow()
+    expect(deviceRule.device_id).toBe(device.id)
+    expect(deviceRule.comment).toBe('Luật gắn máy')
+  })
 })

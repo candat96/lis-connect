@@ -75,7 +75,7 @@ export interface LegacyInterfacePara {
 }
 
 export interface LegacyResultMapping {
-  insId: number
+  insId: number | null
   analyteCode: string
   resultIn: string
   resultOut: string | null
@@ -205,12 +205,13 @@ export function loadLegacySource(dir: string): LegacySource {
 
   const resultMappings: LegacyResultMapping[] = []
   for (const r of readRows(dir, 'ResultMapping.json')) {
-    const insId = cleanNumber(r.InstrumentID)
     const analyteCode = cleanString(r.TestCode)
     const resultIn = cleanString(r.ResultIn)
-    if (insId === null || !analyteCode || !resultIn) continue
+    // insId có thể rỗng — chỉ định luật áp dụng cho mọi máy (ví dụ: diễn giải TPHA
+    // "1:160 → Dương tính" áp dụng cho tất cả máy xét nghiệm).
+    if (!analyteCode || !resultIn) continue
     resultMappings.push({
-      insId,
+      insId: cleanNumber(r.InstrumentID),
       analyteCode,
       resultIn,
       resultOut: cleanString(r.Result),

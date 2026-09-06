@@ -85,7 +85,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
     .createTable('result_mappings')
     .addColumn('id', 'uuid', (c) => c.primaryKey().defaultTo(sql`gen_random_uuid()`))
-    .addColumn('device_id', 'uuid', (c) => c.notNull().references('devices.id').onDelete('cascade'))
+    // NULL nghĩa là quy tắc áp dụng cho mọi máy (ví dụ: diễn giải TPHA "1:160 → Dương tính").
+    // Postgres coi mỗi NULL là khác nhau nên UNIQUE constraint không chặn được
+    // hai quy tắc chung trùng nhau, nên dùng hai partial unique index thay vì.
+    .addColumn('device_id', 'uuid', (c) => c.references('devices.id').onDelete('cascade'))
     .addColumn('analyte_code', 'varchar(64)', (c) =>
       c.notNull().references('analytes.code').onDelete('cascade'),
     )
@@ -94,7 +97,24 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('comment', 'text')
     // 0 bình thường, 1 thấp, 2 cao — giữ đúng quy ước của hệ cũ
     .addColumn('color', 'integer')
-    .addUniqueConstraint('result_mappings_unique', ['device_id', 'analyte_code', 'result_in'])
+    .execute()
+
+  // Quy tắc gắn máy: không được trùng (device_id, analyte_code, result_in)
+  await db.schema
+    .createIndex('result_mappings_device_unique')
+    .on('result_mappings')
+    .columns(['device_id', 'analyte_code', 'result_in'])
+    .where(sql`device_id is not null` as any)
+    .unique()
+    .execute()
+
+  // Quy tắc chung (không gắn máy): không được trùng (analyte_code, result_in)
+  await db.schema
+    .createIndex('result_mappings_common_unique')
+    .on('result_mappings')
+    .columns(['analyte_code', 'result_in'])
+    .where(sql`device_id is null` as any)
+    .unique()
     .execute()
 
   await db.schema
