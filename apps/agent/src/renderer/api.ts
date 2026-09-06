@@ -32,6 +32,8 @@ export const api = {
     window.agent.invoke<AgentConfig>('agent:remove-device', deviceKey),
   testConnection: (device: DeviceConfig) =>
     window.agent.invoke<{ ok: boolean; detail: string }>('agent:test-connection', device),
+  openDeviceWindow: (deviceKey: string) =>
+    window.agent.invoke<void>('agent:open-device-window', deviceKey),
   status: () => window.agent.invoke<AgentStatus>('agent:status'),
   onTraffic: (handler: (line: TrafficLine) => void) =>
     window.agent.on('agent:traffic', (payload) => handler(payload as TrafficLine)),

@@ -151,7 +151,13 @@ export function DevicesTab({ status }: { status: AgentStatus | null }): JSX.Elem
                           {statusLabel(current)}
                         </span>
                       </td>
-                      <td>
+                      <td className="table-actions">
+                        <button
+                          type="button"
+                          onClick={() => void api.openDeviceWindow(device.deviceKey)}
+                        >
+                          Mở cửa sổ theo dõi
+                        </button>
                         <button className="danger" onClick={() => void remove(device.deviceKey)}>
                           Xoá
                         </button>

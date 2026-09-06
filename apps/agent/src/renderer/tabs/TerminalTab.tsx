@@ -3,8 +3,9 @@ import type { DeviceConfig } from '../../main/config-store.js'
 import { api, type TrafficLine } from '../api.js'
 
 /** Số dòng tối đa giữ lại cho MỖI máy, độc lập nhau — máy ồn ào không được
- * đẩy log của máy khác ra khỏi bộ đệm (xem báo cáo Task 20). */
-const MAX_LINES_PER_DEVICE = 500
+ * đẩy log của máy khác ra khỏi bộ đệm (xem báo cáo Task 20). Cửa sổ theo dõi
+ * riêng (DeviceWindow.tsx) dùng lại cùng hằng số này cho bộ đệm riêng của nó. */
+export const MAX_LINES_PER_DEVICE = 500
 /** Bộ đệm gộp cho chế độ xem "Tất cả các máy". Rộng hơn bộ đệm từng máy vì nó
  * cộng dồn lưu lượng của mọi máy, nhưng vẫn có trần để tránh phình bộ nhớ khi
  * Agent chạy nhiều giờ liền. */
@@ -31,7 +32,9 @@ interface DeviceOption {
  * Chuyển bằng JavaScript thuần để không phải thêm phụ thuộc `buffer` và
  * không phải sửa `electron.vite.config.ts` để polyfill global.
  */
-function hexToText(hex: string): string {
+// Xuất ra để DeviceWindow.tsx (cửa sổ theo dõi riêng từng máy) dùng lại, tránh
+// lặp lại cùng một phép chuyển đổi hex ở hai nơi.
+export function hexToText(hex: string): string {
   let result = ''
   for (let i = 0; i + 1 < hex.length; i += 2) {
     const byte = Number.parseInt(hex.slice(i, i + 2), 16)
@@ -40,7 +43,7 @@ function hexToText(hex: string): string {
   return result
 }
 
-function hexPretty(hex: string): string {
+export function hexPretty(hex: string): string {
   return (hex.match(/.{1,2}/g) ?? []).join(' ').toUpperCase()
 }
 

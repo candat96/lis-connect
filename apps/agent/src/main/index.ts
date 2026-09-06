@@ -28,6 +28,13 @@ function resolveAsset(name: string): string {
 let window: BrowserWindow | null = null
 let tray: Tray | null = null
 let coreClient: CoreClient | null = null
+/**
+ * Cửa sổ theo dõi riêng cho từng máy (spec Task 23): mở "Máy xét nghiệm" →
+ * nút "Mở cửa sổ theo dõi" → một BrowserWindow độc lập, không phải tab con
+ * của cửa sổ chính. Map mã máy → cửa sổ để mở lại thì đưa lên trước
+ * (`focus()`) thay vì mở trùng; dọn khỏi map khi cửa sổ đóng.
+ */
+const deviceWindows = new Map<string, BrowserWindow>()
 
 export const configStore = new ConfigStore(join(app.getPath('userData'), 'config.json'))
 const localDb = LocalDb.open(join(app.getPath('userData'), 'agent.sqlite'))
@@ -67,6 +74,27 @@ function restartCoreClient(): void {
   coreClient.start()
 }
 
+/**
+ * Nạp cùng một giao diện renderer cho cửa sổ chính lẫn cửa sổ theo dõi máy,
+ * chỉ khác tham số `device`. Renderer đọc tham số này (query string ở URL dev,
+ * hoặc tuỳ chọn `search` của `loadFile` ở bản dựng) để tự quyết định dựng chế
+ * độ ba tab hay chế độ cửa sổ đơn — tiến trình main không biết gì về nội dung
+ * giao diện, chỉ truyền tham số.
+ */
+function loadRenderer(target: BrowserWindow, deviceKey?: string): void {
+  if (process.env.ELECTRON_RENDERER_URL) {
+    const url = new URL(process.env.ELECTRON_RENDERER_URL)
+    if (deviceKey) url.searchParams.set('device', deviceKey)
+    void target.loadURL(url.toString())
+  } else if (deviceKey) {
+    void target.loadFile(join(__dirname, '../renderer/index.html'), {
+      search: `device=${encodeURIComponent(deviceKey)}`,
+    })
+  } else {
+    void target.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
 function createWindow(): void {
   if (window) {
     window.show()
@@ -83,11 +111,36 @@ function createWindow(): void {
     window = null
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void window.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    void window.loadFile(join(__dirname, '../renderer/index.html'))
+  loadRenderer(window)
+}
+
+/**
+ * Mở cửa sổ theo dõi riêng cho một máy (nút "Mở cửa sổ theo dõi" ở tab Máy
+ * xét nghiệm). Máy đã có cửa sổ thì đưa cửa sổ đó lên trước thay vì mở trùng.
+ * Cửa sổ này KHÔNG có `parent` — cố ý, để kỹ thuật viên kéo tự do sang màn
+ * hình khác hoặc xếp cạnh cửa sổ chính, không bị neo theo cửa sổ chính.
+ */
+function openDeviceWindow(deviceKey: string): void {
+  const existing = deviceWindows.get(deviceKey)
+  if (existing) {
+    existing.focus()
+    return
   }
+
+  const deviceWindow = new BrowserWindow({
+    // 480px rộng để 3-4 cửa sổ xếp vừa cạnh nhau trên màn hình 1920px.
+    width: 480,
+    height: 640,
+    title: `Theo dõi máy — ${deviceKey}`,
+    icon: resolveAsset('icon.png'),
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false },
+  })
+  deviceWindow.on('closed', () => {
+    deviceWindows.delete(deviceKey)
+  })
+
+  loadRenderer(deviceWindow, deviceKey)
+  deviceWindows.set(deviceKey, deviceWindow)
 }
 
 app.whenReady().then(async () => {
@@ -98,6 +151,7 @@ app.whenReady().then(async () => {
     getCoreClient: () => coreClient,
     restartCoreClient,
     getWindow: () => window,
+    openDeviceWindow,
   })
 
   await deviceManager.applyConfig(configStore.load().devices)

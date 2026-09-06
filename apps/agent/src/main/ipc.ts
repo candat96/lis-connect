@@ -1,4 +1,4 @@
-import { type BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import type { AgentConfig, ConfigStore, DeviceConfig } from './config-store.js'
 import type { CoreClient } from './core-client.js'
 import type { DeviceManager } from './device-manager.js'
@@ -12,6 +12,8 @@ export interface IpcDeps {
   getCoreClient: () => CoreClient | null
   restartCoreClient: () => void
   getWindow: () => BrowserWindow | null
+  /** Mở (hoặc đưa lên trước nếu đã mở) cửa sổ theo dõi riêng của một máy. */
+  openDeviceWindow: (deviceKey: string) => void
 }
 
 /**
@@ -53,6 +55,10 @@ export function registerIpc(deps: IpcDeps): void {
     deps.deviceManager.testConnection(device),
   )
 
+  ipcMain.handle('agent:open-device-window', (_event, deviceKey: string) => {
+    deps.openDeviceWindow(deviceKey)
+  })
+
   ipcMain.handle('agent:status', () => ({
     coreConnected: deps.getCoreClient()?.isConnected() ?? false,
     queueDepth: deps.outbox.depth(),
@@ -67,13 +73,19 @@ export function registerIpc(deps: IpcDeps): void {
     })),
   }))
 
-  // Đẩy lưu lượng byte lên renderer cho tab Terminal thô.
+  // Đẩy lưu lượng byte lên MỌI cửa sổ đang mở — cửa sổ chính (tab Terminal
+  // thô) lẫn từng cửa sổ theo dõi riêng của máy (Task 23). Renderer tự lọc
+  // theo deviceKey nên tiến trình main không cần biết cửa sổ nào đang xem máy
+  // nào, chỉ cần phát cho tất cả.
   deps.deviceManager.on('traffic', (event) => {
-    deps.getWindow()?.webContents.send('agent:traffic', {
+    const payload = {
       deviceKey: event.deviceKey,
       direction: event.direction,
       hex: event.data.toString('hex'),
       at: new Date().toISOString(),
-    })
+    }
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('agent:traffic', payload)
+    }
   })
 }

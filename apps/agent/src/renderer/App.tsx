@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 import { api, type AgentStatus } from './api.js'
 import logoText from './assets/logo-text.png'
+import { DeviceWindow } from './DeviceWindow.js'
 import { CoreTab } from './tabs/CoreTab.js'
 import { DevicesTab } from './tabs/DevicesTab.js'
 import { TerminalTab } from './tabs/TerminalTab.js'
@@ -14,7 +15,25 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'terminal', label: 'Terminal thô' },
 ]
 
+/**
+ * Mã máy đọc từ tham số `?device=` (tiến trình main gắn vào khi nạp cửa sổ
+ * theo dõi riêng — xem `main/index.ts#loadRenderer`). Đọc một lần lúc module
+ * nạp: mỗi cửa sổ Electron là một lần nạp trang riêng biệt, tham số không đổi
+ * trong vòng đời cửa sổ đó nên không cần theo dõi qua state/effect.
+ */
+const deviceKeyParam = new URLSearchParams(window.location.search).get('device')
+
 export function App(): JSX.Element {
+  // Cửa sổ theo dõi riêng của một máy: không có ba tab, không có phần cấu
+  // hình — chỉ hiện terminal của đúng máy đó (spec Task 23).
+  if (deviceKeyParam) {
+    return <DeviceWindow deviceKey={deviceKeyParam} />
+  }
+
+  return <MainApp />
+}
+
+function MainApp(): JSX.Element {
   const [tab, setTab] = useState<TabKey>('core')
   const [status, setStatus] = useState<AgentStatus | null>(null)
   const [statusError, setStatusError] = useState(false)
