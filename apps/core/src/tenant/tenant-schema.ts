@@ -156,6 +156,26 @@ export interface ReferenceRangesTable {
   created_at: Generated<Date>
 }
 
+/**
+ * Một dòng nhật ký sửa đổi danh mục. `before_value`/`after_value` giữ nguyên
+ * hình dạng dòng dữ liệu tại thời điểm trước và sau khi sửa (jsonb), nên đọc
+ * lại được kể cả sau khi lược đồ bảng gốc thay đổi.
+ */
+export interface CatalogueAuditTable {
+  id: Generated<string>
+  changed_at: Generated<Date>
+  /** users.id ở DB quản trị — không khoá ngoại vì khác database. */
+  actor_user_id: string
+  actor_username: string
+  /** 'analyte' | 'device_analyte_map' | 'result_mapping' */
+  entity: string
+  entity_key: string
+  /** 'create' | 'update' | 'delete' */
+  action: string
+  before_value: ColumnType<unknown, string | null | undefined, string | null>
+  after_value: ColumnType<unknown, string | null | undefined, string | null>
+}
+
 export interface TenantDatabase {
   agents: AgentsTable
   devices: DevicesTable
@@ -169,4 +189,5 @@ export interface TenantDatabase {
   result_mappings: ResultMappingsTable
   his_analyte_map: HisAnalyteMapTable
   reference_ranges: ReferenceRangesTable
+  catalogue_audit: CatalogueAuditTable
 }

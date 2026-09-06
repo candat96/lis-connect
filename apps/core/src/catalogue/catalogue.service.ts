@@ -5,9 +5,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import type { Kysely } from 'kysely'
+import type { Kysely, Transaction } from 'kysely'
 import { TenantRegistryService } from '../tenant/tenant-registry.service.js'
 import type { TenantDatabase } from '../tenant/tenant-schema.js'
+
+/** Người thực hiện thay đổi, lấy từ JWT đã được JwtTenantGuard xác thực. */
+export interface CatalogueActor {
+  userId: string
+  username: string
+}
 
 export interface AnalyteView {
   code: string
@@ -55,6 +61,15 @@ export interface ResultRuleView {
   id: string
   /** null nghĩa là luật áp dụng cho mọi máy. */
   deviceId: string | null
+  /**
+   * Phân biệt luật riêng của máy với luật chung. Có mặt để giao diện hiển thị
+   * được bằng CHỮ chứ không bắt người dùng suy ra từ `deviceId === null`:
+   * hiện có 6 luật HPV và 6 luật TPHA là luật chung, giấu đi thì kỹ thuật viên
+   * không hiểu vì sao máy diễn giải theo một luật không thấy ở đâu.
+   */
+  scope: 'device' | 'common'
+  /** Nhãn tiếng Việt dựng sẵn cho `scope` — sản phẩm chỉ phục vụ tiếng Việt. */
+  scopeLabel: string
   analyteCode: string
   analyteName: string | null
   resultIn: string
@@ -75,6 +90,14 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Mã lỗi Postgres cần dịch sang lỗi HTTP đọc được thay vì để lộ 500. */
 const PG_UNIQUE_VIOLATION = '23505'
 const PG_FOREIGN_KEY_VIOLATION = '23503'
+
+const SCOPE_LABEL = {
+  device: 'Luật riêng của máy này',
+  common: 'Luật chung (áp dụng cho mọi máy)',
+} as const
+
+type AuditEntity = 'analyte' | 'device_analyte_map' | 'result_mapping'
+type AuditAction = 'create' | 'update' | 'delete'
 
 function pgErrorCode(err: unknown): string | undefined {
   // Kysely bọc lỗi driver; `pg` gắn `code` lên chính đối tượng lỗi.
@@ -136,7 +159,9 @@ function optionalDecimal(value: unknown, field: string): number | null {
 }
 
 function optionalBoolean(value: unknown, field: string): boolean {
-  if (typeof value !== 'boolean') throw new BadRequestException(`trường "${field}" phải là true/false`)
+  if (typeof value !== 'boolean') {
+    throw new BadRequestException(`trường "${field}" phải là true/false`)
+  }
   return value
 }
 
@@ -156,14 +181,17 @@ export class CatalogueService {
     let base = db.selectFrom('analytes')
     const q = query.q?.trim()
     if (q) {
-      const pattern = `%${escapeLikePattern(q)}%`
-      // Mã so khớp BẰNG, không LIKE: mã là khoá nghiệp vụ và chứa ký tự đại
-      // diện. Tên thì ILIKE, nhưng trên chuỗi đã được thoát.
+      // Chuỗi người dùng nhập được thoát MỘT lần rồi dùng cho cả ba mẫu.
+      // Không thoát thì tìm '034NEU%' sẽ kéo về cả '034NEUT'.
+      const escaped = escapeLikePattern(q)
       base = base.where((eb) =>
         eb.or([
-          eb('code', '=', q),
-          eb('name', 'ilike', pattern),
-          eb('name_en', 'ilike', pattern),
+          // Mã: khớp theo TIỀN TỐ, không phải khớp giữa chuỗi. Danh mục có
+          // 2619 dòng nên bắt gõ đủ cả mã là không dùng được; nhưng khớp giữa
+          // chuỗi lại làm mã ngắn kéo về quá nhiều dòng vô nghĩa.
+          eb('code', 'ilike', `${escaped}%`),
+          eb('name', 'ilike', `%${escaped}%`),
+          eb('name_en', 'ilike', `%${escaped}%`),
         ]),
       )
     }
@@ -175,9 +203,7 @@ export class CatalogueService {
     // không endpoint nào được trả toàn bộ.
     const [rows, count] = await Promise.all([
       base.selectAll().orderBy('code').limit(query.limit).offset(query.offset).execute(),
-      base
-        .select((eb) => eb.fn.countAll<string>().as('total'))
-        .executeTakeFirstOrThrow(),
+      base.select((eb) => eb.fn.countAll<string>().as('total')).executeTakeFirstOrThrow(),
     ])
 
     return { items: rows.map(toAnalyteView), total: Number(count.total) }
@@ -201,6 +227,7 @@ export class CatalogueService {
    */
   async updateAnalyte(
     tenantId: string,
+    actor: CatalogueActor,
     code: string,
     body: unknown,
   ): Promise<AnalyteView> {
@@ -240,15 +267,24 @@ export class CatalogueService {
     patch.source = 'manual'
 
     const db = await this.registry.forTenant(tenantId)
-    const updated = await db
-      .updateTable('analytes')
-      .set(patch as never)
-      .where('code', '=', code)
-      .returningAll()
-      .executeTakeFirst()
+    return db.transaction().execute(async (trx) => {
+      const before = await trx
+        .selectFrom('analytes')
+        .selectAll()
+        .where('code', '=', code)
+        .executeTakeFirst()
+      if (!before) throw new NotFoundException(`không tìm thấy xét nghiệm có mã "${code}"`)
 
-    if (!updated) throw new NotFoundException(`không tìm thấy xét nghiệm có mã "${code}"`)
-    return toAnalyteView(updated)
+      const after = await trx
+        .updateTable('analytes')
+        .set(patch as never)
+        .where('code', '=', code)
+        .returningAll()
+        .executeTakeFirstOrThrow()
+
+      await this.writeAudit(trx, actor, 'analyte', code, 'update', before, after)
+      return toAnalyteView(after)
+    })
   }
 
   // ------------------------------------------------------------- kênh của máy
@@ -256,38 +292,7 @@ export class CatalogueService {
   async listChannels(tenantId: string, deviceId: string): Promise<ChannelMapView[]> {
     const db = await this.registry.forTenant(tenantId)
     await this.assertDevice(db, deviceId)
-
-    const rows = await db
-      .selectFrom('device_analyte_map as m')
-      .leftJoin('analytes as a', 'a.code', 'm.analyte_code')
-      .select([
-        'm.id',
-        'm.device_id',
-        'm.channel_code',
-        'm.analyte_code',
-        'm.round',
-        'm.allow_insert',
-        'm.omit',
-        'm.keep_higher_sign',
-        'm.keep_lower_sign',
-        'a.name as analyte_name',
-      ])
-      .where('m.device_id', '=', deviceId)
-      .orderBy('m.channel_code')
-      .execute()
-
-    return rows.map((r) => ({
-      id: r.id,
-      deviceId: r.device_id,
-      channelCode: r.channel_code,
-      analyteCode: r.analyte_code,
-      analyteName: r.analyte_name ?? null,
-      round: r.round,
-      allowInsert: r.allow_insert,
-      omit: r.omit,
-      keepHigherSign: r.keep_higher_sign,
-      keepLowerSign: r.keep_lower_sign,
-    }))
+    return this.channelsOf(db, deviceId)
   }
 
   /**
@@ -295,34 +300,18 @@ export class CatalogueService {
    *
    * Gán một xét nghiệm KHÁC vào mã kênh đang có bị từ chối 409 thay vì ghi đè
    * trong im lặng: hệ cũ cho hai xét nghiệm dùng chung một kênh rồi chọn bừa
-   * theo alphabet, và chính chỗ đó làm kết quả về nhầm ô. Muốn đổi thì phải
-   * xoá ánh xạ cũ trước — một hành động có chủ ý.
+   * theo alphabet (7 cặp trong dữ liệu thật), và chính chỗ đó làm kết quả về
+   * nhầm ô. Muốn đổi thì phải xoá ánh xạ cũ trước — một hành động có chủ ý.
    */
   async putChannel(
     tenantId: string,
+    actor: CatalogueActor,
     deviceId: string,
     channelCode: string,
     body: unknown,
   ): Promise<ChannelMapView> {
     if (!isPlainObject(body)) throw new BadRequestException('body phải là một đối tượng JSON')
     const analyteCode = requireNonEmptyString(body.analyteCode, 'analyteCode')
-
-    const db = await this.registry.forTenant(tenantId)
-    await this.assertDevice(db, deviceId)
-
-    const existing = await db
-      .selectFrom('device_analyte_map')
-      .selectAll()
-      .where('device_id', '=', deviceId)
-      .where('channel_code', '=', channelCode)
-      .executeTakeFirst()
-
-    if (existing && existing.analyte_code !== analyteCode) {
-      throw new ConflictException(
-        `mã kênh "${channelCode}" của máy này đã gán cho xét nghiệm "${existing.analyte_code}". ` +
-          `Hãy xoá ánh xạ cũ trước khi gán "${analyteCode}".`,
-      )
-    }
 
     const values: Record<string, unknown> = { analyte_code: analyteCode }
     if ('round' in body) values.round = optionalInteger(body.round, 'round')
@@ -333,61 +322,114 @@ export class CatalogueService {
     if ('keepLowerSign' in body)
       values.keep_lower_sign = optionalBoolean(body.keepLowerSign, 'keepLowerSign')
 
-    try {
-      if (existing) {
-        await db
-          .updateTable('device_analyte_map')
-          .set(values as never)
-          .where('id', '=', existing.id)
-          .execute()
-      } else {
-        await db
-          .insertInto('device_analyte_map')
-          .values({ ...values, device_id: deviceId, channel_code: channelCode } as never)
-          .execute()
-      }
-    } catch (err) {
-      // Lưới an toàn cho tình huống hai request cùng tạo một kênh: kiểm tra ở
-      // trên không nguyên tử, ràng buộc UNIQUE mới là chỗ chốt.
-      if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
+    const db = await this.registry.forTenant(tenantId)
+    // Thay đổi và vết của nó nằm trong CÙNG một giao dịch: nếu ghi vết hỏng thì
+    // thay đổi cũng không được áp, và nếu thay đổi bị từ chối thì không có vết
+    // nào nói dối rằng nó đã xảy ra.
+    return db.transaction().execute(async (trx) => {
+      await this.assertDevice(trx, deviceId)
+
+      const existing = await trx
+        .selectFrom('device_analyte_map')
+        .selectAll()
+        .where('device_id', '=', deviceId)
+        .where('channel_code', '=', channelCode)
+        .executeTakeFirst()
+
+      if (existing && existing.analyte_code !== analyteCode) {
         throw new ConflictException(
-          `mã kênh "${channelCode}" của máy này vừa được gán cho một xét nghiệm khác`,
+          `mã kênh "${channelCode}" của máy này đã gán cho xét nghiệm "${existing.analyte_code}". ` +
+            `Hãy xoá ánh xạ cũ trước khi gán "${analyteCode}".`,
         )
       }
-      if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
-        throw new BadRequestException(`mã xét nghiệm "${analyteCode}" không có trong danh mục`)
-      }
-      throw err
-    }
 
-    const rows = await this.listChannels(tenantId, deviceId)
-    const saved = rows.find((r) => r.channelCode === channelCode)
-    if (!saved) throw new NotFoundException(`không tìm thấy mã kênh "${channelCode}"`)
-    return saved
+      let saved
+      try {
+        saved = existing
+          ? await trx
+              .updateTable('device_analyte_map')
+              .set(values as never)
+              .where('id', '=', existing.id)
+              .returningAll()
+              .executeTakeFirstOrThrow()
+          : await trx
+              .insertInto('device_analyte_map')
+              .values({ ...values, device_id: deviceId, channel_code: channelCode } as never)
+              .returningAll()
+              .executeTakeFirstOrThrow()
+      } catch (err) {
+        const code = pgErrorCode(err)
+        // Lưới an toàn cho tình huống hai request cùng tạo một kênh: kiểm tra
+        // ở trên không nguyên tử, ràng buộc UNIQUE mới là chỗ chốt.
+        if (code === PG_UNIQUE_VIOLATION) {
+          throw new ConflictException(
+            `mã kênh "${channelCode}" của máy này vừa được gán cho một xét nghiệm khác`,
+          )
+        }
+        if (code === PG_FOREIGN_KEY_VIOLATION) {
+          throw new BadRequestException(`mã xét nghiệm "${analyteCode}" không có trong danh mục`)
+        }
+        throw err
+      }
+
+      await this.writeAudit(
+        trx,
+        actor,
+        'device_analyte_map',
+        `${deviceId}:${channelCode}`,
+        existing ? 'update' : 'create',
+        existing ?? null,
+        saved,
+      )
+
+      const analyte = await trx
+        .selectFrom('analytes')
+        .select('name')
+        .where('code', '=', analyteCode)
+        .executeTakeFirst()
+      return toChannelView(saved, analyte?.name ?? null)
+    })
   }
 
-  async deleteChannel(tenantId: string, deviceId: string, channelCode: string): Promise<void> {
+  async deleteChannel(
+    tenantId: string,
+    actor: CatalogueActor,
+    deviceId: string,
+    channelCode: string,
+  ): Promise<void> {
     const db = await this.registry.forTenant(tenantId)
-    await this.assertDevice(db, deviceId)
+    await db.transaction().execute(async (trx) => {
+      await this.assertDevice(trx, deviceId)
 
-    const deleted = await db
-      .deleteFrom('device_analyte_map')
-      .where('device_id', '=', deviceId)
-      .where('channel_code', '=', channelCode)
-      .returning('id')
-      .executeTakeFirst()
+      const deleted = await trx
+        .deleteFrom('device_analyte_map')
+        .where('device_id', '=', deviceId)
+        .where('channel_code', '=', channelCode)
+        .returningAll()
+        .executeTakeFirst()
 
-    if (!deleted) {
-      throw new NotFoundException(`máy này không có ánh xạ cho mã kênh "${channelCode}"`)
-    }
+      if (!deleted) {
+        throw new NotFoundException(`máy này không có ánh xạ cho mã kênh "${channelCode}"`)
+      }
+
+      await this.writeAudit(
+        trx,
+        actor,
+        'device_analyte_map',
+        `${deviceId}:${channelCode}`,
+        'delete',
+        deleted,
+        null,
+      )
+    })
   }
 
   // ------------------------------------------------------- luật ghi đè kết quả
 
   /**
-   * Luật của một máy, kèm các luật chung (device_id NULL) vì chúng cũng áp
-   * dụng cho máy này — kỹ thuật viên cần thấy đủ những gì sẽ tác động lên kết
-   * quả của máy đang xem. Trường `deviceId` phân biệt hai loại.
+   * Luật của một máy, kèm các luật chung (device_id NULL) vì chúng CÓ áp dụng
+   * cho máy này — kỹ thuật viên cần thấy đủ những gì sẽ tác động lên kết quả
+   * của máy đang xem. Trường `scope`/`scopeLabel` phân biệt hai loại.
    */
   async listResultRules(tenantId: string, deviceId: string): Promise<ResultRuleView[]> {
     const db = await this.registry.forTenant(tenantId)
@@ -411,28 +453,19 @@ export class CatalogueService {
       .orderBy('r.result_in')
       .execute()
 
-    return rows.map((r) => ({
-      id: r.id,
-      deviceId: r.device_id,
-      analyteCode: r.analyte_code,
-      analyteName: r.analyte_name ?? null,
-      resultIn: r.result_in,
-      resultOut: r.result_out,
-      comment: r.comment,
-      color: r.color,
-    }))
+    return rows.map((r) => toRuleView(r, r.analyte_name ?? null))
   }
 
-  async createResultRule(tenantId: string, body: unknown): Promise<ResultRuleView> {
+  async createResultRule(
+    tenantId: string,
+    actor: CatalogueActor,
+    body: unknown,
+  ): Promise<ResultRuleView> {
     if (!isPlainObject(body)) throw new BadRequestException('body phải là một đối tượng JSON')
 
     const analyteCode = requireNonEmptyString(body.analyteCode, 'analyteCode')
     const resultIn = requireNonEmptyString(body.resultIn, 'resultIn')
     const deviceId = this.parseOptionalDeviceId(body.deviceId)
-
-    const db = await this.registry.forTenant(tenantId)
-    if (deviceId) await this.assertDevice(db, deviceId)
-
     const values = {
       device_id: deviceId,
       analyte_code: analyteCode,
@@ -442,22 +475,25 @@ export class CatalogueService {
       color: 'color' in body ? optionalInteger(body.color, 'color') : null,
     }
 
-    const row = await this.runRuleWrite(analyteCode, resultIn, deviceId, async () =>
-      db.insertInto('result_mappings').values(values).returningAll().executeTakeFirstOrThrow(),
-    )
-    return this.toRuleView(db, row)
+    const db = await this.registry.forTenant(tenantId)
+    return db.transaction().execute(async (trx) => {
+      if (deviceId) await this.assertDevice(trx, deviceId)
+
+      const row = await this.runRuleWrite(analyteCode, resultIn, deviceId, async () =>
+        trx.insertInto('result_mappings').values(values).returningAll().executeTakeFirstOrThrow(),
+      )
+      await this.writeAudit(trx, actor, 'result_mapping', row.id, 'create', null, row)
+      return this.ruleViewWithName(trx, row)
+    })
   }
 
-  async updateResultRule(tenantId: string, id: string, body: unknown): Promise<ResultRuleView> {
+  async updateResultRule(
+    tenantId: string,
+    actor: CatalogueActor,
+    id: string,
+    body: unknown,
+  ): Promise<ResultRuleView> {
     if (!isPlainObject(body)) throw new BadRequestException('body phải là một đối tượng JSON')
-
-    const db = await this.registry.forTenant(tenantId)
-    const current = await db
-      .selectFrom('result_mappings')
-      .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirst()
-    if (!current) throw new NotFoundException('không tìm thấy luật ghi đè kết quả')
 
     const patch: Record<string, unknown> = {}
     if ('deviceId' in body) patch.device_id = this.parseOptionalDeviceId(body.deviceId)
@@ -472,35 +508,102 @@ export class CatalogueService {
       throw new BadRequestException('không có trường nào hợp lệ để cập nhật')
     }
 
-    const nextDeviceId = ('device_id' in patch ? patch.device_id : current.device_id) as
-      | string
-      | null
-    if (nextDeviceId) await this.assertDevice(db, nextDeviceId)
-    const analyteCode = (patch.analyte_code as string) ?? current.analyte_code
-    const resultIn = (patch.result_in as string) ?? current.result_in
-
-    const row = await this.runRuleWrite(analyteCode, resultIn, nextDeviceId, async () =>
-      db
-        .updateTable('result_mappings')
-        .set(patch as never)
+    const db = await this.registry.forTenant(tenantId)
+    return db.transaction().execute(async (trx) => {
+      const current = await trx
+        .selectFrom('result_mappings')
+        .selectAll()
         .where('id', '=', id)
-        .returningAll()
-        .executeTakeFirstOrThrow(),
-    )
-    return this.toRuleView(db, row)
+        .executeTakeFirst()
+      if (!current) throw new NotFoundException('không tìm thấy luật ghi đè kết quả')
+
+      const nextDeviceId = ('device_id' in patch ? patch.device_id : current.device_id) as
+        | string
+        | null
+      if (nextDeviceId) await this.assertDevice(trx, nextDeviceId)
+      const analyteCode = (patch.analyte_code as string) ?? current.analyte_code
+      const resultIn = (patch.result_in as string) ?? current.result_in
+
+      const row = await this.runRuleWrite(analyteCode, resultIn, nextDeviceId, async () =>
+        trx
+          .updateTable('result_mappings')
+          .set(patch as never)
+          .where('id', '=', id)
+          .returningAll()
+          .executeTakeFirstOrThrow(),
+      )
+      await this.writeAudit(trx, actor, 'result_mapping', id, 'update', current, row)
+      return this.ruleViewWithName(trx, row)
+    })
   }
 
-  async deleteResultRule(tenantId: string, id: string): Promise<void> {
+  async deleteResultRule(tenantId: string, actor: CatalogueActor, id: string): Promise<void> {
     const db = await this.registry.forTenant(tenantId)
-    const deleted = await db
-      .deleteFrom('result_mappings')
-      .where('id', '=', id)
-      .returning('id')
-      .executeTakeFirst()
-    if (!deleted) throw new NotFoundException('không tìm thấy luật ghi đè kết quả')
+    await db.transaction().execute(async (trx) => {
+      const deleted = await trx
+        .deleteFrom('result_mappings')
+        .where('id', '=', id)
+        .returningAll()
+        .executeTakeFirst()
+      if (!deleted) throw new NotFoundException('không tìm thấy luật ghi đè kết quả')
+      await this.writeAudit(trx, actor, 'result_mapping', id, 'delete', deleted, null)
+    })
   }
 
   // ------------------------------------------------------------------ nội bộ
+
+  /**
+   * Ghi một dòng nhật ký. Luôn được gọi bên trong giao dịch của chính thay đổi
+   * mà nó ghi vết — vết và thay đổi sống chết cùng nhau.
+   */
+  private async writeAudit(
+    trx: Transaction<TenantDatabase>,
+    actor: CatalogueActor,
+    entity: AuditEntity,
+    entityKey: string,
+    action: AuditAction,
+    before: unknown,
+    after: unknown,
+  ): Promise<void> {
+    await trx
+      .insertInto('catalogue_audit')
+      .values({
+        actor_user_id: actor.userId,
+        actor_username: actor.username,
+        entity,
+        entity_key: entityKey,
+        action,
+        before_value: before === null || before === undefined ? null : JSON.stringify(before),
+        after_value: after === null || after === undefined ? null : JSON.stringify(after),
+      })
+      .execute()
+  }
+
+  private async channelsOf(
+    db: Kysely<TenantDatabase>,
+    deviceId: string,
+  ): Promise<ChannelMapView[]> {
+    const rows = await db
+      .selectFrom('device_analyte_map as m')
+      .leftJoin('analytes as a', 'a.code', 'm.analyte_code')
+      .select([
+        'm.id',
+        'm.device_id',
+        'm.channel_code',
+        'm.analyte_code',
+        'm.round',
+        'm.allow_insert',
+        'm.omit',
+        'm.keep_higher_sign',
+        'm.keep_lower_sign',
+        'a.name as analyte_name',
+      ])
+      .where('m.device_id', '=', deviceId)
+      .orderBy('m.channel_code')
+      .execute()
+
+    return rows.map((r) => toChannelView(r, r.analyte_name ?? null))
+  }
 
   /**
    * Máy phải thuộc đúng database của bệnh viện đang đăng nhập. Không tìm thấy
@@ -547,33 +650,69 @@ export class CatalogueService {
     }
   }
 
-  private async toRuleView(
+  private async ruleViewWithName(
     db: Kysely<TenantDatabase>,
-    row: {
-      id: string
-      device_id: string | null
-      analyte_code: string
-      result_in: string
-      result_out: string | null
-      comment: string | null
-      color: number | null
-    },
+    row: ResultRuleRow,
   ): Promise<ResultRuleView> {
     const analyte = await db
       .selectFrom('analytes')
       .select('name')
       .where('code', '=', row.analyte_code)
       .executeTakeFirst()
-    return {
-      id: row.id,
-      deviceId: row.device_id,
-      analyteCode: row.analyte_code,
-      analyteName: analyte?.name ?? null,
-      resultIn: row.result_in,
-      resultOut: row.result_out,
-      comment: row.comment,
-      color: row.color,
-    }
+    return toRuleView(row, analyte?.name ?? null)
+  }
+}
+
+interface ResultRuleRow {
+  id: string
+  device_id: string | null
+  analyte_code: string
+  result_in: string
+  result_out: string | null
+  comment: string | null
+  color: number | null
+}
+
+interface ChannelRow {
+  id: string
+  device_id: string
+  channel_code: string
+  analyte_code: string | null
+  round: number | null
+  allow_insert: boolean
+  omit: boolean
+  keep_higher_sign: boolean
+  keep_lower_sign: boolean
+}
+
+function toChannelView(row: ChannelRow, analyteName: string | null): ChannelMapView {
+  return {
+    id: row.id,
+    deviceId: row.device_id,
+    channelCode: row.channel_code,
+    analyteCode: row.analyte_code,
+    analyteName,
+    round: row.round,
+    allowInsert: row.allow_insert,
+    omit: row.omit,
+    keepHigherSign: row.keep_higher_sign,
+    keepLowerSign: row.keep_lower_sign,
+  }
+}
+
+function toRuleView(row: ResultRuleRow, analyteName: string | null): ResultRuleView {
+  const scope = row.device_id === null ? 'common' : 'device'
+  return {
+    id: row.id,
+    deviceId: row.device_id,
+    scope,
+    scopeLabel: SCOPE_LABEL[scope],
+    analyteCode: row.analyte_code,
+    analyteName,
+    resultIn: row.result_in,
+    resultOut: row.result_out,
+    comment: row.comment,
+    color: row.color,
   }
 }
 

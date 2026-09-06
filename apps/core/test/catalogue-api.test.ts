@@ -16,6 +16,7 @@ let deviceA: string
 let deviceB: string
 let tokenA: string
 let tokenB: string
+let registry: TenantRegistryService
 
 /**
  * Danh mục seed cho cơ sở A. Số dòng được suy ra từ chính mảng này thay vì
@@ -63,6 +64,34 @@ async function login(tenantCode: string, username: string, password: string): Pr
   return res.body.token
 }
 
+/**
+ * Đọc dòng nhật ký mới nhất của một đối tượng. Test đọc thẳng bảng thay vì qua
+ * API vì task này chưa mở endpoint đọc nhật ký — cái cần chứng minh là nhật ký
+ * có được GHI đúng hay không.
+ */
+async function latestAudit(
+  tenantId: string,
+  entity: string,
+  entityKey: string,
+): Promise<{
+  action: string
+  actor_username: string
+  actor_user_id: string
+  changed_at: Date
+  before_value: any
+  after_value: any
+} | undefined> {
+  const db = await registry.forTenant(tenantId)
+  return (await db
+    .selectFrom('catalogue_audit')
+    .selectAll()
+    .where('entity', '=', entity)
+    .where('entity_key', '=', entityKey)
+    .orderBy('changed_at', 'desc')
+    .orderBy('id', 'desc')
+    .executeTakeFirst()) as never
+}
+
 const authA = () => ({ Authorization: `Bearer ${tokenA}` })
 const authB = () => ({ Authorization: `Bearer ${tokenB}` })
 
@@ -74,7 +103,7 @@ beforeAll(async () => {
 
   const admin = app.get(AdminDbService)
   const migrator = app.get(TenantMigratorService)
-  const registry = app.get(TenantRegistryService)
+  registry = app.get(TenantRegistryService)
 
   tenantA = await prepareTestTenant(admin.db, migrator, 'cat-a', 'lis_t_cat_a')
   tenantB = await prepareTestTenant(admin.db, migrator, 'cat-b', 'lis_t_cat_b')
@@ -217,6 +246,48 @@ describe('GET /api/catalogue/analytes', () => {
 
     expect(res.body.total).toBe(1)
     expect(res.body.items[0].code).toBe('XNNT21_01')
+  })
+
+  it('tìm được theo tiền tố mã', async () => {
+    // Với 2619 dòng, bắt gõ đủ cả mã là màn hình không dùng được. Tiền tố
+    // '034NEU' phải kéo về CẢ hai mã anh em.
+    const res = await request(app.getHttpServer())
+      .get('/api/catalogue/analytes?q=034NEU')
+      .set(authA())
+      .expect(200)
+
+    expect(res.body.items.map((i: { code: string }) => i.code).sort()).toEqual([
+      '034NEU%',
+      '034NEUT',
+    ])
+
+    // Nhưng gõ đủ '034NEU%' thì vẫn chỉ đúng một dòng — đây là chỗ ký tự đại
+    // diện phải được thoát chứ không được diễn giải.
+    const exact = await request(app.getHttpServer())
+      .get(`/api/catalogue/analytes?q=${encodeURIComponent('034NEU%')}`)
+      .set(authA())
+      .expect(200)
+    expect(exact.body.items.map((i: { code: string }) => i.code)).toEqual(['034NEU%'])
+  })
+
+  it('tìm theo tiền tố mã không phân biệt hoa thường', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/catalogue/analytes?q=123as')
+      .set(authA())
+      .expect(200)
+
+    expect(res.body.items.map((i: { code: string }) => i.code)).toEqual(['123AST'])
+  })
+
+  it('tiền tố là TIỀN TỐ, không phải khớp giữa chuỗi', async () => {
+    // 'NEUT' nằm giữa mã '034NEUT' nhưng không phải tiền tố của mã nào, và
+    // cũng không nằm trong tên nào — không được trả về gì.
+    const res = await request(app.getHttpServer())
+      .get('/api/catalogue/analytes?q=NEUT')
+      .set(authA())
+      .expect(200)
+
+    expect(res.body.total).toBe(0)
   })
 
   it('thoát ký tự đại diện trong chuỗi tìm theo tên', async () => {
@@ -614,6 +685,16 @@ describe('luật ghi đè kết quả', () => {
     expect(byIn['pos']).toBe(deviceA)
     expect(byIn['chung']).toBeNull()
     expect(res.body[0].analyteName).toBe('AST (GOT)')
+
+    // Giao diện phải phân biệt được luật chung với luật riêng bằng CHỮ, không
+    // chỉ bằng màu hay bằng việc tự suy ra từ deviceId === null.
+    const onDevice = res.body.find((r: { resultIn: string }) => r.resultIn === 'pos')
+    const common = res.body.find((r: { resultIn: string }) => r.resultIn === 'chung')
+    expect(onDevice.scope).toBe('device')
+    expect(common.scope).toBe('common')
+    expect(typeof common.scopeLabel).toBe('string')
+    expect(common.scopeLabel).not.toBe(onDevice.scopeLabel)
+    expect(common.scopeLabel).toMatch(/chung|mọi máy/i)
   })
 
   it('trả 409 khi sửa luật thành một bộ khoá đã tồn tại', async () => {
@@ -691,5 +772,148 @@ describe('luật ghi đè kết quả', () => {
       .post('/api/catalogue/result-rules')
       .send({ analyteCode: '123AST', resultIn: 'z' })
       .expect(401)
+  })
+})
+
+describe('nhật ký sửa đổi danh mục', () => {
+  it('ghi lại người sửa, thời điểm, giá trị trước và sau khi sửa xét nghiệm', async () => {
+    const before = await request(app.getHttpServer())
+      .get('/api/catalogue/analytes?q=200GLU')
+      .set(authA())
+      .expect(200)
+    const unitTruoc = before.body.items[0].unit
+
+    const truocKhiSua = Date.now()
+    await request(app.getHttpServer())
+      .patch('/api/catalogue/analytes/200GLU')
+      .set(authA())
+      .send({ unit: 'don-vi-moi-de-truy-vet' })
+      .expect(200)
+
+    const log = await latestAudit(tenantA, 'analyte', '200GLU')
+    expect(log).toBeDefined()
+    expect(log!.action).toBe('update')
+    expect(log!.actor_username).toBe('ktv-a')
+    expect(log!.actor_user_id).toBeTruthy()
+    expect(new Date(log!.changed_at).getTime()).toBeGreaterThanOrEqual(truocKhiSua - 1000)
+    expect(log!.before_value.unit).toBe(unitTruoc)
+    expect(log!.after_value.unit).toBe('don-vi-moi-de-truy-vet')
+    // Cả việc đổi nguồn sang 'manual' cũng phải nằm trong vết.
+    expect(log!.after_value.source).toBe('manual')
+  })
+
+  it('ghi vết cho mã chứa ký tự đại diện đúng dòng của nó', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/catalogue/analytes/${encodeURIComponent('034NEU%')}`)
+      .set(authA())
+      .send({ criteria: 'ghi-vet-034NEU-phan-tram' })
+      .expect(200)
+
+    const log = await latestAudit(tenantA, 'analyte', '034NEU%')
+    expect(log!.after_value.criteria).toBe('ghi-vet-034NEU-phan-tram')
+
+    // Mã hàng xóm không được sinh vết nào.
+    const neighbour = await latestAudit(tenantA, 'analyte', '034NEUT')
+    expect(neighbour).toBeUndefined()
+  })
+
+  it('ghi vết tạo, sửa và xoá ánh xạ mã kênh', async () => {
+    const key = `${deviceA}:77`
+
+    await request(app.getHttpServer())
+      .put(`/api/catalogue/devices/${deviceA}/channels/77`)
+      .set(authA())
+      .send({ analyteCode: '123AST' })
+      .expect(200)
+    const taoMoi = await latestAudit(tenantA, 'device_analyte_map', key)
+    expect(taoMoi!.action).toBe('create')
+    expect(taoMoi!.before_value).toBeNull()
+    expect(taoMoi!.after_value.analyte_code).toBe('123AST')
+    expect(taoMoi!.actor_username).toBe('ktv-a')
+
+    await request(app.getHttpServer())
+      .put(`/api/catalogue/devices/${deviceA}/channels/77`)
+      .set(authA())
+      .send({ analyteCode: '123AST', round: 5 })
+      .expect(200)
+    const sua = await latestAudit(tenantA, 'device_analyte_map', key)
+    expect(sua!.action).toBe('update')
+    expect(sua!.before_value.round).toBeNull()
+    expect(sua!.after_value.round).toBe(5)
+
+    await request(app.getHttpServer())
+      .delete(`/api/catalogue/devices/${deviceA}/channels/77`)
+      .set(authA())
+      .expect(204)
+    const xoa = await latestAudit(tenantA, 'device_analyte_map', key)
+    expect(xoa!.action).toBe('delete')
+    expect(xoa!.before_value.analyte_code).toBe('123AST')
+    expect(xoa!.before_value.round).toBe(5)
+    expect(xoa!.after_value).toBeNull()
+  })
+
+  it('ghi vết tạo, sửa và xoá luật ghi đè kết quả', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/catalogue/result-rules')
+      .set(authA())
+      .send({ deviceId: deviceA, analyteCode: '123AST', resultIn: 'vet', resultOut: 'Trước' })
+      .expect(201)
+    const id = created.body.id
+
+    const taoMoi = await latestAudit(tenantA, 'result_mapping', id)
+    expect(taoMoi!.action).toBe('create')
+    expect(taoMoi!.before_value).toBeNull()
+    expect(taoMoi!.after_value.result_out).toBe('Trước')
+
+    await request(app.getHttpServer())
+      .put(`/api/catalogue/result-rules/${id}`)
+      .set(authA())
+      .send({ resultOut: 'Sau' })
+      .expect(200)
+    const sua = await latestAudit(tenantA, 'result_mapping', id)
+    expect(sua!.action).toBe('update')
+    expect(sua!.before_value.result_out).toBe('Trước')
+    expect(sua!.after_value.result_out).toBe('Sau')
+
+    await request(app.getHttpServer())
+      .delete(`/api/catalogue/result-rules/${id}`)
+      .set(authA())
+      .expect(204)
+    const xoa = await latestAudit(tenantA, 'result_mapping', id)
+    expect(xoa!.action).toBe('delete')
+    expect(xoa!.before_value.result_out).toBe('Sau')
+    expect(xoa!.after_value).toBeNull()
+  })
+
+  it('không ghi vết khi thay đổi bị từ chối', async () => {
+    // Kênh 19 đang gán '123AST'; gán '200GLU' vào đó phải 409 và KHÔNG để lại
+    // vết nào — nếu vết được ghi ngoài giao dịch thì nhật ký sẽ nói dối rằng
+    // đã có một thay đổi không hề xảy ra.
+    const key = `${deviceA}:19`
+    const truoc = await latestAudit(tenantA, 'device_analyte_map', key)
+
+    await request(app.getHttpServer())
+      .put(`/api/catalogue/devices/${deviceA}/channels/19`)
+      .set(authA())
+      .send({ analyteCode: '200GLU' })
+      .expect(409)
+
+    const sau = await latestAudit(tenantA, 'device_analyte_map', key)
+    expect(sau?.changed_at).toEqual(truoc?.changed_at)
+    expect(sau?.after_value?.analyte_code).toBe('123AST')
+  })
+
+  it('nhật ký nằm trong database của từng bệnh viện, không lẫn sang cơ sở khác', async () => {
+    expect(await latestAudit(tenantB, 'analyte', '200GLU')).toBeUndefined()
+
+    await request(app.getHttpServer())
+      .patch('/api/catalogue/analytes/999BENHVIENB')
+      .set(authB())
+      .send({ unit: 'rieng-cua-B' })
+      .expect(200)
+
+    const logB = await latestAudit(tenantB, 'analyte', '999BENHVIENB')
+    expect(logB!.actor_username).toBe('ktv-b')
+    expect(await latestAudit(tenantA, 'analyte', '999BENHVIENB')).toBeUndefined()
   })
 })
