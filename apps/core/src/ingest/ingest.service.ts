@@ -76,10 +76,31 @@ export class IngestService {
           .onConflict((oc) => oc.column('message_id').doNothing())
           .execute()
 
+        // `updated_at` của device_status mang đúng MỘT nghĩa: thời điểm sự
+        // kiện KẾT NỐI xảy ra ở Agent (occurred_at của connection_event), để
+        // so sánh "mới hơn/cũ hơn" bên dưới có ý nghĩa. raw_message không
+        // phải sự kiện kết nối — nó chỉ được phép cập nhật last_message_at.
+        // Trộn hai mốc thời gian khác hệ quy chiếu vào cùng một cột từng làm
+        // một raw_message tới SAU một 'disconnected' (nhưng ghi bằng giờ Core
+        // nhận, luôn muộn hơn) xoá mất trạng thái mất kết nối trên màn hình
+        // theo dõi.
+        //
+        // Nếu máy đã gửi dữ liệu mà chưa từng có connection_event nào (device
+        // mới, hoặc Agent bản cũ không phát connection_event lúc khởi động),
+        // chưa có dòng device_status nào — tạo một dòng hợp lý với status
+        // 'connected' (đang nhận dữ liệu thật thì rõ ràng đang kết nối) và
+        // updated_at bằng last_message_at, KHÔNG ghi đè nếu dòng đã tồn tại.
+        const now = new Date()
         await db
-          .updateTable('device_status')
-          .set({ last_message_at: new Date(), updated_at: new Date() })
-          .where('device_id', '=', deviceId)
+          .insertInto('device_status')
+          .values({
+            device_id: deviceId,
+            status: 'connected',
+            detail: null,
+            last_message_at: now,
+            updated_at: now,
+          })
+          .onConflict((oc) => oc.column('device_id').doUpdateSet({ last_message_at: now }))
           .execute()
         return
       }

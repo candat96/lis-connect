@@ -42,12 +42,12 @@ afterAll(async () => {
   await app.close()
 })
 
-function rawMessage(messageId: string, payload: string) {
+function rawMessage(messageId: string, payload: string, deviceId = 'may-sinh-hoa') {
   return {
     type: 'raw_message' as const,
     messageId,
     sentAt: new Date().toISOString(),
-    deviceId: 'may-sinh-hoa',
+    deviceId,
     direction: 'inbound' as const,
     payloadBase64: Buffer.from(payload, 'utf8').toString('base64'),
   }
@@ -123,6 +123,84 @@ describe('IngestService', () => {
     const status = await db.selectFrom('device_status').selectAll().executeTakeFirstOrThrow()
     expect(status.status).toBe('connected')
     expect(status.detail).toBeNull()
+  })
+
+  it('raw_message không được đè lên trạng thái mất kết nối (C4)', async () => {
+    // Tái lập đúng thứ tự xả hàng đợi đã thấy trên Postgres thật: connected
+    // (t-60s) → raw_message (t-40s) → disconnected (t-20s). Trạng thái cuối
+    // phải là 'disconnected' — raw_message chỉ được đụng vào last_message_at,
+    // không bao giờ đụng vào updated_at, nếu không nó ghi đè bằng giờ Core
+    // nhận (luôn muộn hơn occurred_at của connection_event) và làm biến mất
+    // sự kiện mất kết nối trên device_status.
+    const db = await registry.forTenant(tenantId)
+    const device = await db
+      .insertInto('devices')
+      .values({
+        agent_id: agentId,
+        device_key: 'may-c4',
+        name: 'may-c4',
+        transport: 'tcp',
+        driver: 'unknown',
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow()
+
+    const now = Date.now()
+    const t60 = new Date(now - 60_000).toISOString()
+    const t40 = new Date(now - 40_000).toISOString()
+    const t20 = new Date(now - 20_000).toISOString()
+
+    await ingest.handle(tenantId, agentId, {
+      type: 'connection_event',
+      messageId: newMessageId(),
+      sentAt: t60,
+      deviceId: 'may-c4',
+      status: 'connected',
+    })
+
+    await ingest.handle(tenantId, agentId, {
+      type: 'raw_message',
+      messageId: newMessageId(),
+      sentAt: t40,
+      deviceId: 'may-c4',
+      direction: 'inbound',
+      payloadBase64: Buffer.from('R|1|^^^Glu|5.4', 'utf8').toString('base64'),
+    })
+
+    await ingest.handle(tenantId, agentId, {
+      type: 'connection_event',
+      messageId: newMessageId(),
+      sentAt: t20,
+      deviceId: 'may-c4',
+      status: 'disconnected',
+      detail: 'mất kết nối',
+    })
+
+    const status = await db
+      .selectFrom('device_status')
+      .selectAll()
+      .where('device_id', '=', device.id)
+      .executeTakeFirstOrThrow()
+    expect(status.status).toBe('disconnected')
+  })
+
+  it('raw_message tới trước khi có connection_event nào vẫn tạo dòng device_status hợp lý', async () => {
+    const db = await registry.forTenant(tenantId)
+
+    await ingest.handle(tenantId, agentId, rawMessage(newMessageId(), 'R|1|^^^Ure|6.1', 'may-c4-b'))
+
+    const devices = await db
+      .selectFrom('devices')
+      .selectAll()
+      .where('device_key', '=', 'may-c4-b')
+      .execute()
+    const status = await db
+      .selectFrom('device_status')
+      .selectAll()
+      .where('device_id', '=', devices[0]!.id)
+      .executeTakeFirstOrThrow()
+    expect(status.status).toBe('connected')
+    expect(status.last_message_at).not.toBeNull()
   })
 
   it('heartbeat cập nhật last_seen_at của agent', async () => {
