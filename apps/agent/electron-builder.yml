@@ -23,11 +23,23 @@ win:
   target:
     - nsis
   artifactName: LIS-Connect-Agent-${version}-setup.exe
+  icon: build/icon.png
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   include: build/installer.nsh
+# icon.png và tray.png cũng phải có mặt trong bản cài dưới dạng resource thô:
+# main/index.ts đọc chúng lúc chạy (BrowserWindow icon, Tray) qua
+# `process.resourcesPath`, khác với `win.icon` ở trên — cái đó chỉ được
+# electron-builder dùng lúc BUILD để sinh ra icon .exe/.ico, không có mặt lúc
+# runtime.
 extraResources:
   - from: build/install-autostart.ps1
     to: install-autostart.ps1
+  - from: build/icon.png
+    to: icon.png
+  - from: build/tray.png
+    to: tray.png
+  - from: build/tray@2x.png
+    to: tray@2x.png

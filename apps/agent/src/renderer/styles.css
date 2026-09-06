@@ -114,11 +114,11 @@ select {
   flex-wrap: wrap;
 }
 
-.app-header h1 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0;
-  white-space: nowrap;
+.app-header .app-logo {
+  height: 30px;
+  width: auto;
+  flex: none;
+  display: block;
 }
 
 /* Thanh trạng thái: ba thứ phải đọc được trong một cái liếc — Core, thiết bị

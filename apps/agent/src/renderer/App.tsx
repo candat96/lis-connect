@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 import { api, type AgentStatus } from './api.js'
+import logoText from './assets/logo-text.png'
 import { CoreTab } from './tabs/CoreTab.js'
 import { DevicesTab } from './tabs/DevicesTab.js'
 import { TerminalTab } from './tabs/TerminalTab.js'
@@ -41,7 +42,11 @@ export function App(): JSX.Element {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>LIS Connect — Agent Console</h1>
+        <img
+          className="app-logo"
+          src={logoText}
+          alt="LIS Connect — Agent Console"
+        />
 
         {/* Ba thứ phải đọc được trong một cái liếc: Core, thiết bị mất kết nối, hàng đợi. */}
         <div className="status-strip" role="status" aria-live="polite">

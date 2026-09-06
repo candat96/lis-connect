@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { hostname } from 'node:os'
-import { BrowserWindow, Tray, app, nativeImage } from 'electron'
+import { BrowserWindow, Menu, Tray, app, nativeImage } from 'electron'
 import { ConfigStore } from './config-store.js'
 import { CoreClient } from './core-client.js'
 import { DeviceManager } from './device-manager.js'
@@ -11,6 +11,19 @@ import { Outbox } from './outbox.js'
 const AGENT_VERSION = app.getVersion()
 /** Chu kỳ kiểm tra hàng đợi có vượt trần cảnh báo hay không. */
 const QUEUE_CHECK_INTERVAL_MS = 5 * 60_000
+
+/**
+ * Đường dẫn tới tài nguyên tĩnh (icon...) khác nhau giữa chế độ dev và bản
+ * đóng gói: lúc dev, `__dirname` là `out/main` nên tài nguyên nằm ở
+ * `../../build/<name>` (kế bên `apps/agent/build/`); khi đóng gói,
+ * `electron-builder.yml` sao các tệp này vào `resources/` qua `extraResources`
+ * nên phải đọc từ `process.resourcesPath`.
+ */
+function resolveAsset(name: string): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, name)
+    : join(__dirname, '../../build', name)
+}
 
 let window: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -63,6 +76,7 @@ function createWindow(): void {
     width: 1100,
     height: 720,
     title: 'LIS Connect Agent',
+    icon: resolveAsset('icon.png'),
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false },
   })
   window.on('closed', () => {
@@ -93,8 +107,18 @@ app.whenReady().then(async () => {
   setInterval(checkQueueThreshold, QUEUE_CHECK_INTERVAL_MS).unref()
 
   createWindow()
-  tray = new Tray(nativeImage.createEmpty())
+  tray = new Tray(nativeImage.createFromPath(resolveAsset('tray.png')))
   tray.setToolTip('LIS Connect Agent')
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Mở cửa sổ', click: createWindow },
+      { type: 'separator' },
+      { label: 'Thoát', click: () => app.quit() },
+    ]),
+  )
+  // Khay hệ thống là cách duy nhất mở lại cửa sổ sau khi đóng (xem
+  // `window-all-closed` bên dưới) — click trái mở nhanh, click phải hiện menu
+  // ngữ cảnh (setContextMenu ở trên) kèm lối thoát ứng dụng thật sự.
   tray.on('click', createWindow)
 })
 
