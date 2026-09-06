@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { AdminDbService } from '../src/admin-db/admin-db.service.js'
 import { AppModule } from '../src/app.module.js'
 import { buildDecisionTemplate } from '../src/migration/legacy-decisions.js'
-import { loadLegacySource } from '../src/migration/legacy-source.js'
+import { loadLegacySource, type LegacySource } from '../src/migration/legacy-source.js'
 import { validateLegacySource } from '../src/migration/legacy-validator.js'
 import { ensureMigrationAgent, writeLegacyCatalogue } from '../src/migration/legacy-writer.js'
 import { formatReport } from '../src/migration/legacy-report.js'
@@ -450,5 +450,85 @@ describe('formatReport', () => {
     expect(text).toMatch(/analytes\s+2\s+1\s+1/)
     expect(text).toContain('mã bị lặp trong nguồn')
     expect(text).toContain('thành luật chung')
+  })
+})
+
+describe('phân giải bí danh mã xét nghiệm khi ghi', () => {
+  /**
+   * Bộ nguồn dựng tay: bảng bí danh do `legacy-source.ts` sinh ra từ cột đổi tên mã
+   * của `TestCodeNew`, nên không dựng được bằng các tệp JSON rỗng ở trên.
+   */
+  function sourceWithAliases(): LegacySource {
+    return {
+      analytes: [
+        { code: '000CD', name: 'Cấy dịch', nameEn: null, category: null, unit: null,
+          normalRangeText: null, lowerLimit: null, higherLimit: null, commentLower: null,
+          commentHigher: null, commentGray: null, criteria: null, resultIsComment: false,
+          printOrder: null, isProfileHead: false, source: 'legacy' },
+        { code: '333CDom', name: 'Cấy đờm', nameEn: null, category: null, unit: null,
+          normalRangeText: null, lowerLimit: null, higherLimit: null, commentLower: null,
+          commentHigher: null, commentGray: null, criteria: null, resultIsComment: false,
+          printOrder: null, isProfileHead: false, source: 'legacy-new' },
+        { code: '900XN04', name: 'Xét nghiệm 04', nameEn: null, category: null, unit: null,
+          normalRangeText: null, lowerLimit: null, higherLimit: null, commentLower: null,
+          commentHigher: null, commentGray: null, criteria: null, resultIsComment: false,
+          printOrder: null, isProfileHead: false, source: 'legacy-new' },
+        { code: '901XN05', name: 'Xét nghiệm 05', nameEn: null, category: null, unit: null,
+          normalRangeText: null, lowerLimit: null, higherLimit: null, commentLower: null,
+          commentHigher: null, commentGray: null, criteria: null, resultIsComment: false,
+          printOrder: null, isProfileHead: false, source: 'legacy-new' },
+      ],
+      instruments: [
+        { insId: 4, name: 'Cobas', protocol: 'ASTM', conType: 'C', location: null, active: true },
+      ],
+      insTests: [],
+      interfaceParas: [],
+      resultMappings: [
+        // Mã chính: dùng thẳng, KHÔNG tra bí danh (bí danh 000CD trỏ tới cấy đờm).
+        { insId: 4, analyteCode: '000CD', resultIn: 'pos', resultOut: 'Dương tính', comment: null, color: 2 },
+        // Bí danh phân giải được về đúng một mã chính.
+        { insId: 4, analyteCode: 'XNNT21_04', resultIn: 'neg', resultOut: 'Âm tính', comment: null, color: 0 },
+        // Bí danh nhập nhằng: KHÔNG tự chọn.
+        { insId: 4, analyteCode: '000CDNT', resultIn: 'pos', resultOut: 'Dương tính', comment: null, color: 2 },
+        // Không phân giải được bằng đường nào.
+        { insId: 4, analyteCode: 'khong-co-that', resultIn: 'neg', resultOut: 'Âm tính', comment: null, color: 0 },
+      ],
+      profiles: [],
+      profileTests: [],
+      hisMaps: [],
+      analyteAliases: [
+        { alias: '000CD', canonical: '333CDom' },
+        { alias: 'XNNT21_04', canonical: '900XN04' },
+        { alias: '000CDNT', canonical: '900XN04' },
+        { alias: '000CDNT', canonical: '901XN05' },
+      ],
+    }
+  }
+
+  it('mã chính thắng bí danh, bí danh nhập nhằng bị bỏ kèm lý do', async () => {
+    tenantId = await freshTenant('migc')
+    const src = sourceWithAliases()
+    const db = await registry.forTenant(tenantId)
+    const agentId = await ensureMigrationAgent(db)
+    const outcome = await writeLegacyCatalogue(db, src, { channels: [] }, agentId)
+
+    const rules = await db
+      .selectFrom('result_mappings')
+      .select(['analyte_code', 'result_in'])
+      .orderBy('analyte_code')
+      .execute()
+    expect(rules).toEqual([
+      // 000CD giữ nguyên mã chính "cấy dịch", KHÔNG bị đổi sang 333CDom "cấy đờm".
+      { analyte_code: '000CD', result_in: 'pos' },
+      { analyte_code: '900XN04', result_in: 'neg' },
+    ])
+    expect(outcome.counts.result_mappings).toMatchObject({ read: 4, written: 2, skipped: 2 })
+    expect(outcome.skipped.some((s) => /bí danh 000CDNT trỏ tới nhiều mã chính/.test(s.reason))).toBe(
+      true,
+    )
+    expect(
+      outcome.skipped.some((s) => /khong-co-that không có trong danh mục/.test(s.reason)),
+    ).toBe(true)
+    expect(outcome.notes.some((n) => /bí danh, đã quy về mã chính 900XN04/.test(n.reason))).toBe(true)
   })
 })
