@@ -11,7 +11,7 @@ import { AgentGateway } from '../../apps/core/src/agent-gateway/agent.gateway.js
 import { AppModule } from '../../apps/core/src/app.module.js'
 import { AgentKeyService } from '../../apps/core/src/tenant/agent-key.service.js'
 import { TenantMigratorService } from '../../apps/core/src/tenant/tenant-migrator.service.js'
-import { prepareTestTenant, resetAdminDatabase } from '../../apps/core/test/helpers.js'
+import { createTestUser, prepareTestTenant, resetAdminDatabase } from '../../apps/core/test/helpers.js'
 import { CoreClient } from '../../apps/agent/src/main/core-client.js'
 import { DeviceManager } from '../../apps/agent/src/main/device-manager.js'
 import { LocalDb } from '../../apps/agent/src/main/local-db.js'
@@ -22,6 +22,7 @@ let app: INestApplication
 let corePort: number
 let tenantId: string
 let agentKey: string
+let webToken: string
 let dir: string
 let db: LocalDb
 let outbox: Outbox
@@ -56,6 +57,13 @@ beforeAll(async () => {
     'lis_t_e2e',
   )
   agentKey = (await app.get(AgentKeyService).issue(tenantId, 'PC E2E')).plainKey
+
+  await createTestUser(app.get(AdminDbService).db, tenantId, 'ktv-e2e', 'mat-khau-e2e')
+  const loginRes = await request(app.getHttpServer())
+    .post('/api/auth/login')
+    .send({ tenantCode: 'e2e', username: 'ktv-e2e', password: 'mat-khau-e2e' })
+    .expect(201)
+  webToken = loginRes.body.token
 
   sim = new AstmSimulator({ misbehaviour: 'none' })
   simPort = await sim.start(0)
@@ -107,13 +115,13 @@ describe('đường đi đầu-cuối: máy giả lập → Agent → Core → A
     await waitFor(async () => {
       const res = await request(app.getHttpServer())
         .get('/api/devices')
-        .set('X-Tenant-Id', tenantId)
+        .set('Authorization', `Bearer ${webToken}`)
       return res.body.length > 0
     })
 
     const devices = await request(app.getHttpServer())
       .get('/api/devices')
-      .set('X-Tenant-Id', tenantId)
+      .set('Authorization', `Bearer ${webToken}`)
       .expect(200)
     const device = devices.body[0]
     expect(device.deviceKey).toBe('may-e2e')
@@ -122,7 +130,7 @@ describe('đường đi đầu-cuối: máy giả lập → Agent → Core → A
     await waitFor(async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/devices/${device.id}/raw-messages`)
-        .set('X-Tenant-Id', tenantId)
+        .set('Authorization', `Bearer ${webToken}`)
       return res.body.some((m: { payloadText: string }) => m.payloadText.includes('E2E001'))
     })
   })
@@ -134,13 +142,13 @@ describe('đường đi đầu-cuối: máy giả lập → Agent → Core → A
 
   it('mất kết nối Core rồi nối lại thì không mất và không nhân đôi kết quả', async () => {
     const device = (
-      await request(app.getHttpServer()).get('/api/devices').set('X-Tenant-Id', tenantId)
+      await request(app.getHttpServer()).get('/api/devices').set('Authorization', `Bearer ${webToken}`)
     ).body[0]
 
     const before = (
       await request(app.getHttpServer())
         .get(`/api/devices/${device.id}/raw-messages?limit=500`)
-        .set('X-Tenant-Id', tenantId)
+        .set('Authorization', `Bearer ${webToken}`)
     ).body.length
 
     // Ngắt Agent khỏi Core, gửi kết quả trong lúc mất kết nối.
@@ -164,7 +172,7 @@ describe('đường đi đầu-cuối: máy giả lập → Agent → Core → A
     const after = (
       await request(app.getHttpServer())
         .get(`/api/devices/${device.id}/raw-messages?limit=500`)
-        .set('X-Tenant-Id', tenantId)
+        .set('Authorization', `Bearer ${webToken}`)
     ).body
 
     expect(after.length).toBeGreaterThan(before)

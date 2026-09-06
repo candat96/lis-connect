@@ -2,6 +2,7 @@ import { Kysely, PostgresDialect } from 'kysely'
 import pg from 'pg'
 import { runAdminMigrations } from '../src/admin-db/migrator.js'
 import type { AdminDatabase } from '../src/admin-db/schema.js'
+import { hashPassword } from '../src/auth/auth.service.js'
 import type { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 
 const ROOT = 'postgres://lis:lis@localhost:55432/postgres'
@@ -48,4 +49,28 @@ export async function prepareTestTenant(
     .executeTakeFirstOrThrow()
   await migrator.provisionDatabase(tenant.id)
   return tenant.id
+}
+
+/**
+ * Tạo một người dùng đăng nhập được cho test — mật khẩu test cố định, không
+ * dùng cho gì khác ngoài việc gọi `POST /api/auth/login` trong bộ test tích
+ * hợp lấy token thật.
+ */
+export async function createTestUser(
+  admin: Kysely<AdminDatabase>,
+  tenantId: string,
+  username: string,
+  password: string,
+): Promise<void> {
+  await admin
+    .insertInto('users')
+    .values({
+      tenant_id: tenantId,
+      username,
+      password_hash: hashPassword(password),
+      full_name: username,
+      role: 'ky_thuat_vien',
+      status: 'active',
+    })
+    .execute()
 }
