@@ -15,6 +15,15 @@ interface RunningDevice {
   onStatus: (status: TransportStatus) => void
   onData: (chunk: Buffer) => void
   closed: boolean
+  /** Backoff hiện tại cho lần thử mở lại kế tiếp; về lại giá trị đầu khi kết nối thành công thật sự. */
+  backoffMs: number
+  /** setTimeout đang chờ để mở lại; null khi không có lần thử nào đang hẹn. */
+  reconnectTimer: NodeJS.Timeout | null
+}
+
+export interface DeviceManagerOptions {
+  initialBackoffMs?: number
+  maxBackoffMs?: number
 }
 
 export interface TrafficEvent {
@@ -32,12 +41,18 @@ export interface TrafficEvent {
 export class DeviceManager {
   private readonly emitter = new EventEmitter()
   private readonly devices = new Map<string, RunningDevice>()
+  private readonly initialBackoffMs: number
+  private readonly maxBackoffMs: number
 
   constructor(
     private readonly outbox: Outbox,
     /** Gọi mỗi khi có message mới, để CoreClient bơm hàng đợi ngay. */
     private readonly notifyOutboxChanged: () => void,
-  ) {}
+    options: DeviceManagerOptions = {},
+  ) {
+    this.initialBackoffMs = options.initialBackoffMs ?? 1000
+    this.maxBackoffMs = options.maxBackoffMs ?? 30_000
+  }
 
   on(event: 'traffic', handler: (event: TrafficEvent) => void): void {
     this.emitter.on(event, handler)
@@ -114,7 +129,17 @@ export class DeviceManager {
         status: status.status,
         ...(status.detail !== undefined ? { detail: status.detail } : {}),
       })
-      if (status.status !== 'connected') driver.reset()
+      if (status.status === 'connected') {
+        // Chỉ về lại backoff ban đầu khi kết nối THẬT SỰ thành công — không
+        // phải khi vừa gọi open(); lần rớt kế tiếp lại bắt đầu từ đáy.
+        running.backoffMs = this.initialBackoffMs
+        return
+      }
+      driver.reset()
+      // Máy tắt cuối ca / rút dây giữa chừng: không bao giờ dừng ở đây, hẹn
+      // mở lại theo backoff — đây là đường phục hồi duy nhất, không có gì
+      // khác gọi lại open() cho ta.
+      this.scheduleReconnect(running)
     }
     const onData = (chunk: Buffer): void => {
       this.emitter.emit('traffic', {
@@ -132,25 +157,56 @@ export class DeviceManager {
       onStatus,
       onData,
       closed: false,
+      backoffMs: this.initialBackoffMs,
+      reconnectTimer: null,
     }
     this.devices.set(config.deviceKey, running)
 
     transport.on('status', onStatus)
     transport.on('data', onData)
 
+    await this.attemptOpen(running)
+  }
+
+  /**
+   * Một lần thử mở transport của một máy đang chạy — dùng cả lúc khởi động
+   * lẫn ở mỗi vòng thử lại. Thất bại thì hẹn thử lại tiếp, KHÔNG bao giờ bỏ
+   * cuộc với thiết bị (spec 6.1).
+   */
+  private async attemptOpen(running: RunningDevice): Promise<void> {
+    if (running.closed) return
     try {
-      await transport.open()
+      await running.transport.open()
     } catch (error) {
       running.status = 'error'
       this.enqueue({
         type: 'connection_event',
         messageId: newMessageId(),
         sentAt: new Date().toISOString(),
-        deviceId: config.deviceKey,
+        deviceId: running.config.deviceKey,
         status: 'error',
         detail: error instanceof Error ? error.message : String(error),
       })
+      this.scheduleReconnect(running)
     }
+  }
+
+  /**
+   * Hẹn một lần mở lại theo backoff nhân đôi, trần `maxBackoffMs`, không bao
+   * giờ bỏ cuộc — cùng thuật toán với CoreClient. An toàn gọi nhiều lần: nếu
+   * đã có một lần hẹn đang chờ thì bỏ qua, tránh chồng timer / tăng backoff
+   * hai lần cho cùng một lần rớt (transport có thể phát cả 'error' lẫn
+   * 'disconnected'/reject cho cùng một sự cố).
+   */
+  private scheduleReconnect(running: RunningDevice): void {
+    if (running.closed) return
+    if (running.reconnectTimer) return
+    const delay = running.backoffMs
+    running.reconnectTimer = setTimeout(() => {
+      running.reconnectTimer = null
+      void this.attemptOpen(running)
+    }, delay)
+    running.backoffMs = Math.min(running.backoffMs * 2, this.maxBackoffMs)
   }
 
   private handleDriverEvents(running: RunningDevice, chunk: Buffer): void {
@@ -226,6 +282,10 @@ export class DeviceManager {
    */
   private async closeDevice(key: string, running: RunningDevice): Promise<void> {
     running.closed = true
+    if (running.reconnectTimer) {
+      clearTimeout(running.reconnectTimer)
+      running.reconnectTimer = null
+    }
     running.transport.off('status', running.onStatus)
     running.transport.off('data', running.onData)
     this.devices.delete(key)

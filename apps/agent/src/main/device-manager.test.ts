@@ -113,6 +113,55 @@ describe('DeviceManager', () => {
     expect(result.detail.length).toBeGreaterThan(0)
   })
 
+  it('mở thất bại lần đầu, tự thử lại theo backoff và cuối cùng kết nối được', async () => {
+    // Đóng máy giả lập ngay để lần mở đầu tiên chắc chắn thất bại
+    // (ECONNREFUSED), rồi mở lại ở đúng cổng đó sau một nhịp ngắn — mô phỏng
+    // máy xét nghiệm chưa bật lúc Agent khởi động.
+    await sim.stop()
+    manager = new DeviceManager(outbox, () => undefined, {
+      initialBackoffMs: 50,
+      maxBackoffMs: 200,
+    })
+
+    const config = deviceConfig(simPort)
+    await manager.applyConfig([config])
+    expect(manager.statusOf('may-sinh-hoa')).not.toBe('connected')
+
+    setTimeout(() => {
+      void (async () => {
+        sim = new AstmSimulator({ misbehaviour: 'none' })
+        await sim.start(simPort)
+      })()
+    }, 100)
+
+    await waitFor(() => manager.statusOf('may-sinh-hoa') === 'connected', 10_000)
+  })
+
+  it('thiết bị bị gỡ khỏi cấu hình thì không còn hẹn giờ thử lại nào chạy nữa', async () => {
+    await sim.stop()
+    manager = new DeviceManager(outbox, () => undefined, {
+      initialBackoffMs: 50,
+      maxBackoffMs: 200,
+    })
+
+    await manager.applyConfig([deviceConfig(simPort)])
+    // Cho vài vòng backoff trôi qua trong lúc máy vẫn chưa bật.
+    await new Promise((r) => setTimeout(r, 300))
+
+    await manager.applyConfig([])
+
+    // Bật lại máy giả lập ở đúng cổng: nếu còn timer mồ côi nào từ thiết bị đã
+    // gỡ, nó sẽ mở kết nối và statusOf sẽ không còn đứng yên ở 'disconnected'
+    // (khoá ngoài `devices` map thì statusOf trả 'disconnected' mặc định —
+    // nên ta kiểm bằng cách chờ một khoảng đủ dài rồi khẳng định không có kết
+    // nối "ma" nào được set up: applyConfig([]) phải làm devices rỗng).
+    sim = new AstmSimulator({ misbehaviour: 'none' })
+    await sim.start(simPort)
+    await new Promise((r) => setTimeout(r, 400))
+    expect(manager.statusOf('may-sinh-hoa')).toBe('disconnected')
+    expect(sim.hasClient()).toBe(false)
+  })
+
   it('vẫn đưa raw message vào hàng đợi khi driver báo checksum sai', async () => {
     await sim.stop()
     sim = new AstmSimulator({ misbehaviour: 'bad-checksum' })
