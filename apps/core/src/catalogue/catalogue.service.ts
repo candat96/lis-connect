@@ -336,7 +336,11 @@ export class CatalogueService {
         .where('channel_code', '=', channelCode)
         .executeTakeFirst()
 
-      if (existing && existing.analyte_code !== analyteCode) {
+      // `analyte_code` cho phép NULL: đó là một mã kênh máy có khai báo nhưng
+      // CHƯA gán xét nghiệm nào. Gán cho nó là thao tác bình thường — thậm chí
+      // là lý do tồn tại của màn hình ánh xạ mã kênh — nên không được coi là
+      // xung đột. Chỉ chặn khi kênh đang trỏ tới một xét nghiệm KHÁC.
+      if (existing && existing.analyte_code !== null && existing.analyte_code !== analyteCode) {
         throw new ConflictException(
           `mã kênh "${channelCode}" của máy này đã gán cho xét nghiệm "${existing.analyte_code}". ` +
             `Hãy xoá ánh xạ cũ trước khi gán "${analyteCode}".`,

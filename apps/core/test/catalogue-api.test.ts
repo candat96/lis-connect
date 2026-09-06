@@ -511,6 +511,38 @@ describe('kênh máy', () => {
     })
   })
 
+  it('gán được xét nghiệm cho mã kênh đã khai báo nhưng CHƯA gán ai', async () => {
+    // `analyte_code` cho phép NULL — đó là mã kênh máy có khai báo mà chưa gán
+    // xét nghiệm. Gán cho nó chính là việc màn hình ánh xạ mã kênh sinh ra để
+    // làm, nên tuyệt đối không được rơi vào nhánh chống-ghi-đè và báo rằng kênh
+    // "đã gán cho xét nghiệm null".
+    const db = await registry.forTenant(tenantA)
+    await db
+      .insertInto('device_analyte_map')
+      .values({ device_id: deviceA, channel_code: '78', analyte_code: null })
+      .execute()
+
+    await request(app.getHttpServer())
+      .put(`/api/catalogue/devices/${deviceA}/channels/78`)
+      .set(authA())
+      .send({ analyteCode: '123AST' })
+      .expect(200)
+
+    const after = await request(app.getHttpServer())
+      .get(`/api/catalogue/devices/${deviceA}/channels`)
+      .set(authA())
+      .expect(200)
+    const chan78 = after.body.find((c: { channelCode: string }) => c.channelCode === '78')
+    expect(chan78).toMatchObject({ channelCode: '78', analyteCode: '123AST' })
+
+    // Dọn lại: các ca sau trong tệp này khẳng định trên toàn bộ danh sách kênh
+    // của máy A, nên một dòng sót lại từ đây sẽ làm chúng đỏ vì lý do sai.
+    await request(app.getHttpServer())
+      .delete(`/api/catalogue/devices/${deviceA}/channels/78`)
+      .set(authA())
+      .expect(204)
+  })
+
   it('từ chối gán hai xét nghiệm vào cùng một mã kênh', async () => {
     const res = await request(app.getHttpServer())
       .put(`/api/catalogue/devices/${deviceA}/channels/19`)

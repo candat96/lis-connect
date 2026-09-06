@@ -9,6 +9,17 @@ export interface DeviceSummary {
   driver: string
   status: string
   lastMessageAt: string | null
+  /** Máy có đang được bật để Agent kết nối hay không. */
+  enabled: boolean
+  /**
+   * Máy đã từng gửi kết quả về hay chưa.
+   *
+   * Suy ra từ `last_message_at`, không phải một cột riêng. Đây là dấu hiệu quan
+   * trọng khi kỹ thuật viên đi tìm nguyên nhân "máy trả kết quả về mà không hiện
+   * lên": một máy chưa từng gửi gì bao giờ là vấn đề khác hẳn một máy từng gửi
+   * rồi ngừng.
+   */
+  hasSentResults: boolean
 }
 
 export interface RawMessageView {
@@ -53,6 +64,7 @@ export class DevicesService {
         'devices.name',
         'devices.transport',
         'devices.driver',
+        'devices.enabled',
         'device_status.status',
         'device_status.last_message_at',
       ])
@@ -67,6 +79,8 @@ export class DevicesService {
       driver: r.driver,
       status: r.status ?? 'disconnected',
       lastMessageAt: r.last_message_at?.toISOString() ?? null,
+      enabled: r.enabled,
+      hasSentResults: r.last_message_at != null,
     }))
   }
 
