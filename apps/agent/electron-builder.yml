@@ -7,13 +7,17 @@ directories:
 # electron.vite.config.ts) nên không nằm trong `out/`; chúng phải được đóng gói
 # nguyên trạng từ `node_modules` (bản nhị phân biên dịch cho ABI Electron —
 # chạy `pnpm --filter @lis/agent rebuild better-sqlite3` sau bước build và
-# TRƯỚC khi package, xem cảnh báo ở đầu tài liệu triển khai). Nếu `files` chỉ
-# liệt kê `out/**/*` và `package.json` như bản nháp ban đầu, electron-builder
-# sẽ KHÔNG đóng `node_modules` vào bộ cài và Agent chết ngay khi khởi động vì
-# thiếu native module — nên phải khai rõ `node_modules/**/*` ở đây.
+# TRƯỚC khi package, xem cảnh báo ở đầu tài liệu triển khai).
+#
+# KHÔNG thêm `node_modules/**/*` vào đây: electron-builder mặc định đã tự
+# phân giải cây phụ thuộc production từ `dependencies` trong package.json của
+# gói này (better-sqlite3, serialport, ws, @lis/shared đều khai đúng ở đó) và
+# loại devDependencies (electron, electron-builder, vite, react... một mình
+# electron đã ~243MB). Ghi đè `files` bằng một glob quét cả node_modules sẽ
+# nhồi toàn bộ devDependencies vào bộ cài — ĐÃ THỬ và gỡ bỏ vì lý do này, xem
+# report Task 17 (vòng sửa 1) để biết cách kiểm chứng khi có máy Windows.
 files:
   - out/**/*
-  - node_modules/**/*
   - package.json
 win:
   target:
