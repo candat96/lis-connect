@@ -18,7 +18,7 @@ import { TenantRegistryService } from './tenant-registry.service.js'
       provide: TenantMigratorService,
       inject: [AdminDbService],
       useFactory: (admin: AdminDbService) =>
-        new TenantMigratorService(admin.db, loadConfig().tenantDatabaseUrlTemplate),
+        new TenantMigratorService(admin.db, loadConfig().directDatabaseUrlTemplate),
     },
     {
       provide: AgentKeyService,

@@ -1,12 +1,11 @@
-import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common'
+import { Injectable, type OnModuleDestroy } from '@nestjs/common'
 import { Kysely, PostgresDialect } from 'kysely'
 import pg from 'pg'
 import { loadConfig } from '../config.js'
-import { runAdminMigrations } from './migrator.js'
 import type { AdminDatabase } from './schema.js'
 
 @Injectable()
-export class AdminDbService implements OnModuleInit, OnModuleDestroy {
+export class AdminDbService implements OnModuleDestroy {
   readonly db: Kysely<AdminDatabase>
 
   constructor() {
@@ -16,10 +15,6 @@ export class AdminDbService implements OnModuleInit, OnModuleDestroy {
         pool: new pg.Pool({ connectionString: config.adminDatabaseUrl, max: 10 }),
       }),
     })
-  }
-
-  async onModuleInit(): Promise<void> {
-    await runAdminMigrations(this.db)
   }
 
   async onModuleDestroy(): Promise<void> {

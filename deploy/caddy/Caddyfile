@@ -1,0 +1,32 @@
+core.example.vn {
+	encode gzip
+
+	# Khoá Agent nằm ở query string của /agent, nên KHÔNG ghi query vào log:
+	# filter "regexp" cắt bỏ phần "?..." khỏi trường request>uri trước khi ghi,
+	# chỉ tác động tới log — không đổi request thật gửi tới core. Đã kiểm
+	# chứng: "/agent?key=BÍ_MẬT" ghi log thành "/agent".
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp \?.* ""
+			}
+		}
+	}
+
+	@agent path /agent*
+	handle @agent {
+		reverse_proxy core:3000 {
+			# Agent giữ kết nối hàng giờ; timeout mặc định sẽ cắt ngang.
+			transport http {
+				read_timeout 0
+				write_timeout 0
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy core:3000
+	}
+}

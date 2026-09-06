@@ -18,6 +18,13 @@ async function main(): Promise<void> {
   const keys = app.get(AgentKeyService)
 
   try {
+    if (command === 'migrate-admin') {
+      const { runAdminMigrations } = await import('./admin-db/migrator.js')
+      await runAdminMigrations(admin.db)
+      console.log('đã migrate DB quản trị')
+      return
+    }
+
     if (command === 'create-tenant') {
       const [code, ...nameParts] = args
       if (!code) throw new Error('cú pháp: create-tenant <code> <tên cơ sở>')
@@ -64,7 +71,7 @@ async function main(): Promise<void> {
       return
     }
 
-    console.log('các lệnh: create-tenant, issue-key, migrate-all')
+    console.log('các lệnh: migrate-admin, create-tenant, issue-key, migrate-all')
   } finally {
     await app.close()
   }

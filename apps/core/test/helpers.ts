@@ -1,11 +1,16 @@
-import type { Kysely } from 'kysely'
+import { Kysely, PostgresDialect } from 'kysely'
 import pg from 'pg'
+import { runAdminMigrations } from '../src/admin-db/migrator.js'
 import type { AdminDatabase } from '../src/admin-db/schema.js'
 import type { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 
 const ROOT = 'postgres://lis:lis@localhost:55432/postgres'
 
-/** Xoá và tạo lại database quản trị dùng cho test. Đọc tên từ ADMIN_DATABASE_URL. */
+/**
+ * Xoá và tạo lại database quản trị dùng cho test, sau đó chạy migration. Đọc
+ * tên từ ADMIN_DATABASE_URL. Migration không còn tự chạy lúc `app.init()`
+ * (Task 18), nên các test tích hợp phải tự gọi ở đây.
+ */
 export async function resetAdminDatabase(): Promise<void> {
   const url = new URL(process.env.ADMIN_DATABASE_URL ?? '')
   const name = url.pathname.slice(1)
@@ -14,6 +19,14 @@ export async function resetAdminDatabase(): Promise<void> {
   await root.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`)
   await root.query(`CREATE DATABASE ${name}`)
   await root.end()
+
+  const db = new Kysely<AdminDatabase>({
+    dialect: new PostgresDialect({
+      pool: new pg.Pool({ connectionString: process.env.ADMIN_DATABASE_URL }),
+    }),
+  })
+  await runAdminMigrations(db)
+  await db.destroy()
 }
 
 /** Tạo tenant, tạo database nghiệp vụ và chạy migration. Trả về tenantId. */
