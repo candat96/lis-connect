@@ -8,7 +8,15 @@
    POSTGRES_PASSWORD=<mật khẩu mạnh>
    CORS_ORIGINS=https://app.example.vn
    CORE_TAG=0.1.0
+   JWT_SECRET=<sinh bằng lệnh dưới đây>
    ```
+   Sinh `JWT_SECRET` (bí mật ký JWT đăng nhập Web UI — bắt buộc, Core từ chối khởi
+   động nếu thiếu):
+   ```bash
+   openssl rand -base64 48
+   ```
+   Đổi bí mật này sẽ làm mọi token đang phát hành mất hiệu lực ngay lập tức (mọi
+   người dùng bị đăng xuất) — chỉ đổi khi thật sự cần (nghi lộ bí mật).
 2. Sinh `deploy/pgbouncer/userlist.txt` từ `userlist.txt.example` (xem hướng dẫn
    lấy hash trong file đó).
 3. `docker compose -f deploy/docker-compose.prod.yml up -d postgres pgbouncer`
@@ -55,6 +63,24 @@ docker compose -f deploy/docker-compose.prod.yml exec core \
 ```
 
 Khoá Agent chỉ hiện một lần. Chép ngay và gửi cho người đi cài đặt.
+
+## Tạo tài khoản đăng nhập Web UI
+
+Không có màn hình tự đăng ký — tài khoản do quản trị tạo bằng CLI:
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml exec core \
+  node apps/core/dist/admin-cli.js create-user bvA ktv1 "Nguyễn Thị A"
+```
+
+Mật khẩu ngẫu nhiên chỉ hiện một lần trên màn hình lệnh — chép ngay và gửi cho
+kỹ thuật viên qua kênh riêng (không gửi chung với thông tin khác). Đặt lại mật
+khẩu khi quên hoặc nghi lộ:
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml exec core \
+  node apps/core/dist/admin-cli.js reset-password bvA ktv1
+```
 
 ## Sao lưu
 
