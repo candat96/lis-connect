@@ -1,0 +1,703 @@
+/*
+ * Hệ thống thiết kế cho Agent Console.
+ *
+ * Đây là công cụ kỹ thuật nội bộ (kỹ thuật viên triển khai + hỗ trợ kỹ thuật),
+ * chạy trên PC phòng xét nghiệm: màn hình nhỏ, độ phân giải thấp, thường có
+ * ánh sáng mạnh chiếu vào màn hình. Vì vậy chọn nền sáng, tương phản cao thay
+ * vì giao diện tối thời trang — nền tối dễ bị chói/phản chiếu dưới đèn phòng
+ * xét nghiệm và khó đọc hơn nền sáng ở cùng độ sáng màn hình. Panel Terminal
+ * thô là ngoại lệ có chủ đích: giữ tông tối truyền thống của console để nhìn
+ * được lâu mà không mỏi mắt, tách bạch rõ khỏi phần khung sáng xung quanh.
+ *
+ * Bảng màu, khoảng cách và font trong file này tổng hợp từ skill ui-ux-pro-max
+ * (định hướng "Minimalism & Swiss Style" cho công cụ dashboard kỹ thuật, mật độ
+ * cao, chuyển động tối thiểu) và điều chỉnh sang nền sáng theo yêu cầu ánh sáng
+ * phòng xét nghiệm — xem báo cáo Task 15 để biết chi tiết áp dụng.
+ */
+
+:root {
+  /* Khoảng cách: thang 4px, mật độ cao cho một cửa sổ cấu hình dùng cả ngày. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Bề mặt & khung */
+  --color-bg: #eef2f7;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-border: #cbd5e1;
+  --color-border-strong: #94a3b8;
+
+  /* Chữ */
+  --color-text: #0f172a;
+  --color-text-muted: #45536b;
+  --color-text-faint: #64748b;
+  --color-on-accent: #ffffff;
+
+  /* Thương hiệu / hành động chính */
+  --color-accent: #1d4ed8;
+  --color-accent-hover: #1e40af;
+  --color-focus-ring: #2563eb;
+
+  /* Trạng thái — luôn đi kèm nhãn chữ, không dùng màu làm dấu hiệu duy nhất */
+  --color-success: #15803d;
+  --color-success-dot: #16a34a;
+  --color-success-bg: #f0fdf4;
+  --color-danger: #b91c1c;
+  --color-danger-dot: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-warning: #b45309;
+  --color-warning-dot: #d97706;
+  --color-warning-bg: #fffbeb;
+
+  /* Terminal thô — tông tối có chủ đích, xem ghi chú ở đầu file */
+  --term-bg: #0b1220;
+  --term-surface: #101a2e;
+  --term-fg: #e2e8f0;
+  --term-muted: #7c8aa5;
+  --term-border: #1f2b45;
+  --term-in: #4ade80;
+  --term-out: #fbbf24;
+
+  color-scheme: light;
+  font-family:
+    'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---------- Khung ứng dụng ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.app-header .app-logo {
+  height: 30px;
+  width: auto;
+  flex: none;
+  display: block;
+}
+
+/* Thanh trạng thái: ba thứ phải đọc được trong một cái liếc — Core, thiết bị
+   mất kết nối, hàng đợi. */
+.status-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  font-size: 13px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.status-item .label {
+  color: var(--color-text-muted);
+}
+
+.status-item .value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-item.is-ok .value {
+  color: var(--color-success);
+}
+
+.status-item.is-bad .value {
+  color: var(--color-danger);
+}
+
+.status-item.is-warn .value {
+  color: var(--color-warning);
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+
+.dot-green {
+  background: var(--color-success-dot);
+}
+
+.dot-red {
+  background: var(--color-danger-dot);
+}
+
+.dot-amber {
+  background: var(--color-warning-dot);
+}
+
+.dot-muted {
+  background: var(--color-border-strong);
+}
+
+/* ---------- Tabs ---------- */
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: 0 var(--space-5);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.tab:hover {
+  color: var(--color-text);
+}
+
+.tab-active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+  font-weight: 600;
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-6);
+}
+
+/* ---------- Panel & form ---------- */
+
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: var(--space-6);
+  max-width: 900px;
+}
+
+.panel + .panel {
+  margin-top: var(--space-5);
+}
+
+.panel h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 var(--space-4);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+  max-width: 480px;
+}
+
+.field > span:first-child {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.field input,
+.field select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color 150ms ease;
+}
+
+.field input:hover,
+.field select:hover {
+  border-color: var(--color-border-strong);
+}
+
+.field input::placeholder {
+  color: var(--color-text-faint);
+}
+
+.field input:disabled,
+.field select:disabled {
+  background: var(--color-surface-muted);
+  color: var(--color-text-faint);
+  cursor: not-allowed;
+}
+
+.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0 0 var(--space-4);
+  max-width: 640px;
+}
+
+.loading-text {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* ---------- Nút bấm ---------- */
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  margin: var(--space-4) 0;
+  flex-wrap: wrap;
+}
+
+button {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-muted);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+button.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+button.danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: var(--color-surface);
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+}
+
+/* ---------- Thông báo & badge trạng thái ---------- */
+
+.message {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.message-ok {
+  background: var(--color-success-bg);
+  border-color: #bbf7d0;
+  color: var(--color-success);
+}
+
+.message-bad {
+  background: var(--color-danger-bg);
+  border-color: #fecaca;
+  color: var(--color-danger);
+}
+
+.message-warn {
+  background: var(--color-warning-bg);
+  border-color: #fde68a;
+  color: var(--color-warning);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-ok {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.badge-bad {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.badge-muted {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+/* ---------- Bảng ---------- */
+
+.table-wrap {
+  overflow-x: auto;
+  margin-bottom: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.table thead th {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover td {
+  background: var(--color-surface-muted);
+}
+
+/* Hàng máy đang mất kết nối/lỗi cần nổi bật ngay khi liếc qua bảng. */
+.table tr.row-alert td {
+  background: var(--color-danger-bg);
+}
+
+.table tr.row-alert:hover td {
+  background: #fde3e3;
+}
+
+.table td.empty-cell {
+  color: var(--color-text-muted);
+  white-space: normal;
+  padding: var(--space-5) var(--space-3);
+}
+
+.table-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/* ---------- Terminal thô ---------- */
+
+/*
+ * Bộ chọn máy dạng dãy nút (segmented tabs), không dùng <select> — kỹ thuật
+ * viên cần thấy số dòng của TẤT CẢ các máy cùng lúc để biết máy nào đang nói,
+ * máy nào im lặng, mà không cần mở dropdown ra từng cái một.
+ */
+.device-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 var(--space-3);
+}
+
+.device-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.2;
+  max-width: 220px;
+}
+
+.device-chip:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-muted);
+}
+
+.device-chip.active {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: #fff;
+}
+
+.device-chip.active .device-chip-count {
+  color: #fff;
+  opacity: 0.85;
+}
+
+.device-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-chip-flag {
+  flex: none;
+  font-size: 11px;
+  color: var(--color-text-faint);
+}
+
+.device-chip.active .device-chip-flag {
+  color: #fff;
+  opacity: 0.75;
+}
+
+.device-chip-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.terminal-toolbar {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  margin: var(--space-4) 0;
+  flex-wrap: wrap;
+}
+
+.terminal-toolbar input {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 13px;
+  min-width: 220px;
+}
+
+.terminal-count {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.terminal {
+  background: var(--term-bg);
+  color: var(--term-fg);
+  border: 1px solid var(--term-border);
+  border-radius: 6px;
+  padding: var(--space-3) 0;
+  height: 420px;
+  overflow: auto;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'SFMono-Regular', Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.terminal .terminal-empty {
+  color: var(--term-muted);
+  padding: var(--space-4);
+}
+
+.terminal-line {
+  display: flex;
+  gap: var(--space-2);
+  padding: 1px var(--space-3);
+  border-left: 3px solid transparent;
+  white-space: pre;
+}
+
+.terminal-line:hover {
+  background: var(--term-surface);
+}
+
+.line-in {
+  border-left-color: var(--term-in);
+}
+
+.line-out {
+  border-left-color: var(--term-out);
+}
+
+.terminal-line .ts {
+  color: var(--term-muted);
+  flex: none;
+}
+
+.terminal-line .dir {
+  flex: none;
+  font-weight: 700;
+  width: 1.4em;
+}
+
+.line-in .dir {
+  color: var(--term-in);
+}
+
+.line-out .dir {
+  color: var(--term-out);
+}
+
+.terminal-line .dev {
+  color: #9aa8c7;
+  flex: none;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-line .payload {
+  color: var(--term-fg);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ---------- Cửa sổ theo dõi riêng từng máy (Task 23) ----------
+ * Cửa sổ nhỏ (480×640 mặc định), thường mở 3-4 cái cạnh nhau hoặc trên nhiều
+ * màn hình — header phải cho biết ngay "đây là máy nào" chỉ bằng một cái
+ * liếc, kể cả khi cửa sổ bị che một phần. Không có tab, không có form: chỉ
+ * header + banner (khi cần) + terminal chiếm hết phần còn lại.
+ */
+
+.device-window {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+}
+
+.device-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.device-window-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.device-window-title h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-window-key {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'SFMono-Regular', Menlo, monospace;
+  font-size: 12px;
+  color: var(--color-text-faint);
+  flex: none;
+}
+
+.device-window-status {
+  font-size: 13px;
+  flex: none;
+}
+
+.device-window-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.device-window-body .terminal-toolbar {
+  margin-top: 0;
+}
+
+.device-window-terminal {
+  flex: 1;
+  height: auto;
+}

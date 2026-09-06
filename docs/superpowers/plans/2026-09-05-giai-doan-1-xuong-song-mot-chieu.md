@@ -23,6 +23,30 @@
 - Ngôn ngữ giao diện: tiếng Việt có dấu đầy đủ. Mã nguồn, tên hàm, tên biến, thông điệp commit: tiếng Anh.
 - Mọi thời điểm lưu dạng `timestamptz`, sinh bằng `now()` của Postgres hoặc `new Date()` UTC. Không lưu giờ địa phương.
 - Commit sau mỗi task. Thông điệp theo Conventional Commits.
+- **Native module dùng chung giữa Node và Electron cần chú ý ABI.** `better-sqlite3` (và sau này
+  `serialport`) được biên dịch cho một `NODE_MODULE_VERSION` cụ thể. Chạy `pnpm --filter @lis/agent
+  build` hoặc `dev` sẽ biên dịch lại chúng cho ABI của Electron (130), khiến `pnpm test` chạy bằng
+  Node 22 (ABI 127) đỏ hàng loạt với thông báo "compiled against a different Node.js version".
+  Sau khi build hoặc chạy Electron, muốn chạy test lại thì phải
+  `pnpm --filter @lis/agent rebuild better-sqlite3`. Đây không phải lỗi mã; đừng đi sửa mã khi thấy
+  triệu chứng này.
+- **`@lis/shared` phải được bundle vào tiến trình `main` của Electron**, không được externalize:
+  `packages/shared` khai điểm vào là `src/index.ts` (TypeScript), nên `require()` nó lúc chạy sẽ
+  làm Electron crash. Cấu hình `externalizeDepsPlugin({ exclude: ['@lis/shared'] })`. Native module
+  thì ngược lại — vẫn phải externalize.
+- **Trong `apps/core`, mọi tham số constructor được tiêm phải khai `@Inject(...)` tường minh.**
+  `esbuild` — thứ mà cả `vitest` lẫn `tsx` dùng — không phát metadata `design:paramtypes`, nên
+  cơ chế suy luận kiểu ngầm của NestJS lặng lẽ tiêm `undefined` thay vì báo lỗi lúc khởi động.
+  Tệp test nào không đi qua `main.ts` cũng phải tự `import 'reflect-metadata'` ở dòng đầu.
+- Monorepo dùng **TypeScript project references**: gốc repo có `tsconfig.json` với mảng
+  `references`, và mọi package đặt `composite: true` (kế thừa từ `tsconfig.base.json`).
+  **Mỗi task tạo package mới phải thêm một mục vào `references` của `tsconfig.json` gốc**,
+  nếu không `pnpm typecheck` sẽ bỏ qua package đó.
+- Package nào để test ở thư mục `test/` cạnh `src/` thì `tsconfig.json` của nó phải giữ
+  `rootDir: "src"` và `include: ["src"]` — để `dist/` phẳng và **mã kiểm thử không lọt vào
+  bản dựng production** — kèm một `tsconfig.test.json` riêng (`composite: false`,
+  `noEmit: true`, `include: ["src", "test"]`) để test vẫn được kiểm kiểu. Lệnh
+  `pnpm typecheck` chạy cả hai.
 - **Mọi task có giao diện (Task 15, Task 16) BẮT BUỘC gọi skill `ui-ux-pro-max`
   trước khi viết dòng JSX đầu tiên**, và thiết kế theo hướng dẫn skill trả về. Các
   đoạn JSX và CSS trong kế hoạch này là bản dựng chức năng để chốt luồng dữ liệu và

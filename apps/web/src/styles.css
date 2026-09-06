@@ -1,0 +1,687 @@
+/*
+ * Hệ thống thiết kế cho màn hình Theo dõi máy xét nghiệm (Device Monitor).
+ *
+ * Khác với Agent Console (công cụ cấu hình cho kỹ thuật viên triển khai),
+ * đây là màn hình TREO CẢ NGÀY trong phòng xét nghiệm, người xem là kỹ thuật
+ * viên xét nghiệm — không phải dân kỹ thuật — và thường liếc màn hình từ xa
+ * vài mét trong lúc đang thao tác với máy móc, không ngồi sát bàn phím.
+ * Vì vậy, ngoài các token thương hiệu dùng chung với Agent Console (nền
+ * sáng, tông xanh, thang khoảng cách 4px — để nhất quán hệ sinh thái sản
+ * phẩm), thiết kế này thêm hẳn một tầng "báo động nhìn từ xa":
+ *
+ *   1. Banner cảnh báo toàn chiều rộng, dính đầu trang, chữ in đậm cỡ lớn —
+ *      không cần lại gần màn hình mới biết có máy rớt kết nối.
+ *   2. Mọi trạng thái đều là NHÃN CHỮ + ICON HÌNH DẠNG RIÊNG (tròn có dấu
+ *      tick / tam giác cảnh báo / bát giác dừng / vòng nét đứt dấu hỏi) —
+ *      không dựa vào màu sắc một mình, để người mù màu và người đứng xa vẫn
+ *      phân biệt được bốn trạng thái.
+ *   3. Hàng máy có vấn đề (mất kết nối/lỗi/không rõ) được tô nền đỏ nhạt
+ *      toàn hàng — diện tích lớn dễ nhận ra hơn một chấm màu nhỏ.
+ *
+ * Bảng màu, khoảng cách, kiểu chữ tổng hợp từ skill ui-ux-pro-max (định
+ * hướng "Minimalism & Swiss Style" cho công cụ dashboard, nền sáng, mật độ
+ * cao — --density 8) và bảng màu "Healthcare / Clinical" (xanh dương lâm
+ * sàng + xanh lá sức khỏe + đỏ cảnh báo) — xem báo cáo Task 16 để biết chi
+ * tiết áp dụng và lý do không sao chép nguyên trạng thái Agent Console.
+ */
+
+:root {
+  /* Khoảng cách: thang 4px, mật độ cao cho một cửa sổ dùng cả ngày. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Bề mặt & khung — nền sáng, tương phản cao (phòng xét nghiệm nhiều ánh sáng). */
+  --color-bg: #eef2f7;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-border: #cbd5e1;
+  --color-border-strong: #94a3b8;
+
+  /* Chữ */
+  --color-text: #0f172a;
+  --color-text-muted: #45536b;
+  --color-text-faint: #64748b;
+  --color-on-accent: #ffffff;
+
+  /* Thương hiệu / hành động chính — cùng tông với Agent Console để nhất quán hệ sinh thái. */
+  --color-accent: #1d4ed8;
+  --color-accent-hover: #1e40af;
+  --color-focus-ring: #2563eb;
+
+  /* Trạng thái — luôn đi kèm nhãn chữ + icon hình dạng riêng, không dùng màu làm dấu hiệu duy nhất. */
+  --color-success: #15803d;
+  --color-success-dot: #16a34a;
+  --color-success-bg: #f0fdf4;
+  --color-danger: #b91c1c;
+  --color-danger-dot: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-danger-bg-strong: #fde3e3;
+  --color-warning: #b45309;
+  --color-warning-dot: #d97706;
+  --color-warning-bg: #fffbeb;
+
+  /* Terminal thô — tông tối có chủ đích, tách bạch khỏi khung sáng xung quanh, đọc lâu không mỏi mắt. */
+  --term-bg: #0b1220;
+  --term-surface: #101a2e;
+  --term-fg: #e2e8f0;
+  --term-muted: #7c8aa5;
+  --term-border: #1f2b45;
+  --term-in: #4ade80;
+  --term-out: #fbbf24;
+
+  color-scheme: light;
+  font-family:
+    'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---------- Khung ứng dụng ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-width: 0;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.brand-logo {
+  display: block;
+  height: 32px;
+  width: auto;
+  flex: none;
+}
+
+.brand-tenant {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ---------- Banner cảnh báo — phải nhìn được từ xa vài mét ---------- */
+
+.alert-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.alert-banner-icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+
+.alert-banner-danger {
+  background: var(--color-danger);
+  color: #ffffff;
+}
+
+.alert-banner-warn {
+  background: var(--color-warning);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* ---------- Nội dung ---------- */
+
+.content {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-6);
+}
+
+.empty {
+  color: var(--color-text-muted);
+}
+
+.error {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  padding: var(--space-3) var(--space-4);
+  font-size: 13.5px;
+}
+
+.loading-text {
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+}
+
+/* ---------- Panel ---------- */
+
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: var(--space-6);
+}
+
+.panel-wide {
+  max-width: 1200px;
+}
+
+.panel h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 var(--space-4);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: var(--space-6) 0 var(--space-3);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
+.section-title-inline {
+  margin: 0;
+}
+
+/* ---------- Huy hiệu trạng thái ---------- */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-badge-icon {
+  flex: none;
+}
+
+.status-badge-sm {
+  padding: 2px var(--space-2);
+  font-size: 12px;
+}
+
+.status-badge-sm .status-badge-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.tone-ok {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.tone-danger {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.tone-warn {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+/* ---------- Bảng ---------- */
+
+.table-wrap {
+  overflow-x: auto;
+  margin-bottom: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.table th.col-status,
+.table td.col-status {
+  min-width: 190px;
+}
+
+.table thead th {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover td {
+  background: var(--color-surface-muted);
+}
+
+.table td code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.cell-name {
+  font-weight: 600;
+}
+
+.cell-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+/* Hàng máy đang mất kết nối/lỗi/không rõ — tô cả hàng để dễ nhận ra từ xa,
+   không chỉ dựa vào chấm màu nhỏ trong huy hiệu. */
+.table tr.row-alert td {
+  background: var(--color-danger-bg);
+}
+
+.table tr.row-alert:hover td {
+  background: var(--color-danger-bg-strong);
+}
+
+.table td.empty-cell {
+  color: var(--color-text-muted);
+  white-space: normal;
+  padding: var(--space-5) var(--space-4);
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover {
+  background: var(--color-surface-muted);
+}
+
+/* ---------- Chi tiết máy ---------- */
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.back-link {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 4px;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.back-link:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-muted);
+}
+
+.detail-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.detail-name {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+/* ---------- Nút bấm & form nhỏ ---------- */
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin: var(--space-4) 0;
+  flex-wrap: wrap;
+}
+
+.checkbox {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+/* ---------- Terminal thô ---------- */
+
+.terminal {
+  background: var(--term-bg);
+  color: var(--term-fg);
+  border: 1px solid var(--term-border);
+  border-radius: 6px;
+  padding: var(--space-3) 0;
+  height: 420px;
+  overflow: auto;
+  margin: 0;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'SFMono-Regular', Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.terminal .terminal-empty {
+  color: var(--term-muted);
+  padding: var(--space-4);
+}
+
+.terminal-line {
+  display: flex;
+  gap: var(--space-2);
+  padding: 1px var(--space-3);
+  border-left: 3px solid transparent;
+  white-space: pre;
+}
+
+.terminal-line:hover {
+  background: var(--term-surface);
+}
+
+.line-in {
+  border-left-color: var(--term-in);
+}
+
+.line-out {
+  border-left-color: var(--term-out);
+}
+
+.terminal-line .ts {
+  color: var(--term-muted);
+  flex: none;
+}
+
+.terminal-line .dir {
+  flex: none;
+  font-weight: 700;
+  width: 1.4em;
+}
+
+.line-in .dir {
+  color: var(--term-in);
+}
+
+.line-out .dir {
+  color: var(--term-out);
+}
+
+.terminal-line .status {
+  color: #9aa5b1;
+  margin-right: var(--space-2);
+  flex: none;
+}
+
+.terminal-line .payload {
+  color: var(--term-fg);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ---------- Đăng nhập ----------
+ *
+ * Style/hướng dẫn từ skill ui-ux-pro-max (Task 19): Minimalism & Swiss Style
+ * — thẻ đăng nhập đơn, nền sáng, khung viền rõ, không hiệu ứng trang trí.
+ * Bảng màu giữ nguyên token clinical blue đã dùng ở Device Monitor
+ * (--color-accent) thay vì bảng "teal" mà công cụ gợi ý mặc định cho
+ * dashboard chung — xem ghi chú trong screens/Login.tsx.
+ */
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--color-bg);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: var(--space-8) var(--space-6);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+}
+
+.login-brand-logo {
+  display: block;
+  height: 54px;
+  width: auto;
+}
+
+.login-brand p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.login-notice {
+  position: static;
+  border-radius: 6px;
+  font-size: 13.5px;
+  margin-bottom: var(--space-5);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.login-error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: var(--space-3) var(--space-4);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.field input {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  font-size: 15px;
+  min-height: 44px;
+}
+
+.field input:hover {
+  border-color: var(--color-border-strong);
+}
+
+.password-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input input {
+  width: 100%;
+  padding-right: calc(var(--space-8) + var(--space-2));
+}
+
+.password-toggle {
+  position: absolute;
+  right: var(--space-1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.login-submit {
+  margin-top: var(--space-2);
+  min-height: 44px;
+  border: none;
+  border-radius: 6px;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 200ms ease;
+}
+
+.login-submit:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.login-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---------- Bảng điều khiển người dùng ở đầu trang (thay ô nhập tenant id cũ) ---------- */
+
+.user-panel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.35;
+}
+
+.user-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.user-role {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.logout-button {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.logout-button:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-muted);
+}

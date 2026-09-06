@@ -1,0 +1,33 @@
+{
+  "name": "@lis/core",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "start:dev": "node --import tsx/esm --watch src/main.ts",
+    "admin": "node --import tsx/esm --env-file=.env src/admin-cli.ts",
+    "test": "vitest run",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@lis/shared": "workspace:^",
+    "@nestjs/common": "11",
+    "@nestjs/core": "11",
+    "@nestjs/platform-express": "11",
+    "jsonwebtoken": "^9.0.3",
+    "kysely": "0.27.5",
+    "pg": "8.13.1",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.1",
+    "ws": "8.18.0"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "11",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/pg": "8.11.10",
+    "@types/supertest": "6.0.2",
+    "@types/ws": "8.5.13",
+    "dotenv": "16.4.7",
+    "supertest": "7.0.0",
+    "tsx": "4.19.2"
+  }
+}
