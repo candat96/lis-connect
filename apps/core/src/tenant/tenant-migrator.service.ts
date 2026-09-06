@@ -10,9 +10,15 @@ import pg from 'pg'
 import type { AdminDatabase } from '../admin-db/schema.js'
 import { assertValidDatabaseName } from './database-name.js'
 import * as initial from './migrations/001-initial.js'
+import * as catalogue from './migrations/002-catalogue.js'
+import * as catalogueAudit from './migrations/003-catalogue-audit.js'
 import type { TenantDatabase } from './tenant-schema.js'
 
-const migrations: Record<string, Migration> = { '001-initial': initial }
+const migrations: Record<string, Migration> = {
+  '001-initial': initial,
+  '002-catalogue': catalogue,
+  '003-catalogue-audit': catalogueAudit,
+}
 
 class StaticProvider implements MigrationProvider {
   async getMigrations(): Promise<Record<string, Migration>> {

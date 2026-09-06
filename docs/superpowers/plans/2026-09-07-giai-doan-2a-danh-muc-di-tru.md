@@ -2332,3 +2332,36 @@ git commit -m "feat(web): channel mapping and result rule screens"
 - [ ] Công cụ di trú chạy hai lần trên database trống cho kết quả giống hệt nhau
 - [ ] Ba màn hình quản lý dùng được, đã qua skill `ui-ux-pro-max`, mọi lời gọi API có xử lý lỗi hiển thị được
 - [ ] Danh sách 11 nhóm cha dựng lại từ thụt lề đã được xuất ra để kỹ thuật viên xác nhận (khối 2A chỉ xuất danh sách; việc xác nhận là công việc chuyên môn, không phải việc của phần mềm)
+
+Ruling (Định nghĩa hoàn thành khối 2A — controller đo lại trên dữ liệu thật, 2026-09-07):
+
+Kế hoạch viết DoD khi còn tưởng danh mục chỉ có một bảng 404 dòng. Sau khi phát hiện hệ cũ có hai
+bảng danh mục tách biệt, mọi con số đối chiếu đều sai. Controller đã đo lại trực tiếp trên
+`docs/khao-sat/seed/du-lieu/` bằng script độc lập. Con số thật thay thế DoD cũ:
+
+  | Hạng mục          | DoD cũ (sai) | Đo thật | Ghi chú                                              |
+  |-------------------|--------------|---------|------------------------------------------------------|
+  | Xét nghiệm        | 404          | 2619    | 390 TestCode + 2229 TestCodeNew, giao nhau = 0        |
+  | Máy               | 20           | 20      | khớp                                                  |
+  | Luật ghi đè       | 56           | 18      | đọc được 54, mồ côi 36 dòng / 12 mã                   |
+  | Mã HIS            | 835          | 650     | tệp có 835 dòng, chỉ 666 dòng đủ hai trường, mồ côi 16|
+  | Ánh xạ mã kênh    | 292 trừ đi   | 290     | 292 dòng, 2 dòng analyte không có trong danh mục      |
+  | Xung đột mã kênh  | 7            | 7       | khớp                                                  |
+
+Ba điều lộ ra khi đo:
+  - `TestCode_HIS.json` có cột tên `Testcode` (chữ c thường), khác mọi tệp còn lại. Code Task 2 đã
+    đọc đúng — controller kiểm chứng tại `legacy-source.ts:278`. Ghi lại để người sau không "sửa"
+    thành `TestCode` rồi làm mất toàn bộ 650 ánh xạ HIS trong im lặng.
+  - 169 trong 835 dòng của tệp mã HIS thiếu mã, tức tệp nguồn vốn đã rỗng một phần.
+  - Một mã HIS bị hỏng ở khâu xuất dữ liệu, thành ký hiệu khoa học `7.82E+04`. Đây là dữ liệu hỏng
+    tại nguồn, không phải lỗi của ta. Không được tự đoán mã gốc; phải xuất ra cho kỹ thuật viên
+    xác nhận, cùng danh sách các mã mồ côi khác.
+
+Quyết định: cập nhật DoD theo cột "đo thật". Task 5 phải in bảng đối chiếu khớp các con số này.
+Nếu sai: bảng đối chiếu báo lệch, thấy ngay khi chạy công cụ di trú, chi phí là một lần chạy lại.
+
+Ruling (Task 7 — quy mô bảng danh mục):
+Brief Task 7 mô tả "bảng dữ liệu 404 dòng" và cho phép nghĩ tới lọc phía trình duyệt. Thật ra là
+2619 dòng. Quyết định: màn hình danh mục bắt buộc phân trang và tìm kiếm phía máy chủ, không được
+tải toàn bộ danh mục về rồi lọc trong trình duyệt.
+Nếu sai: màn hình chậm và tốn băng thông trên máy trạm phòng xét nghiệm — đúng nơi cấu hình yếu nhất.

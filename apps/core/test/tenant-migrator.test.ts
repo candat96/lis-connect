@@ -5,9 +5,10 @@ import { runAdminMigrations } from '../src/admin-db/migrator.js'
 import type { AdminDatabase } from '../src/admin-db/schema.js'
 import { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 import type { TenantDatabase } from '../src/tenant/tenant-schema.js'
+import { testDbName } from './helpers.js'
 
 const ROOT = 'postgres://lis:lis@localhost:55432/postgres'
-const ADMIN_DB = 'lis_admin_mig_test'
+const ADMIN_DB = testDbName('lis_admin_mig_test')
 const TEMPLATE = 'postgres://lis:lis@localhost:55432/{db}'
 
 let admin: Kysely<AdminDatabase>
@@ -31,8 +32,8 @@ async function dropIfExists(name: string): Promise<void> {
 
 beforeAll(async () => {
   await dropAndCreate(ADMIN_DB)
-  await dropIfExists('lis_t_mig_a')
-  await dropIfExists('lis_t_mig_b')
+  await dropIfExists(testDbName('lis_t_mig_a'))
+  await dropIfExists(testDbName('lis_t_mig_b'))
 
   admin = new Kysely<AdminDatabase>({
     dialect: new PostgresDialect({
@@ -43,14 +44,14 @@ beforeAll(async () => {
 
   const a = await admin
     .insertInto('tenants')
-    .values({ code: 'a', name: 'A', database_name: 'lis_t_mig_a', status: 'active' })
+    .values({ code: 'a', name: 'A', database_name: testDbName('lis_t_mig_a'), status: 'active' })
     .returningAll()
     .executeTakeFirstOrThrow()
   tenantAId = a.id
 
   await admin
     .insertInto('tenants')
-    .values({ code: 'b', name: 'B', database_name: 'lis_t_mig_b', status: 'active' })
+    .values({ code: 'b', name: 'B', database_name: testDbName('lis_t_mig_b'), status: 'active' })
     .execute()
 
   migrator = new TenantMigratorService(admin, TEMPLATE)

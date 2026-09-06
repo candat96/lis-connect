@@ -8,7 +8,7 @@ import { AppModule } from '../src/app.module.js'
 import { IngestService } from '../src/ingest/ingest.service.js'
 import { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 import { TenantRegistryService } from '../src/tenant/tenant-registry.service.js'
-import { prepareTestTenant, resetAdminDatabase } from './helpers.js'
+import { prepareTestTenant, resetAdminDatabase, testDbName } from './helpers.js'
 
 let app: INestApplication
 let ingest: IngestService
@@ -27,7 +27,7 @@ beforeAll(async () => {
   registry = app.get(TenantRegistryService)
   ingest = app.get(IngestService)
 
-  tenantId = await prepareTestTenant(admin.db, migrator, 'ing-a', 'lis_t_ing_a')
+  tenantId = await prepareTestTenant(admin.db, migrator, 'ing-a', testDbName('lis_t_ing_a'))
 
   const db = await registry.forTenant(tenantId)
   const agent = await db
@@ -223,7 +223,7 @@ describe('IngestService', () => {
   it('ghi cho tenant này không rò sang tenant khác', async () => {
     const admin = app.get(AdminDbService)
     const migrator = app.get(TenantMigratorService)
-    const otherTenant = await prepareTestTenant(admin.db, migrator, 'ing-b', 'lis_t_ing_b')
+    const otherTenant = await prepareTestTenant(admin.db, migrator, 'ing-b', testDbName('lis_t_ing_b'))
 
     const otherDb = await registry.forTenant(otherTenant)
     const rows = await otherDb.selectFrom('raw_messages').selectAll().execute()

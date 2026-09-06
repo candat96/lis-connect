@@ -10,7 +10,7 @@ import { AgentGateway } from '../src/agent-gateway/agent.gateway.js'
 import { AgentKeyService } from '../src/tenant/agent-key.service.js'
 import { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 import { TenantRegistryService } from '../src/tenant/tenant-registry.service.js'
-import { prepareTestTenant, resetAdminDatabase } from './helpers.js'
+import { prepareTestTenant, resetAdminDatabase, testDbName } from './helpers.js'
 
 let app: INestApplication
 let port: number
@@ -44,7 +44,7 @@ beforeAll(async () => {
   const admin = app.get(AdminDbService)
   const migrator = app.get(TenantMigratorService)
   const keys = app.get(AgentKeyService)
-  tenantId = await prepareTestTenant(admin.db, migrator, 'gw-a', 'lis_t_gw_a')
+  tenantId = await prepareTestTenant(admin.db, migrator, 'gw-a', testDbName('lis_t_gw_a'))
   agentKey = (await keys.issue(tenantId, 'PC test')).plainKey
 }, 90_000)
 

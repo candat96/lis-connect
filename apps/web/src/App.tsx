@@ -1,11 +1,29 @@
 import { useEffect, useState, type JSX } from 'react'
 import { api, logout, session, type DeviceSummary, type Session } from './api.js'
+import { CatalogueAnalytes } from './screens/CatalogueAnalytes.js'
+import { CatalogueChannelMap } from './screens/CatalogueChannelMap.js'
+import { CatalogueResultRules } from './screens/CatalogueResultRules.js'
 import { DeviceDetail } from './screens/DeviceDetail.js'
 import { DeviceMonitor } from './screens/DeviceMonitor.js'
 import { Login } from './screens/Login.js'
 import { UnknownDashedIcon, WarningTriangleIcon } from './statusMeta.js'
 
 const REFRESH_MS = 5000
+
+/**
+ * Bốn màn hình của Web UI. Chuyển màn hình bằng state chứ không bằng router:
+ * ứng dụng chỉ có bốn đích, và thêm một thư viện định tuyến vào đây sẽ đắt hơn
+ * phần nó giải quyết. Danh sách máy vẫn do App polling MỘT lần và truyền xuống
+ * cả ba màn hình cần nó.
+ */
+type View = 'devices' | 'analytes' | 'channels' | 'rules'
+
+const VIEW_TABS: Array<{ id: View; label: string }> = [
+  { id: 'devices', label: 'Theo dõi máy' },
+  { id: 'analytes', label: 'Danh mục xét nghiệm' },
+  { id: 'channels', label: 'Ánh xạ mã kênh' },
+  { id: 'rules', label: 'Luật ghi đè kết quả' },
+]
 
 /**
  * Kết quả một vòng làm mới danh sách máy — sống ở App, không phải trong
@@ -71,6 +89,7 @@ function useDevicesPolling(sessionKey: string): DevicesPollState {
 
 export function App(): JSX.Element {
   const [currentSession, setCurrentSession] = useState<Session | null>(session.get())
+  const [view, setView] = useState<View>('devices')
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [authNotice, setAuthNotice] = useState<string | null>(null)
   const { devices, refreshFailed, loading } = useDevicesPolling(currentSession?.token ?? '')
@@ -84,6 +103,7 @@ export function App(): JSX.Element {
       setAuthNotice(reason)
       setCurrentSession(null)
       setSelectedDeviceId(null)
+      setView('devices')
     })
   }, [])
 
@@ -96,6 +116,7 @@ export function App(): JSX.Element {
     logout()
     setCurrentSession(null)
     setSelectedDeviceId(null)
+    setView('devices')
   }
 
   if (!currentSession) {
@@ -128,6 +149,23 @@ export function App(): JSX.Element {
         </div>
       </header>
 
+      <nav className="app-nav" aria-label="Các màn hình">
+        {VIEW_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className="nav-tab"
+            aria-current={view === tab.id ? 'page' : undefined}
+            onClick={() => {
+              setView(tab.id)
+              if (tab.id !== 'devices') setSelectedDeviceId(null)
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
       {!loading && refreshFailed && (
         <div className="alert-banner alert-banner-warn" role="status" aria-live="polite">
           <UnknownDashedIcon className="alert-banner-icon" />
@@ -149,7 +187,7 @@ export function App(): JSX.Element {
       )}
 
       <main className="content">
-        {!selectedDeviceId && (
+        {view === 'devices' && !selectedDeviceId && (
           <DeviceMonitor
             devices={devices}
             loading={loading}
@@ -157,7 +195,7 @@ export function App(): JSX.Element {
             onSelect={setSelectedDeviceId}
           />
         )}
-        {selectedDeviceId && (
+        {view === 'devices' && selectedDeviceId && (
           <DeviceDetail
             deviceId={selectedDeviceId}
             device={devices.find((d) => d.id === selectedDeviceId) ?? null}
@@ -165,6 +203,11 @@ export function App(): JSX.Element {
             onBack={() => setSelectedDeviceId(null)}
           />
         )}
+        {view === 'analytes' && <CatalogueAnalytes />}
+        {view === 'channels' && (
+          <CatalogueChannelMap devices={devices} devicesLoading={loading} />
+        )}
+        {view === 'rules' && <CatalogueResultRules devices={devices} devicesLoading={loading} />}
       </main>
     </div>
   )

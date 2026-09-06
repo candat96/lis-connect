@@ -8,6 +8,21 @@ import type { TenantMigratorService } from '../src/tenant/tenant-migrator.servic
 const ROOT = 'postgres://lis:lis@localhost:55432/postgres'
 
 /**
+ * Hậu tố riêng cho lần chạy vitest này, do `vitest.config.ts` sinh ra.
+ *
+ * Mọi tên database mà test tạo ra phải đi qua `testDbName`. Hai tiến trình
+ * vitest chạy cùng lúc trên một máy mà dùng chung tên database sẽ `DROP
+ * DATABASE ... WITH (FORCE)` lên nhau, và tiến trình bị ngắt sẽ đỏ với những
+ * lỗi không liên quan gì tới code đang sửa.
+ */
+export const TEST_DB_SUFFIX = process.env.TEST_DB_SUFFIX ?? ''
+
+/** Gắn hậu tố của lần chạy hiện tại vào một tên database dùng trong test. */
+export function testDbName(base: string): string {
+  return `${base}${TEST_DB_SUFFIX}`
+}
+
+/**
  * Xoá và tạo lại database quản trị dùng cho test, sau đó chạy migration. Đọc
  * tên từ ADMIN_DATABASE_URL. Migration không còn tự chạy lúc `app.init()`
  * (Task 18), nên các test tích hợp phải tự gọi ở đây.
@@ -37,14 +52,18 @@ export async function prepareTestTenant(
   code: string,
   databaseName: string,
 ): Promise<string> {
+  // `databaseName` phải đã đi qua `testDbName` ở phía người gọi — nhiều test còn
+  // tự `DROP DATABASE` bằng chính tên đó, nên hậu tố phải được gắn một lần duy
+  // nhất, ở tầng test, chứ không phải ở đây.
+  const dbName = databaseName
   const root = new pg.Client({ connectionString: ROOT })
   await root.connect()
-  await root.query(`DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`)
+  await root.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`)
   await root.end()
 
   const tenant = await admin
     .insertInto('tenants')
-    .values({ code, name: code, database_name: databaseName, status: 'active' })
+    .values({ code, name: code, database_name: dbName, status: 'active' })
     .returningAll()
     .executeTakeFirstOrThrow()
   await migrator.provisionDatabase(tenant.id)

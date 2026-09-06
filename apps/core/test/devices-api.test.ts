@@ -9,7 +9,7 @@ import { AppModule } from '../src/app.module.js'
 import { IngestService } from '../src/ingest/ingest.service.js'
 import { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 import { TenantRegistryService } from '../src/tenant/tenant-registry.service.js'
-import { createTestUser, prepareTestTenant, resetAdminDatabase } from './helpers.js'
+import { createTestUser, prepareTestTenant, resetAdminDatabase, testDbName } from './helpers.js'
 
 let app: INestApplication
 let tenantA: string
@@ -37,8 +37,8 @@ beforeAll(async () => {
   const registry = app.get(TenantRegistryService)
   const ingest = app.get(IngestService)
 
-  tenantA = await prepareTestTenant(admin.db, migrator, 'api-a', 'lis_t_api_a')
-  tenantB = await prepareTestTenant(admin.db, migrator, 'api-b', 'lis_t_api_b')
+  tenantA = await prepareTestTenant(admin.db, migrator, 'api-a', testDbName('lis_t_api_a'))
+  tenantB = await prepareTestTenant(admin.db, migrator, 'api-b', testDbName('lis_t_api_b'))
   await createTestUser(admin.db, tenantA, 'ktv-a', 'mat-khau-test-a')
   await createTestUser(admin.db, tenantB, 'ktv-b', 'mat-khau-test-b')
 

@@ -19,7 +19,7 @@ export interface StatusMeta {
   Icon: (props: { className?: string }) => JSX.Element
 }
 
-function CheckCircleIcon({ className }: { className?: string }): JSX.Element {
+export function CheckCircleIcon({ className }: { className?: string }): JSX.Element {
   return (
     <svg className={className} viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
@@ -141,5 +141,126 @@ export function StatusBadge({ status, size }: { status: string; size?: 'sm' }): 
       <meta.Icon className="status-badge-icon" />
       <span className="status-badge-label">{meta.label}</span>
     </span>
+  )
+}
+
+/* ---------------------------------------------------------------------------
+ * Icon cho ba màn hình quản lý danh mục.
+ *
+ * Cùng một quy ước với bốn icon trạng thái máy ở trên: mỗi ý nghĩa một HÌNH
+ * DẠNG riêng, và luôn đi kèm nhãn chữ — màu chỉ là lớp phụ. Tất cả là SVG, dự
+ * án không dùng emoji làm icon.
+ * ------------------------------------------------------------------------ */
+
+/** Kính lúp — chỉ dùng trang trí cho ô tìm kiếm, đã có nhãn chữ đi kèm. */
+export function SearchIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" strokeWidth="2" />
+      <line x1="15.4" y1="15.4" x2="20.5" y2="20.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Bút chì — hành động sửa. */
+export function PencilIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path
+        d="M4 20h4l10-10a2.5 2.5 0 0 0-4-4L4 16v4z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/** Thùng rác — hành động xoá. */
+export function TrashIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path d="M4 6.5h16M9.5 6.5V4h5v2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M6.5 6.5 7.5 20h9l1-13.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/** Dấu cộng — hành động thêm mới. */
+export function PlusIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Mũi tên lên — "cao" trong quy ước màu 0/1/2 của hệ cũ. */
+export function ArrowUpIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <line x1="12" y1="19" x2="12" y2="6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M6.5 11.5 12 5.5l5.5 6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/** Mũi tên xuống — "thấp". */
+export function ArrowDownIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <line x1="12" y1="5" x2="12" y2="18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M6.5 12.5 12 18.5l5.5-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/** Gạch ngang trong vòng tròn — "bình thường", hình dạng trung tính. */
+export function LevelNormalIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="2" />
+      <line x1="7.5" y1="12" x2="16.5" y2="12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Mắt xích đứt — mã kênh CHƯA gán xét nghiệm nào. */
+export function UnlinkIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path
+        d="M9.5 14.5 7 17a3.5 3.5 0 0 1-5-5l2.5-2.5M14.5 9.5 17 7a3.5 3.5 0 0 1 5 5l-2.5 2.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <line x1="3.5" y1="3.5" x2="20.5" y2="20.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Quả cầu — luật CHUNG, áp cho mọi máy. */
+export function GlobeIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="2" />
+      <ellipse cx="12" cy="12" rx="4" ry="8.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <line x1="3.5" y1="12" x2="20.5" y2="12" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  )
+}
+
+/** Hộp máy — luật RIÊNG của một máy. */
+export function DeviceChipIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <rect x="5" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+      <rect x="9" y="9" width="6" height="6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M9 2.5v2.5M15 2.5v2.5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   )
 }

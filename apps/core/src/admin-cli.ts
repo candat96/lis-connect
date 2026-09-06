@@ -4,8 +4,13 @@ import { NestFactory } from '@nestjs/core'
 import { AdminDbService } from './admin-db/admin-db.service.js'
 import { AppModule } from './app.module.js'
 import { hashPassword } from './auth/auth.service.js'
+import {
+  parseMigrateLegacyArgs,
+  runMigrateLegacy,
+} from './migration/migrate-legacy.command.js'
 import { AgentKeyService } from './tenant/agent-key.service.js'
 import { TenantMigratorService } from './tenant/tenant-migrator.service.js'
+import { TenantRegistryService } from './tenant/tenant-registry.service.js'
 
 function databaseNameFor(code: string): string {
   const slug = code.toLowerCase().replace(/[^a-z0-9]/g, '_')
@@ -26,6 +31,7 @@ async function main(): Promise<void> {
   const admin = app.get(AdminDbService)
   const migrator = app.get(TenantMigratorService)
   const keys = app.get(AgentKeyService)
+  const registry = app.get(TenantRegistryService)
 
   try {
     if (command === 'migrate-admin') {
@@ -137,8 +143,19 @@ async function main(): Promise<void> {
       return
     }
 
+    if (command === 'migrate-legacy') {
+      await runMigrateLegacy(admin.db, registry, parseMigrateLegacyArgs(args))
+      return
+    }
+
     console.log(
-      'các lệnh: migrate-admin, create-tenant, issue-key, create-user, reset-password, migrate-all',
+      'các lệnh: migrate-admin, create-tenant, issue-key, create-user, reset-password, migrate-all, migrate-legacy',
+    )
+    console.log(
+      '  migrate-legacy --tenant <mã cơ sở> --source <thư mục> [--decisions <tệp>] [--apply]',
+    )
+    console.log(
+      '    không có --apply: chỉ kiểm tra dữ liệu nguồn, sinh tệp quyết định và in báo cáo, KHÔNG ghi gì.',
     )
   } finally {
     await app.close()
