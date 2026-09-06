@@ -171,7 +171,16 @@ describe('đường đi đầu-cuối: máy giả lập → Agent → Core → A
     expect(after.some((m: { payloadText: string }) => m.payloadText.includes('E2E002'))).toBe(true)
 
     // Không có message nào bị ghi hai lần.
-    const ids = after.map((m: { id: string }) => m.id)
-    expect(new Set(ids).size).toBe(ids.length)
+    //
+    // KHÔNG so `id` (raw_messages.id, khoá chính gen_random_uuid()) — nó
+    // LUÔN LUÔN duy nhất theo định nghĩa, kể cả khi hai bản ghi có cùng nội
+    // dung nhưng `id` khác nhau; so vậy là một khẳng định rỗng, không bảo vệ
+    // được gì (đã kiểm chứng: chèn thủ công một bản sao cùng nội dung với
+    // `id` khác làm khẳng định theo nội dung dưới đây ĐỎ đúng như mong đợi —
+    // xem report). Đếm theo NỘI DUNG: đúng một bản ghi chứa 'E2E002'.
+    const e2e002Count = after.filter((m: { payloadText: string }) =>
+      m.payloadText.includes('E2E002'),
+    ).length
+    expect(e2e002Count).toBe(1)
   }, 60_000)
 })
