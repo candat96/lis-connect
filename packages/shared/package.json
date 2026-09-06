@@ -12,7 +12,8 @@
     }
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "uuid": "11.0.3",

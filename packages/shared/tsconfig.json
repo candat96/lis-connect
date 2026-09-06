@@ -1,5 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "outDir": "dist", "rootDir": "src" },
-  "include": ["src"]
+  "include": ["src"],
+  // Tệp test nằm cạnh mã nguồn trong `src`, nhưng `Dockerfile` copy
+  // `packages/shared/dist` vào ảnh sản xuất — không loại ra thì mã test đi thẳng
+  // vào ảnh chạy thật. `tsconfig.test.json` bên cạnh phụ trách kiểm kiểu chúng.
+  "exclude": ["**/*.test.ts"]
 }
