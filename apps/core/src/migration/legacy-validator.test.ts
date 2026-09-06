@@ -15,7 +15,7 @@ function emptySource(): LegacySource {
   }
 }
 
-function analyte(code: string) {
+function analyte(code: string, source: 'legacy' | 'legacy-new' = 'legacy') {
   return {
     code,
     name: code,
@@ -32,6 +32,7 @@ function analyte(code: string) {
     resultIsComment: false,
     printOrder: null,
     isProfileHead: false,
+    source,
   }
 }
 

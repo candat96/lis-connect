@@ -43,6 +43,7 @@ export interface LegacyAnalyte {
   resultIsComment: boolean
   printOrder: number | null
   isProfileHead: boolean
+  source: 'legacy' | 'legacy-new'
 }
 
 export interface LegacyInstrument {
@@ -131,11 +132,13 @@ function readRows(dir: string, file: string): Record<string, unknown>[] {
 
 export function loadLegacySource(dir: string): LegacySource {
   const analytes: LegacyAnalyte[] = []
+  const analyteCodesSeen = new Set<string>()
+
+  // Đọc TestCode.json (danh mục cũ đang dùng) — ưu tiên cao
   for (const r of readRows(dir, 'TestCode.json')) {
     const code = cleanString(r.TestCode)
     const name = cleanString(r.TestName)
-    // Dòng không có mã hoặc không có tên thì không dùng được; bỏ ở đây và để
-    // báo cáo đối chiếu ở Task 5 nêu số lượng.
+    // Dòng không có mã hoặc không có tên thì không dùng được; bỏ ở đây.
     if (!code || !name) continue
     analytes.push({
       code,
@@ -153,7 +156,40 @@ export function loadLegacySource(dir: string): LegacySource {
       resultIsComment: cleanBool(r.GetComment),
       printOrder: cleanNumber(r.PrintOrder),
       isProfileHead: cleanBool(r.Profile) || cleanBool(r.TestHead),
+      source: 'legacy',
     })
+    analyteCodesSeen.add(code)
+  }
+
+  // Đọc TestCodeNew.json (danh mục mới) — hai bảng này không chồng lấn nhau
+  // (hiện tại) nhưng để phòng trường hợp, ta bỏ mã đã có ở TestCode.
+  // TestCodeNew chứa các mã được luật ghi đè (ResultMapping) tham chiếu tới
+  // mà không có ở TestCode, ví dụ: 131TPHA (giang mai), 141ULeu (bạch cầu niệu).
+  for (const r of readRows(dir, 'TestCodeNew.json')) {
+    const code = cleanString(r.TestCode)
+    const name = cleanString(r.TestName)
+    if (!code || !name) continue
+    // Nếu mã đã có ở TestCode, bỏ phiên bản từ TestCodeNew
+    if (analyteCodesSeen.has(code)) continue
+    analytes.push({
+      code,
+      name,
+      nameEn: cleanString(r.TestNameE),
+      category: cleanString(r.Category),
+      unit: cleanString(r.Unit),
+      normalRangeText: cleanString(r.NormalRange),
+      lowerLimit: cleanNumber(r.LowerLimit),
+      higherLimit: cleanNumber(r.HigherLimit),
+      commentLower: cleanString(r.BLLower),
+      commentHigher: cleanString(r.BLHigher),
+      commentGray: cleanString(r.BLGray),
+      criteria: cleanString(r.Criteria),
+      resultIsComment: cleanBool(r.GetComment),
+      printOrder: cleanNumber(r.PrintOrder),
+      isProfileHead: cleanBool(r.Profile) || cleanBool(r.TestHead),
+      source: 'legacy-new',
+    })
+    analyteCodesSeen.add(code)
   }
 
   const instruments: LegacyInstrument[] = []

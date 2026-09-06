@@ -64,7 +64,7 @@ export interface DeviceStatusTable {
   updated_at: Date
 }
 
-export type AnalyteSource = 'legacy' | 'manual'
+export type AnalyteSource = 'legacy' | 'legacy-new' | 'manual'
 export type ProfileSource = 'legacy-declared' | 'legacy-inferred' | 'manual'
 
 export interface AnalytesTable {

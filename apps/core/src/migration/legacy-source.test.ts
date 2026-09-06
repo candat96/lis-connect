@@ -13,6 +13,7 @@ function write(name: string, rows: unknown[]): void {
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'lis-legacy-'))
   write('TestCode.json', [])
+  write('TestCodeNew.json', [])
   write('Instrument.json', [])
   write('InsTest.json', [])
   write('InterfacePara.json', [])
@@ -45,7 +46,7 @@ describe('cleanString', () => {
 })
 
 describe('loadLegacySource', () => {
-  it('đọc được danh mục xét nghiệm và cắt khoảng trắng', () => {
+  it('đọc được danh mục xét nghiệm từ TestCode.json với source=legacy', () => {
     write('TestCode.json', [
       { TestCode: '123AST  ', TestName: 'AST (GOT)', Unit: 'U/L ', GetComment: false },
     ])
@@ -53,6 +54,7 @@ describe('loadLegacySource', () => {
     expect(src.analytes).toHaveLength(1)
     expect(src.analytes[0]!.code).toBe('123AST')
     expect(src.analytes[0]!.unit).toBe('U/L')
+    expect(src.analytes[0]!.source).toBe('legacy')
   })
 
   it('đọc ánh xạ mã kênh và cắt khoảng trắng ở cả hai mã', () => {
@@ -105,6 +107,34 @@ describe('loadLegacySource', () => {
     write('TestCode_HIS.json', [{ TestCodeHIS: 'A/01', Testcode: '929AG' }])
     const src = loadLegacySource(dir)
     expect(src.hisMaps[0]).toMatchObject({ hisCode: 'A/01', analyteCode: '929AG' })
+  })
+
+  it('đọc được danh mục từ TestCodeNew.json với source=legacy-new', () => {
+    write('TestCode.json', [])
+    write('TestCodeNew.json', [
+      { TestCode: '131TPHA', TestName: 'Giang mai (TPHA)', GetComment: false },
+    ])
+    const src = loadLegacySource(dir)
+    expect(src.analytes).toHaveLength(1)
+    expect(src.analytes[0]!.code).toBe('131TPHA')
+    expect(src.analytes[0]!.source).toBe('legacy-new')
+  })
+
+  it('ưu tiên TestCode nếu mã xuất hiện ở cả hai bảng', () => {
+    write('TestCode.json', [
+      { TestCode: '123AST', TestName: 'AST từ TestCode', Unit: 'U/L', GetComment: false },
+    ])
+    write('TestCodeNew.json', [
+      { TestCode: '123AST', TestName: 'AST từ TestCodeNew', Unit: 'IU/L', GetComment: false },
+      { TestCode: '131TPHA', TestName: 'TPHA từ TestCodeNew', GetComment: false },
+    ])
+    const src = loadLegacySource(dir)
+    expect(src.analytes).toHaveLength(2)
+    const ast = src.analytes.find((a) => a.code === '123AST')!
+    expect(ast.name).toBe('AST từ TestCode')
+    expect(ast.source).toBe('legacy')
+    const tpha = src.analytes.find((a) => a.code === '131TPHA')!
+    expect(tpha.source).toBe('legacy-new')
   })
 
   it('ném lỗi rõ ràng khi thiếu tệp', () => {

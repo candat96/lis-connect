@@ -5,6 +5,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .createTable('analytes')
     // Mã cũ của hệ LIS đang chạy (123AST, 400TPTNT) là khoá nghiệp vụ.
     // Giữ nguyên để HIS và kỹ thuật viên không phải học lại.
+    // Danh mục đọc từ hai bảng tách biệt không chồng lấn:
+    // - TestCode.json: 404 mã, danh mục cũ đang dùng (source='legacy')
+    // - TestCodeNew.json: 2229 mã, danh mục mới với các mã mà luật ghi đè tham chiếu tới (source='legacy-new')
     .addColumn('code', 'varchar(64)', (c) => c.primaryKey())
     .addColumn('name', 'text', (c) => c.notNull())
     .addColumn('name_en', 'text')
