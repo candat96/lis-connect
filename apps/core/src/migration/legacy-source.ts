@@ -99,6 +99,11 @@ export interface LegacyHisMap {
   analyteCode: string
 }
 
+export interface LegacyAnalyteAlias {
+  alias: string
+  canonical: string
+}
+
 export interface LegacySource {
   analytes: LegacyAnalyte[]
   instruments: LegacyInstrument[]
@@ -108,6 +113,7 @@ export interface LegacySource {
   profiles: LegacyProfile[]
   profileTests: LegacyProfileTest[]
   hisMaps: LegacyHisMap[]
+  analyteAliases: LegacyAnalyteAlias[]
 }
 
 function readRows(dir: string, file: string): Record<string, unknown>[] {
@@ -165,12 +171,22 @@ export function loadLegacySource(dir: string): LegacySource {
   // (hiện tại) nhưng để phòng trường hợp, ta bỏ mã đã có ở TestCode.
   // TestCodeNew chứa các mã được luật ghi đè (ResultMapping) tham chiếu tới
   // mà không có ở TestCode, ví dụ: 131TPHA (giang mai), 141ULeu (bạch cầu niệu).
+  // Cột TestCodeNew chứa mã đổi tên — ánh xạ từ mã này sang mã chính ở cột TestCode.
+  const analyteAliases: LegacyAnalyteAlias[] = []
   for (const r of readRows(dir, 'TestCodeNew.json')) {
     const code = cleanString(r.TestCode)
     const name = cleanString(r.TestName)
     if (!code || !name) continue
     // Nếu mã đã có ở TestCode, bỏ phiên bản từ TestCodeNew
     if (analyteCodesSeen.has(code)) continue
+
+    // Đọc bí danh từ cột TestCodeNew (mã đổi tên)
+    const alias = cleanString(r.TestCodeNew)
+    if (alias && alias !== code) {
+      // Chỉ thêm bí danh nếu nó khác mã chính và cả hai không rỗng
+      analyteAliases.push({ alias, canonical: code })
+    }
+
     analytes.push({
       code,
       name,
@@ -289,5 +305,6 @@ export function loadLegacySource(dir: string): LegacySource {
     profiles,
     profileTests,
     hisMaps,
+    analyteAliases,
   }
 }

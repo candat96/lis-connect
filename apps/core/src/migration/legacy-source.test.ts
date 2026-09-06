@@ -137,6 +137,37 @@ describe('loadLegacySource', () => {
     expect(tpha.source).toBe('legacy-new')
   })
 
+  it('đọc được ánh xạ mã đổi tên (bí danh) từ TestCodeNew', () => {
+    write('TestCode.json', [])
+    write('TestCodeNew.json', [
+      { TestCode: '143ProNT', TestName: 'Protein niệu', TestCodeNew: '143ProU', GetComment: false },
+      { TestCode: '144GluNT', TestName: 'Glucose niệu', TestCodeNew: '144GluU', GetComment: false },
+      { TestCode: '145Ketone', TestName: 'Ketone', TestCodeNew: null, GetComment: false }, // Không có bí danh
+    ])
+    const src = loadLegacySource(dir)
+    expect(src.analyteAliases).toHaveLength(2)
+    expect(src.analyteAliases).toContainEqual({ alias: '143ProU', canonical: '143ProNT' })
+    expect(src.analyteAliases).toContainEqual({ alias: '144GluU', canonical: '144GluNT' })
+  })
+
+  it('mã chính LUÔN thắng bí danh khi xuất hiện cùng lúc', () => {
+    write('TestCode.json', [
+      { TestCode: '143ProU', TestName: 'Mã chính: Protein', GetComment: false },
+    ])
+    write('TestCodeNew.json', [
+      { TestCode: '143ProNT', TestName: 'Từ TestCodeNew', TestCodeNew: '143ProU', GetComment: false },
+    ])
+    const src = loadLegacySource(dir)
+    // Phải có 2 xét nghiệm (một từ TestCode, một từ TestCodeNew)
+    expect(src.analytes).toHaveLength(2)
+    // Bí danh phải trỏ từ 143ProU (bí danh) sang 143ProNT (mã chính)
+    expect(src.analyteAliases).toHaveLength(1)
+    expect(src.analyteAliases[0]).toMatchObject({ alias: '143ProU', canonical: '143ProNT' })
+    // Nhưng nếu tra mã 143ProU, phải lấy mã chính từ danh mục trước, KHÔNG tra bí danh
+    const canonical143ProU = src.analytes.find(a => a.code === '143ProU')
+    expect(canonical143ProU?.name).toBe('Mã chính: Protein')
+  })
+
   it('ném lỗi rõ ràng khi thiếu tệp', () => {
     rmSync(join(dir, 'TestCode.json'))
     expect(() => loadLegacySource(dir)).toThrow(/TestCode\.json/)

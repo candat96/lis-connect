@@ -12,6 +12,7 @@ function emptySource(): LegacySource {
     profiles: [],
     profileTests: [],
     hisMaps: [],
+    analyteAliases: [],
   }
 }
 
