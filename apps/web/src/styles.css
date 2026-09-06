@@ -131,32 +131,18 @@ select {
   gap: var(--space-3);
 }
 
-.brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.02em;
+.brand-logo {
+  display: block;
+  height: 32px;
+  width: auto;
   flex: none;
 }
 
-.brand-text h1 {
-  font-size: 17px;
-  font-weight: 700;
-  margin: 0;
-  white-space: nowrap;
-}
-
-.brand-text p {
+.brand-tenant {
   margin: 0;
   font-size: 12.5px;
   color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 /* ---------- Banner cảnh báo — phải nhìn được từ xa vài mét ---------- */
@@ -538,8 +524,24 @@ select {
 }
 
 .login-brand {
-  justify-content: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
   margin-bottom: var(--space-6);
+}
+
+.login-brand-logo {
+  display: block;
+  height: 54px;
+  width: auto;
+}
+
+.login-brand p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
 .login-notice {

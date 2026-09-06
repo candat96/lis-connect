@@ -108,13 +108,14 @@ export function App(): JSX.Element {
     <div className="app">
       <header className="app-header">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            LIS
-          </span>
-          <div className="brand-text">
-            <h1>LIS Connect</h1>
-            <p>{currentSession.tenant.name}</p>
-          </div>
+          <img
+            className="brand-logo"
+            src="/logo-text.png"
+            alt="LIS Connect — phần mềm theo dõi máy xét nghiệm"
+            width={96}
+            height={32}
+          />
+          <p className="brand-tenant">{currentSession.tenant.name}</p>
         </div>
         <div className="user-panel">
           <div className="user-info">

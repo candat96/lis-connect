@@ -66,14 +66,15 @@ export function Login({
   return (
     <div className="login-page">
       <div className="login-card">
-        <div className="brand login-brand">
-          <span className="brand-mark" aria-hidden="true">
-            LIS
-          </span>
-          <div className="brand-text">
-            <h1>LIS Connect</h1>
-            <p>Đăng nhập theo dõi máy xét nghiệm</p>
-          </div>
+        <div className="login-brand">
+          <img
+            className="login-brand-logo"
+            src="/logo-text.png"
+            alt="LIS Connect — phần mềm theo dõi máy xét nghiệm"
+            width={162}
+            height={54}
+          />
+          <p>Đăng nhập theo dõi máy xét nghiệm</p>
         </div>
 
         {notice && (
