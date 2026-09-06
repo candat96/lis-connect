@@ -22,6 +22,9 @@ function report(): ValidationReport {
     profilesWithoutMembers: [],
     wildcardCodes: [],
     duplicateAnalyteCodes: [],
+    droppedSourceRows: [],
+    shadowedAliases: [],
+    ambiguousAliases: [],
   }
 }
 
@@ -64,6 +67,9 @@ describe('buildDecisionTemplate', () => {
       profilesWithoutMembers: [],
       wildcardCodes: [],
       duplicateAnalyteCodes: [],
+    droppedSourceRows: [],
+    shadowedAliases: [],
+    ambiguousAliases: [],
     }
     const merged = buildDecisionTemplate(rep, existing)
     // Nếu khoá gộp không có dấu phân cách, "11"+"9" === "1"+"19" và sẽ bị lẫn lộn `chosen`.

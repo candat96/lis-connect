@@ -137,7 +137,7 @@ describe('writeLegacyCatalogue', () => {
     const db = await registry.forTenant(tenantId)
     const maps = await db.selectFrom('device_analyte_map').selectAll().execute()
     expect(maps).toHaveLength(0)
-    expect(outcome.counts.device_analyte_map.skipped).toBe(2)
+    expect(outcome.counts.device_analyte_map?.skipped).toBe(2)
     expect(outcome.skipped.some((s) => /chưa được quyết/.test(s.reason))).toBe(true)
   })
 
@@ -424,6 +424,9 @@ describe('formatReport', () => {
         profilesWithoutMembers: [],
         wildcardCodes: ['034NEU%'],
         duplicateAnalyteCodes: [],
+        droppedSourceRows: [],
+        shadowedAliases: [],
+        ambiguousAliases: [],
       },
       null,
     )
@@ -439,6 +442,9 @@ describe('formatReport', () => {
         profilesWithoutMembers: [],
         wildcardCodes: [],
         duplicateAnalyteCodes: [],
+        droppedSourceRows: [],
+        shadowedAliases: [],
+        ambiguousAliases: [],
       },
       {
         counts: { analytes: { read: 2, written: 1, skipped: 1 } },
