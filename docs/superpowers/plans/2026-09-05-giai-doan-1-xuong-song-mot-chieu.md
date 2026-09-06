@@ -23,6 +23,17 @@
 - Ngôn ngữ giao diện: tiếng Việt có dấu đầy đủ. Mã nguồn, tên hàm, tên biến, thông điệp commit: tiếng Anh.
 - Mọi thời điểm lưu dạng `timestamptz`, sinh bằng `now()` của Postgres hoặc `new Date()` UTC. Không lưu giờ địa phương.
 - Commit sau mỗi task. Thông điệp theo Conventional Commits.
+- **Native module dùng chung giữa Node và Electron cần chú ý ABI.** `better-sqlite3` (và sau này
+  `serialport`) được biên dịch cho một `NODE_MODULE_VERSION` cụ thể. Chạy `pnpm --filter @lis/agent
+  build` hoặc `dev` sẽ biên dịch lại chúng cho ABI của Electron (130), khiến `pnpm test` chạy bằng
+  Node 22 (ABI 127) đỏ hàng loạt với thông báo "compiled against a different Node.js version".
+  Sau khi build hoặc chạy Electron, muốn chạy test lại thì phải
+  `pnpm --filter @lis/agent rebuild better-sqlite3`. Đây không phải lỗi mã; đừng đi sửa mã khi thấy
+  triệu chứng này.
+- **`@lis/shared` phải được bundle vào tiến trình `main` của Electron**, không được externalize:
+  `packages/shared` khai điểm vào là `src/index.ts` (TypeScript), nên `require()` nó lúc chạy sẽ
+  làm Electron crash. Cấu hình `externalizeDepsPlugin({ exclude: ['@lis/shared'] })`. Native module
+  thì ngược lại — vẫn phải externalize.
 - **Trong `apps/core`, mọi tham số constructor được tiêm phải khai `@Inject(...)` tường minh.**
   `esbuild` — thứ mà cả `vitest` lẫn `tsx` dùng — không phát metadata `design:paramtypes`, nên
   cơ chế suy luận kiểu ngầm của NestJS lặng lẽ tiêm `undefined` thay vì báo lỗi lúc khởi động.
