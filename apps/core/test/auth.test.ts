@@ -6,9 +6,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runAdminMigrations } from '../src/admin-db/migrator.js'
 import type { AdminDatabase } from '../src/admin-db/schema.js'
 import { AuthService, hashPassword } from '../src/auth/auth.service.js'
+import { testDbName } from './helpers.js'
 
 const ROOT_URL = 'postgres://lis:lis@localhost:55432/postgres'
-const DB_NAME = 'lis_admin_auth_test'
+const DB_NAME = testDbName('lis_admin_auth_test')
 const JWT_SECRET = 'segredo-de-teste-nao-usar-em-producao'
 
 let db: Kysely<AdminDatabase>
@@ -35,7 +36,7 @@ beforeAll(async () => {
 
   const tenant = await db
     .insertInto('tenants')
-    .values({ code: 'bva', name: 'Bệnh viện A', database_name: 'lis_t_auth_bva', status: 'active' })
+    .values({ code: 'bva', name: 'Bệnh viện A', database_name: testDbName('lis_t_auth_bva'), status: 'active' })
     .returningAll()
     .executeTakeFirstOrThrow()
   tenantId = tenant.id
@@ -120,7 +121,7 @@ describe('AuthService.login', () => {
       .values({
         code: 'bvb-ngung',
         name: 'Bệnh viện tạm ngưng',
-        database_name: 'lis_t_auth_bvb',
+        database_name: testDbName('lis_t_auth_bvb'),
         status: 'suspended',
       })
       .returningAll()
@@ -183,7 +184,7 @@ describe('AuthService.login', () => {
   it('cùng username ở hai tenant khác nhau không xung đột (unique theo tenant, không toàn cục)', async () => {
     const otherTenant = await db
       .insertInto('tenants')
-      .values({ code: 'bvc', name: 'Bệnh viện C', database_name: 'lis_t_auth_bvc', status: 'active' })
+      .values({ code: 'bvc', name: 'Bệnh viện C', database_name: testDbName('lis_t_auth_bvc'), status: 'active' })
       .returningAll()
       .executeTakeFirstOrThrow()
     await db
@@ -279,7 +280,7 @@ describe('AuthService.verifyToken', () => {
       .values({
         code: 'bvd-thu-hoi',
         name: 'Bệnh viện sắp tạm ngưng',
-        database_name: 'lis_t_auth_bvd',
+        database_name: testDbName('lis_t_auth_bvd'),
         status: 'active',
       })
       .returningAll()

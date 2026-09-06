@@ -7,9 +7,10 @@ import { AgentKeyService } from '../src/tenant/agent-key.service.js'
 import { TenantContext } from '../src/tenant/tenant-context.js'
 import { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 import { TenantRegistryService } from '../src/tenant/tenant-registry.service.js'
+import { testDbName } from './helpers.js'
 
 const ROOT = 'postgres://lis:lis@localhost:55432/postgres'
-const ADMIN_DB = 'lis_admin_iso_test'
+const ADMIN_DB = testDbName('lis_admin_iso_test')
 const TEMPLATE = 'postgres://lis:lis@localhost:55432/{db}'
 
 let admin: Kysely<AdminDatabase>
@@ -61,8 +62,8 @@ async function seedAgentAndDevice(tenantId: string, deviceKey: string): Promise<
 
 beforeAll(async () => {
   await resetDatabase(ADMIN_DB)
-  await dropIfExists('lis_t_iso_a')
-  await dropIfExists('lis_t_iso_b')
+  await dropIfExists(testDbName('lis_t_iso_a'))
+  await dropIfExists(testDbName('lis_t_iso_b'))
 
   admin = new Kysely<AdminDatabase>({
     dialect: new PostgresDialect({
@@ -73,12 +74,12 @@ beforeAll(async () => {
 
   const a = await admin
     .insertInto('tenants')
-    .values({ code: 'iso-a', name: 'Bệnh viện A', database_name: 'lis_t_iso_a', status: 'active' })
+    .values({ code: 'iso-a', name: 'Bệnh viện A', database_name: testDbName('lis_t_iso_a'), status: 'active' })
     .returningAll()
     .executeTakeFirstOrThrow()
   const b = await admin
     .insertInto('tenants')
-    .values({ code: 'iso-b', name: 'Bệnh viện B', database_name: 'lis_t_iso_b', status: 'active' })
+    .values({ code: 'iso-b', name: 'Bệnh viện B', database_name: testDbName('lis_t_iso_b'), status: 'active' })
     .returningAll()
     .executeTakeFirstOrThrow()
   tenantA = a.id
@@ -145,10 +146,10 @@ describe('cô lập giữa các tenant', () => {
     // vô tình luôn xanh vì tenantA đã được query ở các test trước trong cùng
     // tệp; test này dùng một tenant MỚI, chưa từng chạy truy vấn nào, để
     // không có "may mắn" nào che giấu việc pool.destroy() không đóng gì cả.
-    await dropIfExists('lis_t_iso_g')
+    await dropIfExists(testDbName('lis_t_iso_g'))
     const g = await admin
       .insertInto('tenants')
-      .values({ code: 'iso-g', name: 'Bệnh viện G', database_name: 'lis_t_iso_g', status: 'active' })
+      .values({ code: 'iso-g', name: 'Bệnh viện G', database_name: testDbName('lis_t_iso_g'), status: 'active' })
       .returningAll()
       .executeTakeFirstOrThrow()
     await migrator.provisionDatabase(g.id)
@@ -172,7 +173,7 @@ describe('cô lập giữa các tenant', () => {
       .values({
         code: 'iso-c',
         name: 'Bệnh viện C',
-        database_name: 'lis_t_iso_c',
+        database_name: testDbName('lis_t_iso_c'),
         status: 'suspended',
       })
       .returningAll()
@@ -182,10 +183,10 @@ describe('cô lập giữa các tenant', () => {
   })
 
   it('forTenant từ chối tenant đã cache nhưng vừa bị tạm ngưng', async () => {
-    await dropIfExists('lis_t_iso_d')
+    await dropIfExists(testDbName('lis_t_iso_d'))
     const d = await admin
       .insertInto('tenants')
-      .values({ code: 'iso-d', name: 'Bệnh viện D', database_name: 'lis_t_iso_d', status: 'active' })
+      .values({ code: 'iso-d', name: 'Bệnh viện D', database_name: testDbName('lis_t_iso_d'), status: 'active' })
       .returningAll()
       .executeTakeFirstOrThrow()
     await migrator.provisionDatabase(d.id)
@@ -208,10 +209,10 @@ describe('cô lập giữa các tenant', () => {
   }, 20_000)
 
   it('nhiều lời gọi đồng thời cho tenant chưa cache trả về cùng một instance', async () => {
-    await dropIfExists('lis_t_iso_e')
+    await dropIfExists(testDbName('lis_t_iso_e'))
     const e = await admin
       .insertInto('tenants')
-      .values({ code: 'iso-e', name: 'Bệnh viện E', database_name: 'lis_t_iso_e', status: 'active' })
+      .values({ code: 'iso-e', name: 'Bệnh viện E', database_name: testDbName('lis_t_iso_e'), status: 'active' })
       .returningAll()
       .executeTakeFirstOrThrow()
     await migrator.provisionDatabase(e.id)
@@ -281,10 +282,10 @@ describe('AgentKeyService', () => {
   })
 
   it('từ chối khoá của tenant đã tạm ngưng', async () => {
-    await dropIfExists('lis_t_iso_f')
+    await dropIfExists(testDbName('lis_t_iso_f'))
     const f = await admin
       .insertInto('tenants')
-      .values({ code: 'iso-f', name: 'Bệnh viện F', database_name: 'lis_t_iso_f', status: 'active' })
+      .values({ code: 'iso-f', name: 'Bệnh viện F', database_name: testDbName('lis_t_iso_f'), status: 'active' })
       .returningAll()
       .executeTakeFirstOrThrow()
 

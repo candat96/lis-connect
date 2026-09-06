@@ -19,7 +19,7 @@ import {
 } from '../src/migration/migrate-legacy.command.js'
 import { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 import { TenantRegistryService } from '../src/tenant/tenant-registry.service.js'
-import { prepareTestTenant, resetAdminDatabase } from './helpers.js'
+import { prepareTestTenant, resetAdminDatabase, testDbName } from './helpers.js'
 
 let app: INestApplication
 let registry: TenantRegistryService
@@ -58,7 +58,7 @@ async function freshTenant(code: string): Promise<string> {
     app.get(AdminDbService).db,
     app.get(TenantMigratorService),
     code,
-    `lis_t_${code}`,
+    testDbName(`lis_t_${code}`),
   )
 }
 

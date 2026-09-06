@@ -7,7 +7,7 @@ import { AdminDbService } from '../src/admin-db/admin-db.service.js'
 import { AppModule } from '../src/app.module.js'
 import { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 import { TenantRegistryService } from '../src/tenant/tenant-registry.service.js'
-import { createTestUser, prepareTestTenant, resetAdminDatabase } from './helpers.js'
+import { createTestUser, prepareTestTenant, resetAdminDatabase, testDbName } from './helpers.js'
 
 let app: INestApplication
 let tenantA: string
@@ -105,8 +105,8 @@ beforeAll(async () => {
   const migrator = app.get(TenantMigratorService)
   registry = app.get(TenantRegistryService)
 
-  tenantA = await prepareTestTenant(admin.db, migrator, 'cat-a', 'lis_t_cat_a')
-  tenantB = await prepareTestTenant(admin.db, migrator, 'cat-b', 'lis_t_cat_b')
+  tenantA = await prepareTestTenant(admin.db, migrator, 'cat-a', testDbName('lis_t_cat_a'))
+  tenantB = await prepareTestTenant(admin.db, migrator, 'cat-b', testDbName('lis_t_cat_b'))
   await createTestUser(admin.db, tenantA, 'ktv-a', 'mat-khau-test-a')
   await createTestUser(admin.db, tenantB, 'ktv-b', 'mat-khau-test-b')
 

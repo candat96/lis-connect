@@ -6,7 +6,7 @@ import { AdminDbService } from '../src/admin-db/admin-db.service.js'
 import { AppModule } from '../src/app.module.js'
 import { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 import { TenantRegistryService } from '../src/tenant/tenant-registry.service.js'
-import { prepareTestTenant, resetAdminDatabase } from './helpers.js'
+import { prepareTestTenant, resetAdminDatabase, testDbName } from './helpers.js'
 
 let app: INestApplication
 let tenantId: string
@@ -22,7 +22,7 @@ beforeAll(async () => {
     app.get(AdminDbService).db,
     app.get(TenantMigratorService),
     'cat',
-    'lis_t_cat',
+    testDbName('lis_t_cat'),
   )
 }, 90_000)
 
