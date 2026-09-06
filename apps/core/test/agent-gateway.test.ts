@@ -127,7 +127,33 @@ describe('AgentGateway', () => {
     const reply = await nextMessage(ws)
     expect(reply.type).toBe('nack')
     expect(reply.retryable).toBe(false)
+    // I3: nack phải mang đúng messageId đọc được từ phong bì — không phải
+    // 'unknown' — để Agent có thể ánh xạ ngược về đúng dòng trong outbox và
+    // xoá nó khỏi hàng đợi thay vì bị kẹt mãi.
+    expect(reply.messageId).toBe('không-phải-uuid')
     expect(ws.readyState).toBe(WebSocket.OPEN)
+    ws.close()
+  })
+
+  it('nack messageId "unknown" chỉ khi JSON hoàn toàn không đọc được', async () => {
+    const ws = new WebSocket(`ws://localhost:${port}/agent?key=${agentKey}`)
+    await new Promise((r) => ws.once('open', r))
+    ws.send(
+      JSON.stringify({
+        type: 'hello',
+        messageId: newMessageId(),
+        sentAt: new Date().toISOString(),
+        protocolVersion: PROTOCOL_VERSION,
+        agentVersion: '0.1.0',
+        hostname: 'LAB-PC-05',
+      }),
+    )
+    await nextMessage(ws)
+
+    ws.send('{ đây không phải JSON hợp lệ')
+    const reply = await nextMessage(ws)
+    expect(reply.type).toBe('nack')
+    expect(reply.messageId).toBe('unknown')
     ws.close()
   })
 

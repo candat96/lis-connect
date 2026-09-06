@@ -17,6 +17,29 @@ import type { AgentSession } from './agent-session.js'
 const CLOSE_BAD_PROTOCOL = 4400
 const CLOSE_UNAUTHORIZED = 4401
 
+/**
+ * Cố đọc messageId từ phong bì thô, tách rời khỏi việc kiểm tra phần thân
+ * bằng zod — để một message có `payloadBase64`/`deviceId` sai vẫn nack đúng
+ * `messageId` của nó thay vì rơi về 'unknown'. Chỉ khi JSON không parse nổi
+ * hoặc không có `messageId` dạng chuỗi mới trả 'unknown'.
+ */
+function extractMessageId(text: string): string {
+  try {
+    const parsed = JSON.parse(text) as unknown
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'messageId' in parsed &&
+      typeof (parsed as { messageId: unknown }).messageId === 'string'
+    ) {
+      return (parsed as { messageId: string }).messageId
+    }
+  } catch {
+    // JSON không đọc nổi — không còn cách nào lấy messageId.
+  }
+  return 'unknown'
+}
+
 @Injectable()
 export class AgentGateway implements OnModuleDestroy {
   private readonly logger = new Logger(AgentGateway.name)
@@ -118,8 +141,22 @@ export class AgentGateway implements OnModuleDestroy {
     } catch (error) {
       // Message hỏng không được làm đứt kết nối: Agent còn hàng đợi phía sau
       // cần tiếp tục đẩy lên. Chỉ báo lỗi cho riêng message này.
+      //
+      // Vẫn cố đọc messageId từ phong bì trước khi kiểm phần thân: pump() bên
+      // Agent chỉ lấy 20 message đầu hàng đợi theo thứ tự và bỏ qua message
+      // đang inFlight — nếu nack trả về 'unknown' cho một message thật sự có
+      // messageId hợp lệ, Agent tra inFlight.get('unknown') ra undefined,
+      // không xoá được khỏi outbox lẫn không biết để ack, và 20 message hỏng
+      // đầu hàng đợi sẽ chặn TOÀN BỘ kết quả phía sau vĩnh viễn trong khi
+      // queueDepth vẫn tăng, không ai được báo. Chỉ dùng 'unknown' khi JSON
+      // không đọc nổi hoặc phong bì không mang messageId dạng chuỗi.
       const reason = error instanceof ProtocolError ? error.message : 'message không đọc được'
-      this.send(session.socket, { type: 'nack', messageId: 'unknown', reason, retryable: false })
+      this.send(session.socket, {
+        type: 'nack',
+        messageId: extractMessageId(text),
+        reason,
+        retryable: false,
+      })
       return
     }
 
