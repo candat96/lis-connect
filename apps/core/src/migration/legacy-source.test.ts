@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanString, loadLegacySource } from './legacy-source.js'
+import { cleanString, isAnalyteActive, loadLegacySource } from './legacy-source.js'
 
 let dir: string
 
@@ -176,5 +176,104 @@ describe('loadLegacySource', () => {
   it('ném lỗi rõ ràng khi tệp không phải JSON hợp lệ', () => {
     writeFileSync(join(dir, 'Profile.json'), '{ hỏng', 'utf8')
     expect(() => loadLegacySource(dir)).toThrow(/Profile\.json/)
+  })
+})
+
+describe('loadLegacySource — báo cáo dòng bị loại', () => {
+  it('ghi lại dòng TestCode thiếu tên kèm AutoID và lý do tiếng Việt', () => {
+    write('TestCode.json', [
+      { AutoID: 213, TestCode: '780FSH-1', TestName: null },
+      { AutoID: 214, TestCode: '780FSH', TestName: 'FSH' },
+    ])
+    const src = loadLegacySource(dir)
+    expect(src.analytes).toHaveLength(1)
+    expect(src.droppedRows).toHaveLength(1)
+    expect(src.droppedRows![0]).toMatchObject({
+      file: 'TestCode.json',
+      key: 'AutoID=213',
+      code: '780FSH-1',
+    })
+    expect(src.droppedRows![0]!.reason).toContain('tên xét nghiệm')
+  })
+
+  it('ghi lại dòng thiếu mã bằng số thứ tự khi tệp không có cột AutoID', () => {
+    write('Profile.json', [{ ProfileID: null, ProfileName: 'Không mã' }])
+    const src = loadLegacySource(dir)
+    expect(src.droppedRows).toHaveLength(1)
+    expect(src.droppedRows![0]).toMatchObject({ file: 'Profile.json', key: 'dòng thứ 1', code: null })
+  })
+
+  it('ghi lại dòng thua khi hai bảng danh mục có cùng một mã', () => {
+    write('TestCode.json', [{ AutoID: 1, TestCode: '123AST', TestName: 'AST từ TestCode' }])
+    write('TestCodeNew.json', [{ AutoID: 9, TestCode: '123AST', TestName: 'AST từ TestCodeNew' }])
+    const src = loadLegacySource(dir)
+    expect(src.analytes).toHaveLength(1)
+    expect(src.droppedRows).toHaveLength(1)
+    expect(src.droppedRows![0]).toMatchObject({ file: 'TestCodeNew.json', key: 'AutoID=9', code: '123AST' })
+    expect(src.droppedRows![0]!.reason).toContain('đã có trong danh mục chính')
+  })
+
+  it('ghi lại mọi dòng bị loại ở mọi tệp, không tệp nào im lặng', () => {
+    write('TestCode.json', [{ AutoID: 1, TestCode: null, TestName: null }])
+    write('TestCodeNew.json', [{ AutoID: 2, TestCode: 'X', TestName: null }])
+    write('Instrument.json', [{ AutoID: 3, InsID: null, InsName: 'máy' }])
+    write('InsTest.json', [{ AutoID: 4, InsID: 1, TestCode: 'X', TestcodeIN: null }])
+    write('InterfacePara.json', [{ InstrumentID: null }])
+    write('ResultMapping.json', [{ ID: 64, TestCode: null, ResultIn: 'neg' }])
+    write('Profile.json', [{ ProfileID: 'P', ProfileName: null }])
+    write('ProfileTest.json', [{ AutoID: 7, ProfileID: null, TestCode: 'X' }])
+    write('TestCode_HIS.json', [{ AutoID: 8, TestCodeHIS: 'A/01', Testcode: '   ' }])
+    const src = loadLegacySource(dir)
+    expect(new Set(src.droppedRows!.map((d) => d.file)).size).toBe(9)
+    expect(src.droppedRows).toHaveLength(9)
+    expect(src.droppedRows!.find((d) => d.file === 'ResultMapping.json')!.key).toBe('ID=64')
+  })
+
+  it('nguồn sạch thì danh sách dòng bị loại rỗng', () => {
+    write('TestCode.json', [{ AutoID: 1, TestCode: '123AST', TestName: 'AST' }])
+    expect(loadLegacySource(dir).droppedRows).toEqual([])
+  })
+})
+
+describe('loadLegacySource — cột Active', () => {
+  it('đọc Active=false thành xét nghiệm đã ngừng dùng', () => {
+    write('TestCodeNew.json', [
+      { TestCode: '111A', TestName: 'Còn dùng', Active: true },
+      { TestCode: '222B', TestName: 'Đã ngừng', Active: false },
+      { TestCode: '333C', TestName: 'Không khai cột Active' },
+    ])
+    const src = loadLegacySource(dir)
+    expect(src.analytes.map((a) => a.active)).toEqual([true, false, true])
+    expect(src.analytes.map(isAnalyteActive)).toEqual([true, false, true])
+  })
+
+  it('isAnalyteActive coi bộ nguồn dựng tay không khai cột là đang dùng', () => {
+    expect(isAnalyteActive({ code: 'X' } as never)).toBe(true)
+  })
+})
+
+describe('readRows — chọn mảng dữ liệu', () => {
+  it('lấy mảng dài nhất khi JSON là object bọc ngoài', () => {
+    writeFileSync(
+      join(dir, 'Profile.json'),
+      JSON.stringify({ meta: [], rows: [{ ProfileID: 'P1', ProfileName: 'Nhóm 1' }] }),
+      'utf8',
+    )
+    expect(loadLegacySource(dir).profiles).toHaveLength(1)
+  })
+
+  it('ném lỗi thay vì đoán khi có hai mảng dài bằng nhau', () => {
+    writeFileSync(
+      join(dir, 'Profile.json'),
+      JSON.stringify({ a: [{ ProfileID: 'P1', ProfileName: 'A' }], b: [{ ProfileID: 'P2', ProfileName: 'B' }] }),
+      'utf8',
+    )
+    expect(() => loadLegacySource(dir)).toThrow(/dài bằng nhau/)
+  })
+
+  it('báo đúng nguyên nhân "không tìm thấy mảng dữ liệu", không đổ tại JSON hỏng', () => {
+    writeFileSync(join(dir, 'Profile.json'), JSON.stringify({ meta: 1 }), 'utf8')
+    expect(() => loadLegacySource(dir)).toThrow(/không tìm thấy mảng dữ liệu/)
+    expect(() => loadLegacySource(dir)).not.toThrow(/không phải JSON hợp lệ/)
   })
 })
