@@ -64,6 +64,12 @@
   --color-warning: #b45309;
   --color-warning-dot: #d97706;
   --color-warning-bg: #fffbeb;
+  /* Thêm mới (Task 7/8): tông cảnh báo đậm hơn dùng cho trạng thái di chuột
+     trên hàng/thẻ đã tô nền cảnh báo — đối xứng với --color-danger-bg-strong
+     vốn đã có. Cần vì các màn hình danh mục có hàng "cần chú ý nhưng chưa phải
+     lỗi" (mã kênh chưa gán xét nghiệm), mà nền cảnh báo nhạt trùng với nền di
+     chuột mặc định thì hàng mất luôn dấu hiệu khi rê chuột. */
+  --color-warning-bg-strong: #fdf1d4;
 
   /* Terminal thô — tông tối có chủ đích, tách bạch khỏi khung sáng xung quanh, đọc lâu không mỏi mắt. */
   --term-bg: #0b1220;
@@ -684,4 +690,561 @@ select {
 .logout-button:hover {
   border-color: var(--color-border-strong);
   background: var(--color-surface-muted);
+}
+
+/* ===========================================================================
+ * Ba màn hình quản lý danh mục (danh mục xét nghiệm, ánh xạ mã kênh, luật ghi
+ * đè kết quả).
+ *
+ * KHÔNG sinh phong cách mới: mọi màu, khoảng cách, bo góc dưới đây đều lấy từ
+ * đúng bộ token đã khai ở `:root` phía trên. Ba quy ước của hệ thiết kế được
+ * giữ nguyên: (1) trạng thái = nhãn chữ + icon hình dạng riêng, màu chỉ là lớp
+ * phụ; (2) hàng có vấn đề tô nền cả hàng thay vì một chấm màu; (3) icon là SVG.
+ * =========================================================================== */
+
+/* ---------- Điều hướng giữa các màn hình ---------- */
+
+.app-nav {
+  display: flex;
+  gap: var(--space-1);
+  padding: 0 var(--space-6);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+}
+
+.nav-tab {
+  border: none;
+  background: transparent;
+  padding: var(--space-3) var(--space-4);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  white-space: nowrap;
+}
+
+.nav-tab:hover {
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+}
+
+.nav-tab[aria-current='page'] {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* ---------- Thanh công cụ / bộ lọc ---------- */
+
+.toolbar {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.toolbar-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 220px;
+}
+
+.toolbar-field > label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.toolbar-grow {
+  flex: 1 1 320px;
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-box .search-icon {
+  position: absolute;
+  left: var(--space-3);
+  color: var(--color-text-faint);
+  pointer-events: none;
+}
+
+.search-box input {
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-8);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+}
+
+.toolbar-field select,
+.inline-form select,
+.inline-form input {
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+}
+
+/* Luật khớp của ô tìm kiếm không đoán được nếu không nói ra — dòng này là
+   một phần của chức năng, không phải chú thích trang trí. */
+.field-hint {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  margin: 0;
+  max-width: 62ch;
+}
+
+.field-hint code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+/* ---------- Nút ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-muted);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+.btn-danger {
+  color: var(--color-danger);
+  border-color: #fecaca;
+  background: var(--color-danger-bg);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--color-danger-bg-strong);
+  border-color: var(--color-danger);
+}
+
+.btn-sm {
+  min-height: 30px;
+  padding: 2px var(--space-3);
+  font-size: 12.5px;
+}
+
+.btn-row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Dấu hiệu "đang chạy" bằng HÌNH DẠNG (vòng quay) chứ không đổi mỗi màu chữ. */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 700ms linear infinite;
+  flex: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* ---------- Thông báo trong màn hình ---------- */
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 6px;
+  font-size: 13.5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  margin-bottom: var(--space-4);
+}
+
+.notice-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.notice p {
+  margin: 0 0 var(--space-2);
+}
+
+.notice p:last-child {
+  margin-bottom: 0;
+}
+
+.notice strong {
+  font-weight: 700;
+}
+
+.notice-danger {
+  background: var(--color-danger-bg);
+  border-color: #fecaca;
+  color: var(--color-danger);
+}
+
+.notice-warn {
+  background: var(--color-warning-bg);
+  border-color: #fde68a;
+  color: var(--color-warning);
+}
+
+.notice-ok {
+  background: var(--color-success-bg);
+  border-color: #bbf7d0;
+  color: var(--color-success);
+}
+
+/* ---------- Huy hiệu trung tính (nguồn dữ liệu, cờ...) ---------- */
+
+.tone-neutral {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.tone-accent {
+  background: #e8effc; /* nền nhạt của --color-accent, chỉ dùng cho huy hiệu chữ */
+  color: var(--color-accent-hover);
+}
+
+.badge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---------- Bảng danh mục ---------- */
+
+/* Cột số phải dùng chữ số đều bề ngang, nếu không các ngưỡng sẽ nhảy cột mỗi
+   lần sang trang và mắt không so sánh được theo chiều dọc. */
+.cell-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.table th.cell-num {
+  text-align: right;
+}
+
+.cell-wrap {
+  white-space: normal;
+  min-width: 220px;
+}
+
+.cell-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+/* Hàng cần chú ý nhưng KHÔNG phải lỗi (kênh chưa gán xét nghiệm): tô cả hàng
+   như quy ước, dùng tông cảnh báo thay vì tông nguy hiểm. */
+.table tr.row-warn td {
+  background: var(--color-warning-bg);
+}
+
+.table tr.row-warn:hover td {
+  background: var(--color-warning-bg-strong);
+}
+
+.table tr.row-editing td {
+  background: var(--color-surface-muted);
+}
+
+.table td.editor-cell {
+  white-space: normal;
+  padding: 0;
+  background: var(--color-surface-muted);
+}
+
+/* ---------- Khung sửa tại chỗ ---------- */
+
+.editor {
+  padding: var(--space-4) var(--space-5);
+  border-top: 2px solid var(--color-accent);
+}
+
+.editor-title {
+  margin: 0 0 var(--space-4);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.editor-field label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.editor-field input,
+.editor-field select,
+.editor-field textarea {
+  min-height: 38px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  font-size: 14px;
+  width: 100%;
+}
+
+.editor-field textarea {
+  min-height: 62px;
+  resize: vertical;
+}
+
+.editor-field input.input-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.editor-field input[aria-invalid='true'],
+.editor-field select[aria-invalid='true'] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
+/* Lỗi hiện NGAY DƯỚI ô sai, không dồn lên đầu trang — người dùng phải thấy ô
+   nào hỏng mà không cần đối chiếu. */
+.editor-error {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-danger);
+  margin: 0;
+}
+
+.editor-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+/* ---------- Phân trang ---------- */
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+
+.pager-info {
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Bố cục hai cột: chọn máy + nội dung ---------- */
+
+.split {
+  display: flex;
+  gap: var(--space-5);
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.split-side {
+  flex: 1 1 280px;
+  max-width: 340px;
+  min-width: 260px;
+}
+
+.split-main {
+  flex: 3 1 520px;
+  min-width: 0;
+}
+
+.device-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.device-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-align: left;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.device-item:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-muted);
+}
+
+.device-item[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  border-left-width: 4px;
+  background: var(--color-surface-muted);
+}
+
+/* Máy chưa có kênh nào được ánh xạ: tô cả thẻ, kèm nhãn chữ bên trong. */
+.device-item-empty {
+  background: var(--color-warning-bg);
+  border-color: #fde68a;
+}
+
+.device-item-empty:hover {
+  background: var(--color-warning-bg-strong);
+}
+
+.device-item-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.device-item-meta {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Hộp thoại xác nhận ---------- */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  z-index: 50;
+}
+
+.dialog {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: var(--space-6);
+  max-width: 560px;
+  width: 100%;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.22);
+}
+
+.dialog h3 {
+  margin: 0 0 var(--space-3);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.dialog p {
+  margin: 0 0 var(--space-3);
+  font-size: 14px;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: var(--space-5);
+}
+
+.code-inline {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+/* Tiêu đề bảng dành cho trình đọc màn hình — có mặt để người dùng bàn phím
+   biết bảng đang hiện bao nhiêu dòng, nhưng không chiếm chỗ trên màn hình. */
+.visually-hidden-caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.empty-cell ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+}
+
+.empty-cell li {
+  margin-bottom: var(--space-1);
+}
+
+.empty-cell p {
+  margin: 0 0 var(--space-2);
 }
