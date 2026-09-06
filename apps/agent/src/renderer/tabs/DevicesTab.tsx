@@ -36,13 +36,23 @@ export function DevicesTab({ status }: { status: AgentStatus | null }): JSX.Elem
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<{ kind: 'bad'; text: string } | null>(null)
 
   useEffect(() => {
-    void Promise.all([api.getConfig(), api.listSerialPorts()]).then(([config, portList]) => {
-      setDevices(config.devices)
-      setPorts(portList)
-      setLoading(false)
-    })
+    void Promise.all([api.getConfig(), api.listSerialPorts()])
+      .then(([config, portList]) => {
+        setDevices(config.devices)
+        setPorts(portList)
+      })
+      .catch(() => {
+        setLoadError(
+          'Không tải được danh sách máy hoặc cổng COM. Xem tab Terminal thô để biết chi tiết, hoặc khởi động lại Agent.',
+        )
+      })
+      .finally(() => {
+        setLoading(false)
+      })
   }, [])
 
   const updateTransport = (transport: TransportConfig): void =>
@@ -50,19 +60,33 @@ export function DevicesTab({ status }: { status: AgentStatus | null }): JSX.Elem
 
   const save = async (): Promise<void> => {
     setSaving(true)
+    setActionMessage(null)
     try {
       const config = await api.upsertDevice(draft)
       setDevices(config.devices)
       setDraft(EMPTY_DEVICE)
       setTestResult(null)
+    } catch {
+      setActionMessage({
+        kind: 'bad',
+        text: 'Lưu máy thất bại. Máy chưa được lưu, kiểm tra lại thông tin rồi thử lại.',
+      })
     } finally {
       setSaving(false)
     }
   }
 
   const remove = async (deviceKey: string): Promise<void> => {
-    const config = await api.removeDevice(deviceKey)
-    setDevices(config.devices)
+    setActionMessage(null)
+    try {
+      const config = await api.removeDevice(deviceKey)
+      setDevices(config.devices)
+    } catch {
+      setActionMessage({
+        kind: 'bad',
+        text: 'Xoá máy thất bại. Máy vẫn còn trong danh sách, hãy thử lại.',
+      })
+    }
   }
 
   const test = async (): Promise<void> => {
@@ -71,6 +95,11 @@ export function DevicesTab({ status }: { status: AgentStatus | null }): JSX.Elem
     try {
       const result = await api.testConnection(draft)
       setTestResult({ ok: result.ok, text: result.ok ? `Thành công: ${result.detail}` : `Thất bại: ${result.detail}` })
+    } catch {
+      setTestResult({
+        ok: false,
+        text: 'Không thực hiện được lệnh test kết nối (lỗi Agent, không phải lỗi máy). Xem tab Terminal thô để biết chi tiết.',
+      })
     } finally {
       setTesting(false)
     }
@@ -81,8 +110,18 @@ export function DevicesTab({ status }: { status: AgentStatus | null }): JSX.Elem
       <div className="panel">
         <h2>Máy xét nghiệm đã khai báo</h2>
 
+        {actionMessage && (
+          <p className="message message-bad" role="status" aria-live="polite">
+            {actionMessage.text}
+          </p>
+        )}
+
         {loading ? (
           <p className="loading-text">Đang tải danh sách máy...</p>
+        ) : loadError ? (
+          <p className="message message-bad" role="status" aria-live="polite">
+            {loadError}
+          </p>
         ) : (
           <div className="table-wrap">
             <table className="table">

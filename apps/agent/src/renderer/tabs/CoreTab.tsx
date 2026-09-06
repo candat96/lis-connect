@@ -24,12 +24,22 @@ export function CoreTab(): JSX.Element {
   const [message, setMessage] = useState<StatusMessage | null>(null)
 
   useEffect(() => {
-    void api.getConfig().then((config) => {
-      setCoreUrl(config.coreUrl)
-      setAgentKey(config.agentKey)
-      setProxyUrl(config.proxyUrl ?? '')
-      setLoading(false)
-    })
+    void api
+      .getConfig()
+      .then((config) => {
+        setCoreUrl(config.coreUrl)
+        setAgentKey(config.agentKey)
+        setProxyUrl(config.proxyUrl ?? '')
+      })
+      .catch(() => {
+        setMessage({
+          kind: 'bad',
+          text: 'Không tải được cấu hình Core. Xem tab Terminal thô để biết chi tiết, hoặc khởi động lại Agent.',
+        })
+      })
+      .finally(() => {
+        setLoading(false)
+      })
     return api.onCoreStatus((status) => {
       if (status === 'connected') setMessage({ kind: 'ok', text: 'Đã kết nối tới Core.' })
       if (status === 'disconnected') {

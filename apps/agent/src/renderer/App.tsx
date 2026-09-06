@@ -16,10 +16,19 @@ const TABS: Array<{ key: TabKey; label: string }> = [
 export function App(): JSX.Element {
   const [tab, setTab] = useState<TabKey>('core')
   const [status, setStatus] = useState<AgentStatus | null>(null)
+  const [statusError, setStatusError] = useState(false)
 
   useEffect(() => {
     const refresh = (): void => {
-      void api.status().then(setStatus)
+      void api
+        .status()
+        .then((next) => {
+          setStatus(next)
+          setStatusError(false)
+        })
+        .catch(() => {
+          setStatusError(true)
+        })
     }
     refresh()
     const timer = setInterval(refresh, 2000)
@@ -36,39 +45,65 @@ export function App(): JSX.Element {
 
         {/* Ba thứ phải đọc được trong một cái liếc: Core, thiết bị mất kết nối, hàng đợi. */}
         <div className="status-strip" role="status" aria-live="polite">
-          <span className={`status-item ${status?.coreConnected ? 'is-ok' : 'is-bad'}`}>
-            <span className={status ? (status.coreConnected ? 'dot dot-green' : 'dot dot-red') : 'dot dot-muted'} />
+          <span
+            className={`status-item ${
+              statusError ? 'is-warn' : status?.coreConnected ? 'is-ok' : 'is-bad'
+            }`}
+          >
+            <span
+              className={
+                statusError
+                  ? 'dot dot-amber'
+                  : status
+                    ? status.coreConnected
+                      ? 'dot dot-green'
+                      : 'dot dot-red'
+                    : 'dot dot-muted'
+              }
+            />
             <span className="value">
-              {status === null
-                ? 'Đang kiểm tra...'
-                : status.coreConnected
-                  ? 'Đã nối Core'
-                  : 'Chưa nối Core'}
+              {statusError
+                ? 'Không rõ trạng thái Core'
+                : status === null
+                  ? 'Đang kiểm tra...'
+                  : status.coreConnected
+                    ? 'Đã nối Core'
+                    : 'Chưa nối Core'}
             </span>
           </span>
 
           <span
             className={`status-item ${
-              status === null ? '' : offlineDevices.length > 0 ? 'is-bad' : 'is-ok'
+              statusError
+                ? 'is-warn'
+                : status === null
+                  ? ''
+                  : offlineDevices.length > 0
+                    ? 'is-bad'
+                    : 'is-ok'
             }`}
           >
             <span
               className={
-                status === null
-                  ? 'dot dot-muted'
-                  : offlineDevices.length > 0
-                    ? 'dot dot-red'
-                    : 'dot dot-green'
+                statusError
+                  ? 'dot dot-amber'
+                  : status === null
+                    ? 'dot dot-muted'
+                    : offlineDevices.length > 0
+                      ? 'dot dot-red'
+                      : 'dot dot-green'
               }
             />
             <span className="value">
-              {status === null
-                ? 'Đang kiểm tra...'
-                : status.devices.length === 0
-                  ? 'Chưa có máy nào'
-                  : offlineDevices.length > 0
-                    ? `${offlineDevices.length}/${status.devices.length} máy mất kết nối`
-                    : `${status.devices.length}/${status.devices.length} máy đã kết nối`}
+              {statusError
+                ? 'Không rõ trạng thái máy'
+                : status === null
+                  ? 'Đang kiểm tra...'
+                  : status.devices.length === 0
+                    ? 'Chưa có máy nào'
+                    : offlineDevices.length > 0
+                      ? `${offlineDevices.length}/${status.devices.length} máy mất kết nối`
+                      : `${status.devices.length}/${status.devices.length} máy đã kết nối`}
             </span>
           </span>
 
