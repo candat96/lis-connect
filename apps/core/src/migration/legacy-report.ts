@@ -28,6 +28,10 @@ export function formatReport(
     `Mã bị lặp trong danh mục: ${validation.duplicateAnalyteCodes.join(', ') || 'không có'}`,
   )
 
+  pushDroppedSourceRows(lines, validation)
+  pushShadowedAliases(lines, validation)
+  pushAmbiguousAliases(lines, validation)
+
   if (!outcome) {
     lines.push(
       '',
@@ -66,6 +70,54 @@ export function formatReport(
   }
 
   return lines.join('\n')
+}
+
+/**
+ * Các dòng bị BỘ ĐỌC loại trước khi tới phần ghi.
+ *
+ * Không in nhóm này thì báo cáo nói "ánh xạ HIS: đọc 666" trong khi tệp nguồn có 835
+ * dòng — 169 dòng biến mất không lời giải thích. Nguyên tắc "không âm thầm bỏ dữ liệu"
+ * phải trọn cả ở tầng người đọc, không chỉ ở tầng dữ liệu.
+ */
+function pushDroppedSourceRows(lines: string[], validation: ValidationReport): void {
+  const dropped = validation.droppedSourceRows ?? []
+  lines.push('', `Dòng bị loại ngay khi đọc tệp nguồn: ${dropped.length}`)
+  if (dropped.length === 0) return
+
+  lines.push('  Gộp theo tệp và lý do:')
+  for (const [key, count] of tally(dropped.map((d) => `${d.file} — ${d.reason}`))) {
+    lines.push(`    ${count.toString().padStart(5)} × ${key}`)
+  }
+  lines.push('  Chi tiết:')
+  for (const d of dropped) {
+    lines.push(`    [${d.file}] ${d.key}${d.code ? ` (mã ${d.code})` : ''} — ${d.reason}`)
+  }
+}
+
+/**
+ * Bí danh trùng tên với một mã chính đã tồn tại.
+ *
+ * Quy tắc phân giải (mã chính thắng) đã đúng và không đổi, nhưng kỹ thuật viên phải
+ * nhìn thấy tên xét nghiệm của CẢ HAI bên để xác nhận đúng là hai xét nghiệm riêng biệt
+ * — `000CD` mã chính là *cấy dịch*, còn bí danh cùng tên trỏ tới *cấy đờm*.
+ */
+function pushShadowedAliases(lines: string[], validation: ValidationReport): void {
+  const shadowed = validation.shadowedAliases ?? []
+  lines.push('', `Bí danh trùng tên với mã chính (mã chính được dùng): ${shadowed.length}`)
+  for (const s of shadowed) {
+    lines.push(`  ${s.alias}: DÙNG "${s.primaryName}" (mã chính ${s.alias})`)
+    lines.push(`      BỎ  "${s.aliasTargetName}" (bí danh trỏ tới ${s.aliasTargetCode})`)
+  }
+}
+
+/** Bí danh trỏ tới nhiều mã chính — phần mềm không được đoán, người phải quyết. */
+function pushAmbiguousAliases(lines: string[], validation: ValidationReport): void {
+  const ambiguous = validation.ambiguousAliases ?? []
+  lines.push('', `Bí danh trỏ tới nhiều mã chính (KHÔNG tự phân giải): ${ambiguous.length}`)
+  for (const a of ambiguous) {
+    lines.push(`  ${a.alias} → ${a.candidates.map((c) => `${c.code} "${c.name}"`).join('  /  ')}`)
+    lines.push('      mọi dòng tham chiếu tới bí danh này đều bị bỏ qua và ghi lý do')
+  }
 }
 
 /** Đếm số lần xuất hiện, giữ thứ tự gặp đầu tiên. */

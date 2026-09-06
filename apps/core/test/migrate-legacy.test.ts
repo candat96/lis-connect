@@ -1,17 +1,22 @@
 import 'reflect-metadata'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { INestApplication } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
+import { sql } from 'kysely'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { AdminDbService } from '../src/admin-db/admin-db.service.js'
 import { AppModule } from '../src/app.module.js'
 import { buildDecisionTemplate } from '../src/migration/legacy-decisions.js'
 import { loadLegacySource, type LegacySource } from '../src/migration/legacy-source.js'
 import { validateLegacySource } from '../src/migration/legacy-validator.js'
-import { ensureMigrationAgent, writeLegacyCatalogue } from '../src/migration/legacy-writer.js'
+import { writeLegacyCatalogue } from '../src/migration/legacy-writer.js'
 import { formatReport } from '../src/migration/legacy-report.js'
+import {
+  parseMigrateLegacyArgs,
+  runMigrateLegacy,
+} from '../src/migration/migrate-legacy.command.js'
 import { TenantMigratorService } from '../src/tenant/tenant-migrator.service.js'
 import { TenantRegistryService } from '../src/tenant/tenant-registry.service.js'
 import { prepareTestTenant, resetAdminDatabase } from './helpers.js'
@@ -63,8 +68,9 @@ async function runMigration(
   const src = loadLegacySource(dir)
   const decisions = buildDecisionTemplate(validateLegacySource(src))
   const db = await registry.forTenant(tenant)
-  const agentId = await ensureMigrationAgent(db)
-  return writeLegacyCatalogue(db, src, decisions, agentId)
+  // Không truyền agentId: bản ghi Agent giữ chỗ được tìm/tạo trong chính giao dịch,
+  // sau khi đã cầm khoá tư vấn.
+  return writeLegacyCatalogue(db, src, decisions)
 }
 
 beforeAll(async () => {
@@ -160,8 +166,7 @@ describe('writeLegacyCatalogue', () => {
     decisions.channels[0]!.chosen = '244ACo'
 
     const db = await registry.forTenant(tenantId)
-    const agentId = await ensureMigrationAgent(db)
-    const outcome = await writeLegacyCatalogue(db, src, decisions, agentId)
+    const outcome = await writeLegacyCatalogue(db, src, decisions)
 
     const maps = await db.selectFrom('device_analyte_map').selectAll().execute()
     expect(maps).toHaveLength(1)
@@ -213,8 +218,7 @@ describe('writeLegacyCatalogue', () => {
     decisions.channels[0]!.chosen = '__BO_QUA__'
 
     const db = await registry.forTenant(tenantId)
-    const agentId = await ensureMigrationAgent(db)
-    const outcome = await writeLegacyCatalogue(db, src, decisions, agentId)
+    const outcome = await writeLegacyCatalogue(db, src, decisions)
 
     expect(await db.selectFrom('device_analyte_map').selectAll().execute()).toHaveLength(0)
     expect(outcome.counts.device_analyte_map).toMatchObject({ read: 2, written: 0, skipped: 2 })
@@ -286,6 +290,109 @@ describe('writeLegacyCatalogue', () => {
 
     const db = await registry.forTenant(tenantId)
     expect(await db.selectFrom('analytes').selectAll().execute()).toHaveLength(0)
+    // Bản ghi Agent giữ chỗ cũng nằm trong giao dịch, nên hỏng là không để lại rác.
+    expect(await db.selectFrom('agents').selectAll().execute()).toHaveLength(0)
+  })
+
+  it('ghi đúng cột active: chỉ Active=false mới là "đã ngừng"', async () => {
+    write('TestCode.json', [
+      { TestCode: '123AST', TestName: 'AST', GetComment: false, Active: true },
+      { TestCode: '124ALT', TestName: 'ALT (đã ngừng)', GetComment: false, Active: false },
+      // Không khai cột Active: phải hiểu là đang dùng, không được thành "đã ngừng".
+      { TestCode: '125GGT', TestName: 'GGT', GetComment: false },
+    ])
+    tenantId = await freshTenant('migd')
+    await runMigration(tenantId)
+
+    const db = await registry.forTenant(tenantId)
+    const rows = await db.selectFrom('analytes').select(['code', 'active']).orderBy('code').execute()
+    expect(rows).toEqual([
+      { code: '123AST', active: true },
+      { code: '124ALT', active: false },
+      { code: '125GGT', active: true },
+    ])
+  })
+
+  it('lần chạy thứ hai nêu lý do cho cả bảng devices', async () => {
+    write('Instrument.json', [
+      { InsID: 1, InsName: 'AU640', ProtocolID: 'AU', ConType: 'C', Active: true },
+    ])
+    tenantId = await freshTenant('mige')
+    await runMigration(tenantId)
+    const second = await runMigration(tenantId)
+
+    expect(second.counts.devices).toMatchObject({ read: 1, written: 0, skipped: 1 })
+    const deviceReasons = second.skipped.filter((s) => s.table === 'devices')
+    expect(deviceReasons).toHaveLength(1)
+    expect(deviceReasons[0]!.reason).toMatch(/đã có sẵn trong database/)
+    expect(deviceReasons[0]!.ref).toContain('AU640')
+  })
+
+  it('thứ tự hiển thị đếm riêng cho từng nhóm', async () => {
+    write('TestCode.json', [
+      { TestCode: 'A1', TestName: 'A1', GetComment: false },
+      { TestCode: 'A2', TestName: 'A2', GetComment: false },
+      { TestCode: 'B1', TestName: 'B1', GetComment: false },
+    ])
+    write('Profile.json', [
+      { ProfileID: 'PA', ProfileName: 'Nhóm A' },
+      { ProfileID: 'PB', ProfileName: 'Nhóm B' },
+    ])
+    write('ProfileTest.json', [
+      { ProfileID: 'PA', TestCode: 'A1' },
+      { ProfileID: 'PA', TestCode: 'A2' },
+      { ProfileID: 'PB', TestCode: 'B1' },
+    ])
+    tenantId = await freshTenant('migf')
+    await runMigration(tenantId)
+
+    const db = await registry.forTenant(tenantId)
+    const members = await db
+      .selectFrom('profile_members')
+      .select(['profile_code', 'analyte_code', 'display_order'])
+      .orderBy('profile_code')
+      .orderBy('display_order')
+      .execute()
+    expect(members).toEqual([
+      { profile_code: 'PA', analyte_code: 'A1', display_order: 1 },
+      { profile_code: 'PA', analyte_code: 'A2', display_order: 2 },
+      // Nhóm thứ hai bắt đầu lại từ 1, không nối tiếp bộ đếm chung.
+      { profile_code: 'PB', analyte_code: 'B1', display_order: 1 },
+    ])
+  })
+
+  it('chặn hai lần chạy song song thay vì nhân đôi danh mục', async () => {
+    write('TestCode.json', [{ TestCode: '123AST', TestName: 'AST', GetComment: false }])
+    write('Instrument.json', [
+      { InsID: 1, InsName: 'AU640', ProtocolID: 'AU', ConType: 'C', Active: true },
+    ])
+    tenantId = await freshTenant('migg')
+    const db = await registry.forTenant(tenantId)
+    const src = loadLegacySource(dir)
+    const decisions = buildDecisionTemplate(validateLegacySource(src))
+
+    // Giả lập tiến trình thứ nhất đang giữ khoá: một kết nối riêng cầm khoá tư vấn
+    // cùng số hiệu. Không giữ được xác định bằng thời gian, nên test không rung.
+    await db.connection().execute(async (held) => {
+      await sql`select pg_advisory_lock(2026, 2109)`.execute(held)
+      try {
+        await expect(writeLegacyCatalogue(db, src, decisions)).rejects.toThrow(
+          /đang có một lần chạy di trú khác/,
+        )
+      } finally {
+        await sql`select pg_advisory_unlock(2026, 2109)`.execute(held)
+      }
+    })
+
+    // Bị chặn nghĩa là KHÔNG ghi gì — không có agent, máy hay xét nghiệm nhân đôi.
+    expect(await db.selectFrom('agents').selectAll().execute()).toHaveLength(0)
+    expect(await db.selectFrom('devices').selectAll().execute()).toHaveLength(0)
+    expect(await db.selectFrom('analytes').selectAll().execute()).toHaveLength(0)
+
+    // Khoá đã nhả: lần chạy tiếp theo thành công bình thường.
+    const after = await writeLegacyCatalogue(db, src, decisions)
+    expect(after.counts.devices).toMatchObject({ read: 1, written: 1, skipped: 0 })
+    expect(await db.selectFrom('agents').selectAll().execute()).toHaveLength(1)
   })
 
   it('mã HIS trùng trong nguồn được ghi một lần và nêu rõ dòng bị bỏ', async () => {
@@ -457,6 +564,69 @@ describe('formatReport', () => {
     expect(text).toContain('mã bị lặp trong nguồn')
     expect(text).toContain('thành luật chung')
   })
+
+  it('in mọi dòng bị bộ đọc loại, kèm tệp nguồn và lý do', () => {
+    const text = formatReport(
+      {
+        channelConflicts: [],
+        orphans: [],
+        profilesWithoutMembers: [],
+        wildcardCodes: [],
+        duplicateAnalyteCodes: [],
+        droppedSourceRows: [
+          { file: 'TestCode.json', key: 'AutoID=213', code: '780FSH1', reason: 'thiếu tên xét nghiệm' },
+          { file: 'TestCode.json', key: 'AutoID=214', code: '780FSH2', reason: 'thiếu tên xét nghiệm' },
+          { file: 'TestCode_HIS.json', key: 'dòng 12', code: null, reason: 'thiếu mã dịch vụ HIS' },
+        ],
+        shadowedAliases: [],
+        ambiguousAliases: [],
+      },
+      null,
+    )
+    expect(text).toContain('Dòng bị loại ngay khi đọc tệp nguồn: 3')
+    expect(text).toMatch(/2 × TestCode\.json — thiếu tên xét nghiệm/)
+    expect(text).toContain('[TestCode_HIS.json] dòng 12 — thiếu mã dịch vụ HIS')
+    expect(text).toContain('AutoID=213 (mã 780FSH1)')
+  })
+
+  it('in tên xét nghiệm cả hai bên cho bí danh trùng tên và bí danh nhập nhằng', () => {
+    const text = formatReport(
+      {
+        channelConflicts: [],
+        orphans: [],
+        profilesWithoutMembers: [],
+        wildcardCodes: [],
+        duplicateAnalyteCodes: [],
+        droppedSourceRows: [],
+        shadowedAliases: [
+          {
+            alias: '000CD',
+            primaryName: 'Cấy dịch tìm vi khuẩn/nấm',
+            aliasTargetCode: '333CDom',
+            aliasTargetName: 'Cấy đờm',
+          },
+        ],
+        ambiguousAliases: [
+          {
+            alias: '000CDNT',
+            candidates: [
+              { code: '111CDN', name: 'Cấy dịch ngực (T)' },
+              { code: '222CDNT', name: 'Cấy dịch não tủy' },
+            ],
+            autoResolvable: false,
+          },
+        ],
+      },
+      null,
+    )
+    // Kỹ thuật viên phải đọc được tên của cả bên được dùng lẫn bên bị bỏ.
+    expect(text).toContain('Bí danh trùng tên với mã chính (mã chính được dùng): 1')
+    expect(text).toContain('Cấy dịch tìm vi khuẩn/nấm')
+    expect(text).toContain('Cấy đờm')
+    expect(text).toContain('Bí danh trỏ tới nhiều mã chính (KHÔNG tự phân giải): 1')
+    expect(text).toContain('Cấy dịch ngực (T)')
+    expect(text).toContain('Cấy dịch não tủy')
+  })
 })
 
 describe('phân giải bí danh mã xét nghiệm khi ghi', () => {
@@ -515,8 +685,7 @@ describe('phân giải bí danh mã xét nghiệm khi ghi', () => {
     tenantId = await freshTenant('migc')
     const src = sourceWithAliases()
     const db = await registry.forTenant(tenantId)
-    const agentId = await ensureMigrationAgent(db)
-    const outcome = await writeLegacyCatalogue(db, src, { channels: [] }, agentId)
+    const outcome = await writeLegacyCatalogue(db, src, { channels: [] })
 
     const rules = await db
       .selectFrom('result_mappings')
@@ -536,5 +705,102 @@ describe('phân giải bí danh mã xét nghiệm khi ghi', () => {
       outcome.skipped.some((s) => /khong-co-that không có trong danh mục/.test(s.reason)),
     ).toBe(true)
     expect(outcome.notes.some((n) => /bí danh, đã quy về mã chính 900XN04/.test(n.reason))).toBe(true)
+  })
+})
+
+describe('runMigrateLegacy — tệp quyết định', () => {
+  let decisionsPath: string
+
+  function options(tenantCode: string, apply: boolean): ReturnType<typeof parseMigrateLegacyArgs> {
+    return parseMigrateLegacyArgs([
+      '--tenant',
+      tenantCode,
+      '--source',
+      dir,
+      '--decisions',
+      decisionsPath,
+      ...(apply ? ['--apply'] : []),
+    ])
+  }
+
+  async function run(tenantCode: string, apply: boolean): Promise<string> {
+    const out: string[] = []
+    await runMigrateLegacy(app.get(AdminDbService).db, registry, options(tenantCode, apply), (l) =>
+      out.push(l),
+    )
+    return out.join('\n')
+  }
+
+  beforeEach(() => {
+    decisionsPath = join(dir, 'quyet-dinh.json')
+    write('TestCode.json', [
+      { TestCode: '128LDL', TestName: 'LDL', GetComment: false },
+      { TestCode: '244ACo', TestName: 'Nồng độ cồn', GetComment: false },
+    ])
+    write('Instrument.json', [
+      { InsID: 1, InsName: 'AU640', ProtocolID: 'AU', ConType: 'C', Active: true },
+    ])
+    write('InsTest.json', [
+      { InsID: 1, TestCode: '128LDL', TestcodeIN: '19' },
+      { InsID: 1, TestCode: '244ACo', TestcodeIN: '19' },
+    ])
+  })
+
+  it('chạy khô sinh tệp khi chưa có, và KHÔNG ghi đè khi đã có', async () => {
+    await freshTenant('migh')
+    expect(existsSync(decisionsPath)).toBe(false)
+    await run('migh', false)
+    expect(existsSync(decisionsPath)).toBe(true)
+
+    // Kỹ thuật viên điền dở và thêm ghi chú.
+    const edited = JSON.parse(readFileSync(decisionsPath, 'utf8')) as {
+      channels: { chosen: string | null; note?: string }[]
+    }
+    edited.channels[0]!.note = 'đã hỏi bác sĩ Hoà, chờ trả lời'
+    writeFileSync(decisionsPath, JSON.stringify(edited, null, 2), 'utf8')
+    const untouched = readFileSync(decisionsPath, 'utf8')
+
+    // Chạy khô lần nữa: tệp phải nguyên vẹn từng byte.
+    await run('migh', false)
+    expect(readFileSync(decisionsPath, 'utf8')).toBe(untouched)
+  })
+
+  it('ghi thật vẫn giữ ghi chú của kỹ thuật viên', async () => {
+    await freshTenant('migi')
+    await run('migi', false)
+    const edited = JSON.parse(readFileSync(decisionsPath, 'utf8')) as {
+      channels: { chosen: string | null; note?: string }[]
+    }
+    edited.channels[0]!.chosen = '244ACo'
+    edited.channels[0]!.note = 'đã hỏi bác sĩ Hoà, chờ trả lời'
+    writeFileSync(decisionsPath, JSON.stringify(edited, null, 2), 'utf8')
+
+    await run('migi', true)
+
+    const after = JSON.parse(readFileSync(decisionsPath, 'utf8')) as {
+      channels: { chosen: string | null; note?: string }[]
+    }
+    expect(after.channels[0]!.chosen).toBe('244ACo')
+    expect(after.channels[0]!.note).toBe('đã hỏi bác sĩ Hoà, chờ trả lời')
+  })
+
+  it('chạy khô không ghi gì vào database', async () => {
+    const tenant = await freshTenant('migj')
+    await run('migj', false)
+    const db = await registry.forTenant(tenant)
+    expect(await db.selectFrom('analytes').selectAll().execute()).toHaveLength(0)
+    expect(await db.selectFrom('agents').selectAll().execute()).toHaveLength(0)
+  })
+
+  it('tệp quyết định hỏng báo lỗi tiếng Việt kèm tệp và dòng', async () => {
+    await freshTenant('migk')
+    writeFileSync(decisionsPath, '{\n  "channels": [\n    { "insId": 1, }\n  ]\n}', 'utf8')
+    await expect(run('migk', false)).rejects.toThrow(/không đọc được.*dòng \d+, cột \d+/s)
+  })
+
+  it('tệp quyết định mặc định KHÔNG nằm trong thư mục dữ liệu nguồn', () => {
+    const parsed = parseMigrateLegacyArgs(['--tenant', 'bvdemo', '--source', dir])
+    expect(parsed.decisionsPath.startsWith(dir)).toBe(false)
+    expect(parsed.decisionsPath).toContain('bvdemo')
   })
 })

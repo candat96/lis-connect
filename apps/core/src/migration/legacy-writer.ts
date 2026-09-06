@@ -1,12 +1,34 @@
 import { randomUUID } from 'node:crypto'
-import type { Kysely, Transaction } from 'kysely'
+import { sql, type Kysely, type Transaction } from 'kysely'
 import type { TenantDatabase } from '../tenant/tenant-schema.js'
 import { buildAliasIndex, resolveAnalyteCode, type AliasIndex } from './legacy-alias.js'
 import { resolveChannel, type DecisionFile } from './legacy-decisions.js'
-import type { LegacySource } from './legacy-source.js'
+import { isAnalyteActive, type LegacySource } from './legacy-source.js'
 
 /** Hostname của bản ghi Agent giữ chỗ do lệnh di trú tạo ra. */
 export const MIGRATION_AGENT_HOSTNAME = 'di-tru-he-cu'
+
+/**
+ * Khoá tư vấn Postgres cho việc di trú danh mục.
+ *
+ * Khoá tư vấn có phạm vi TRONG MỘT DATABASE, mà mỗi cơ sở lại có database riêng, nên
+ * một cặp hằng số là đủ để phân biệt theo cơ sở — không cần băm tên database.
+ *
+ * Dùng bản `_xact_` (khoá theo giao dịch): Postgres tự nhả khi commit hoặc rollback,
+ * kể cả khi tiến trình bị giết giữa chừng. Không có đường nào để lại khoá mồ côi.
+ */
+const MIGRATION_LOCK: readonly [number, number] = [2026, 2109]
+
+/** Ném ra khi một lần chạy di trú khác đang giữ khoá trên cùng một cơ sở. */
+export class MigrationAlreadyRunningError extends Error {
+  constructor() {
+    super(
+      'đang có một lần chạy di trú khác trên cơ sở này — hãy đợi nó xong rồi chạy lại. ' +
+        'Không có gì được ghi trong lần chạy này.',
+    )
+    this.name = 'MigrationAlreadyRunningError'
+  }
+}
 
 export interface SkippedRow {
   table: string
@@ -31,8 +53,16 @@ export interface MigrationOutcome {
  *
  * Dùng lại bản ghi cũ nếu đã có, để chạy lệnh lần thứ hai không sinh thêm một bộ máy
  * trùng lặp dưới một agent khác.
+ *
+ * Đây là kiểm-rồi-ghi, và nó an toàn vì `writeLegacyCatalogue` gọi hàm này BÊN TRONG
+ * giao dịch đã giữ khoá tư vấn: mọi lần chạy di trú trên cùng một cơ sở đều xếp hàng,
+ * nên không có hai tiến trình nào cùng đi qua nhánh `select` rỗng. Bảng `agents` không
+ * có ràng buộc duy nhất trên `hostname` (Agent thật hoàn toàn có thể trùng hostname),
+ * nên `ON CONFLICT` không dùng được ở đây.
  */
-export async function ensureMigrationAgent(db: Kysely<TenantDatabase>): Promise<string> {
+export async function ensureMigrationAgent(
+  db: Kysely<TenantDatabase> | Transaction<TenantDatabase>,
+): Promise<string> {
   const existing = await db
     .selectFrom('agents')
     .select('id')
@@ -64,12 +94,20 @@ const ALREADY_PRESENT = 'đã có sẵn trong database từ lần chạy trướ
  *
  * Chạy lại được: mọi câu ghi đều `ON CONFLICT DO NOTHING` và đếm theo dòng thực sự
  * được ghi, nên lần chạy thứ hai không thêm gì và báo cáo nói rõ vì sao.
+ *
+ * Chạy SONG SONG thì bị chặn: giao dịch lấy khoá tư vấn của Postgres ngay câu lệnh đầu
+ * tiên và ném `MigrationAlreadyRunningError` nếu không lấy được. Trước khi có khoá này,
+ * hai lệnh `--apply` chạy cùng lúc trên một cơ sở trống cho ra 2 agent, 40 máy và toàn
+ * bộ danh mục nhân đôi — mà cả hai tiến trình đều báo thành công.
+ *
+ * `agentId` để trống thì bản ghi Agent giữ chỗ được tìm/tạo NGAY TRONG giao dịch, sau
+ * khi đã cầm khoá: tạo nó bên ngoài vừa chạy đua được, vừa để lại rác khi giao dịch hỏng.
  */
 export async function writeLegacyCatalogue(
   db: Kysely<TenantDatabase>,
   src: LegacySource,
   decisions: DecisionFile,
-  agentId: string,
+  agentId?: string | null,
 ): Promise<MigrationOutcome> {
   const skipped: SkippedRow[] = []
   const notes: SkippedRow[] = []
@@ -86,8 +124,17 @@ export async function writeLegacyCatalogue(
   const aliases = buildAliasIndex(src)
 
   return db.transaction().execute(async (trx) => {
+    // Câu lệnh ĐẦU TIÊN của giao dịch: giành quyền chạy. `try` chứ không phải chờ —
+    // người vận hành cần biết ngay là có lần chạy khác, chứ không phải treo vô hạn.
+    const lock = await sql<{ locked: boolean }>`
+      select pg_try_advisory_xact_lock(${MIGRATION_LOCK[0]}, ${MIGRATION_LOCK[1]}) as locked
+    `.execute(trx)
+    if (!lock.rows[0]?.locked) throw new MigrationAlreadyRunningError()
+
+    const resolvedAgentId = agentId ?? (await ensureMigrationAgent(trx))
+
     const analyteCodes = await writeAnalytes(trx, src, { bump, skip })
-    const deviceIdByInsId = await writeDevices(trx, src, agentId, bump)
+    const deviceIdByInsId = await writeDevices(trx, src, resolvedAgentId, { bump, skip })
 
     await writeChannelMaps(trx, src, decisions, {
       analyteCodes,
@@ -193,6 +240,9 @@ async function writeAnalytes(
         // Danh mục hệ cũ trải trên hai bảng: 'legacy' (TestCode) và 'legacy-new'
         // (TestCodeNew). Giữ nguyên nguồn để sau này còn lần được về gốc.
         source: a.source,
+        // Qua `isAnalyteActive` chứ không đọc thẳng `a.active`: `undefined` là bộ nguồn
+        // dựng tay không khai cột, phải hiểu là đang dùng, không được thành "đã ngừng".
+        active: isAnalyteActive(a),
       })
       .onConflict((oc) => oc.doNothing())
       .returning('code')
@@ -212,11 +262,11 @@ async function writeDevices(
   trx: Transaction<TenantDatabase>,
   src: LegacySource,
   agentId: string,
-  bump: Bump,
+  h: { bump: Bump; skip: Skip },
 ): Promise<Map<number, string>> {
   const portConfigured = new Set(src.interfaceParas.map((p) => p.insId))
   const deviceIdByInsId = new Map<number, string>()
-  bump('devices', 'read', src.instruments.length)
+  h.bump('devices', 'read', src.instruments.length)
 
   for (const ins of src.instruments) {
     const deviceKey = `legacy-${ins.insId}`
@@ -242,7 +292,7 @@ async function writeDevices(
 
     if (inserted) {
       deviceIdByInsId.set(ins.insId, inserted.id)
-      bump('devices', 'written')
+      h.bump('devices', 'written')
       continue
     }
 
@@ -254,7 +304,7 @@ async function writeDevices(
       .where('device_key', '=', deviceKey)
       .executeTakeFirstOrThrow()
     deviceIdByInsId.set(ins.insId, existing.id)
-    bump('devices', 'skipped')
+    h.skip('devices', `máy ${ins.insId} (${ins.name})`, ALREADY_PRESENT)
   }
 
   return deviceIdByInsId
@@ -366,7 +416,9 @@ async function writeProfiles(
   const headCodes = new Set(src.analytes.filter((a) => a.isProfileHead).map((a) => a.code))
   ctx.bump(table, 'read', src.profileTests.length)
   const seen = new Set<string>()
-  let order = 0
+  // Thứ tự hiển thị đếm RIÊNG cho từng nhóm: một bộ đếm chung làm nhóm thứ hai bắt đầu
+  // từ 23, không sai về thứ tự nhưng vô nghĩa với người đọc màn hình quản lý.
+  const orderByProfile = new Map<string, number>()
 
   for (const m of src.profileTests) {
     const ref = `nhóm ${m.profileCode} → ${m.analyteCode}`
@@ -392,7 +444,8 @@ async function writeProfiles(
     }
     seen.add(key)
 
-    order += 1
+    const order = (orderByProfile.get(m.profileCode) ?? 0) + 1
+    orderByProfile.set(m.profileCode, order)
     const inserted = await trx
       .insertInto(table)
       .values({ profile_code: m.profileCode, analyte_code: analyteCode, display_order: order })

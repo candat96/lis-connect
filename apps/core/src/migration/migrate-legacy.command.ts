@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { Kysely } from 'kysely'
 import type { AdminDatabase } from '../admin-db/schema.js'
 import type { TenantRegistryService } from '../tenant/tenant-registry.service.js'
@@ -8,11 +8,59 @@ import {
   loadDecisions,
   saveDecisions,
   SKIP_MARKER,
+  type DecisionFile,
 } from './legacy-decisions.js'
 import { formatReport } from './legacy-report.js'
 import { loadLegacySource } from './legacy-source.js'
 import { validateLegacySource } from './legacy-validator.js'
-import { ensureMigrationAgent, writeLegacyCatalogue } from './legacy-writer.js'
+import { writeLegacyCatalogue } from './legacy-writer.js'
+
+/**
+ * Đọc tệp quyết định, đổi lỗi JSON thành thông báo tiếng Việt chỉ đúng chỗ hỏng.
+ *
+ * `JSON.parse` ném ra tiếng Anh kèm vị trí tính bằng byte offset — vô dụng với người
+ * vận hành đang mở tệp trong Notepad.
+ */
+function readDecisionsOrExplain(path: string): DecisionFile {
+  try {
+    return loadDecisions(path)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const at = /position (\d+)/.exec(message)
+    let where = ''
+    if (at) {
+      const offset = Number(at[1])
+      const before = readFileSync(path, 'utf8').slice(0, offset)
+      const line = before.split('\n').length
+      const column = offset - before.lastIndexOf('\n')
+      where = ` (dòng ${line}, cột ${column})`
+    }
+    throw new Error(
+      `tệp quyết định "${path}" không đọc được${where}. ` +
+        'Hãy kiểm tra dấu phẩy, dấu ngoặc kép và dấu ngoặc nhọn, hoặc xoá tệp đi để công cụ sinh lại. ' +
+        `Chi tiết kỹ thuật: ${message}`,
+    )
+  }
+}
+
+/**
+ * Chuyển ghi chú của kỹ thuật viên từ tệp cũ sang khung mới.
+ *
+ * `buildDecisionTemplate` chỉ mang theo `chosen`; trường `note` là chỗ người ta viết
+ * "đã hỏi bác sĩ Hoà, chờ trả lời" và không được mất qua mỗi lần chạy.
+ */
+function carryOverNotes(next: DecisionFile, previous: DecisionFile | undefined): DecisionFile {
+  if (!previous) return next
+  const notes = new Map<string, string>()
+  for (const c of previous.channels) {
+    if (c.note) notes.set(`${c.insId} ${c.channelCode}`, c.note)
+  }
+  for (const c of next.channels) {
+    const note = notes.get(`${c.insId} ${c.channelCode}`)
+    if (note !== undefined) c.note = note
+  }
+  return next
+}
 
 export interface MigrateLegacyOptions {
   tenantCode: string
@@ -21,8 +69,16 @@ export interface MigrateLegacyOptions {
   apply: boolean
 }
 
-/** Tên mặc định của tệp quyết định, đặt cạnh thư mục dữ liệu nguồn. */
-const DEFAULT_DECISIONS_FILE = 'quyet-dinh-ma-kenh.json'
+/**
+ * Tên mặc định của tệp quyết định.
+ *
+ * Đặt ở thư mục làm việc hiện tại chứ KHÔNG phải trong thư mục dữ liệu nguồn: thư mục
+ * nguồn là bản trích từ hệ cũ, phải giữ nguyên vẹn để còn đối chiếu và trích lại.
+ * Tên có mã cơ sở để chạy nhiều cơ sở trong cùng một thư mục không giẫm lên nhau.
+ */
+function defaultDecisionsPath(tenantCode: string): string {
+  return resolve(process.cwd(), `quyet-dinh-ma-kenh-${tenantCode}.json`)
+}
 
 export function parseMigrateLegacyArgs(args: string[]): MigrateLegacyOptions {
   let tenantCode: string | undefined
@@ -54,9 +110,7 @@ export function parseMigrateLegacyArgs(args: string[]): MigrateLegacyOptions {
   return {
     tenantCode,
     sourceDir: resolve(sourceDir),
-    decisionsPath: decisionsPath
-      ? resolve(decisionsPath)
-      : join(resolve(sourceDir), DEFAULT_DECISIONS_FILE),
+    decisionsPath: decisionsPath ? resolve(decisionsPath) : defaultDecisionsPath(tenantCode),
     apply,
   }
 }
@@ -83,10 +137,20 @@ export async function runMigrateLegacy(
   const src = loadLegacySource(options.sourceDir)
   const validation = validateLegacySource(src)
 
-  // Giữ nguyên mọi lựa chọn đã quyết ở lần chạy trước; chỉ bổ sung mục mới.
-  const existing = existsSync(options.decisionsPath) ? loadDecisions(options.decisionsPath) : undefined
-  const decisions = buildDecisionTemplate(validation, existing)
-  saveDecisions(options.decisionsPath, decisions)
+  // Giữ nguyên mọi lựa chọn ĐÃ QUYẾT và mọi GHI CHÚ của kỹ thuật viên; chỉ bổ sung mục mới.
+  const hadFile = existsSync(options.decisionsPath)
+  const existing = hadFile ? readDecisionsOrExplain(options.decisionsPath) : undefined
+  const decisions = carryOverNotes(buildDecisionTemplate(validation, existing), existing)
+
+  // Chạy khô KHÔNG được ghi đè tệp có sẵn: kỹ thuật viên có thể đang điền dở, và một
+  // lần chạy chỉ để xem báo cáo mà xoá mất công của họ là không chấp nhận được. Tệp chỉ
+  // được sinh khi CHƯA có (đó là mục đích của lần chạy khô đầu tiên), hoặc khi `--apply`.
+  if (!hadFile) {
+    saveDecisions(options.decisionsPath, decisions)
+    log(`đã sinh tệp quyết định mới: ${options.decisionsPath}`)
+  } else if (options.apply) {
+    saveDecisions(options.decisionsPath, decisions)
+  }
 
   const undecided = decisions.channels.filter((c) => c.chosen === null).length
   log(`tệp quyết định: ${options.decisionsPath}`)
@@ -111,8 +175,10 @@ export async function runMigrateLegacy(
   }
 
   const db = await registry.forTenant(tenant.id)
-  const agentId = await ensureMigrationAgent(db)
-  const outcome = await writeLegacyCatalogue(db, src, decisions, agentId)
+  // Bản ghi Agent giữ chỗ được tạo BÊN TRONG giao dịch (sau khi cầm khoá), nên không
+  // truyền agentId vào đây: tạo ở ngoài vừa chạy đua được với một lệnh song song, vừa
+  // để lại rác khi giao dịch hỏng giữa chừng.
+  const outcome = await writeLegacyCatalogue(db, src, decisions)
   log(formatReport(validation, outcome))
   log('')
   log(
