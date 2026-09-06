@@ -17,7 +17,10 @@ export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
   @Post('login')
-  login(@Body() body: LoginRequestBody): Promise<LoginResult> {
-    return this.auth.login(asString(body.tenantCode), asString(body.username), asString(body.password))
+  login(@Body() body: LoginRequestBody | undefined): Promise<LoginResult> {
+    // `@Body()` trả `undefined` khi request không có body (vd `curl -X POST`
+    // trần, không header Content-Type) — không giả định body luôn là object.
+    const safe = body ?? {}
+    return this.auth.login(asString(safe.tenantCode), asString(safe.username), asString(safe.password))
   }
 }

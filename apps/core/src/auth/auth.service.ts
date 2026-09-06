@@ -15,6 +15,7 @@ const SCRYPT_SALT_BYTES = 16
 const TOKEN_TTL_SECONDS = 12 * 60 * 60
 
 const GENERIC_LOGIN_ERROR = 'Sai mã cơ sở, tên đăng nhập hoặc mật khẩu'
+const GENERIC_TOKEN_ERROR = 'token không hợp lệ hoặc đã hết hạn'
 
 export interface AuthTokenPayload {
   tenantId: string
@@ -51,8 +52,22 @@ function verifyPassword(plainPassword: string, stored: string): boolean {
   } catch {
     return false
   }
-  const actual = scryptSync(plainPassword, salt, expected.length)
-  return actual.length === expected.length && timingSafeEqual(actual, expected)
+
+  // `Buffer.from(hex, 'hex')` KHÔNG ném lỗi với chuỗi hex hỏng — nó cắt lặng
+  // lẽ (vd một ký tự không phải hex làm buffer ngắn lại, có thể còn 0 byte).
+  // Nếu không kiểm độ dài tường minh ở đây, một hàng có `password_hash` hỏng
+  // (pg_restore sai encoding, sửa tay nhầm, v.v.) sẽ khiến `expected.length`
+  // không khớp `SCRYPT_KEYLEN` thật — và nếu lỡ chạy `scryptSync(..., expected.length)`
+  // với độ dài đó, `actual.length === expected.length` vẫn đúng (cả hai đều
+  // ngắn theo `expected`), làm timingSafeEqual so hai buffer RỖNG và luôn trả
+  // `true` — tức MỌI mật khẩu đều đăng nhập được. Phải fail-closed: hàng hỏng
+  // thì từ chối thẳng, không cố "so sánh cho có".
+  if (salt.length !== SCRYPT_SALT_BYTES || expected.length !== SCRYPT_KEYLEN) {
+    return false
+  }
+
+  const actual = scryptSync(plainPassword, salt, SCRYPT_KEYLEN)
+  return timingSafeEqual(actual, expected)
 }
 
 // Hash "giả" cố định, tính một lần lúc nạp module. Khi không tìm thấy tenant
@@ -104,7 +119,10 @@ export class AuthService {
       username: row.username,
       role: row.role,
     }
-    const token = jwt.sign(payload, this.jwtSecret, { expiresIn: TOKEN_TTL_SECONDS })
+    const token = jwt.sign(payload, this.jwtSecret, {
+      expiresIn: TOKEN_TTL_SECONDS,
+      algorithm: 'HS256',
+    })
 
     return {
       token,
@@ -113,21 +131,47 @@ export class AuthService {
     }
   }
 
-  verifyToken(token: string): AuthTokenPayload {
+  /**
+   * Giải mã JWT VÀ tra lại trạng thái tài khoản/bệnh viện trong DB quản trị ở
+   * MỖI lần gọi — không chỉ tin chữ ký còn hạn. Token ký hợp lệ nhưng
+   * `users.status`/`tenants.status` không còn "active" (tài khoản bị tạm
+   * ngưng, mật khẩu vừa bị reset để thu hồi quyền truy cập vì nghi lộ, bệnh
+   * viện bị tạm ngưng, hoặc tài khoản đã bị xoá) đều bị từ chối NGAY — không
+   * đợi tới khi token tự hết hạn sau 12 giờ. Đây cũng là chỗ chặn để lỗi
+   * "tenant tạm ngưng" ở TenantRegistryService (ném Error thường, không phải
+   * HttpException) không lọt xuống dưới thành 500 — bị bắt và trả 401 ở đây
+   * trước khi tới đó.
+   */
+  async verifyToken(token: string): Promise<AuthTokenPayload> {
     let decoded: string | jwt.JwtPayload
     try {
-      decoded = jwt.verify(token, this.jwtSecret)
+      // Ghim thuật toán: không cho kẻ tấn công đổi header `alg` (vd "none",
+      // hoặc HS256→RS256 rồi "ký" bằng khoá công khai) để qua mặt xác minh.
+      decoded = jwt.verify(token, this.jwtSecret, { algorithms: ['HS256'] })
     } catch {
-      throw new UnauthorizedException('token không hợp lệ hoặc đã hết hạn')
+      throw new UnauthorizedException(GENERIC_TOKEN_ERROR)
     }
 
     if (typeof decoded !== 'object' || decoded === null) {
-      throw new UnauthorizedException('token không hợp lệ hoặc đã hết hạn')
+      throw new UnauthorizedException(GENERIC_TOKEN_ERROR)
     }
     const { tenantId, userId, username, role } = decoded as Partial<AuthTokenPayload>
     if (!tenantId || !userId || !username || !role) {
-      throw new UnauthorizedException('token không hợp lệ hoặc đã hết hạn')
+      throw new UnauthorizedException(GENERIC_TOKEN_ERROR)
     }
+
+    const row = await this.admin
+      .selectFrom('users')
+      .innerJoin('tenants', 'tenants.id', 'users.tenant_id')
+      .select(['users.status as user_status', 'tenants.status as tenant_status'])
+      .where('users.id', '=', userId)
+      .where('users.tenant_id', '=', tenantId)
+      .executeTakeFirst()
+
+    if (!row || row.user_status !== 'active' || row.tenant_status !== 'active') {
+      throw new UnauthorizedException(GENERIC_TOKEN_ERROR)
+    }
+
     return { tenantId, userId, username, role }
   }
 }

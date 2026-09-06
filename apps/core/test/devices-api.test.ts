@@ -137,3 +137,42 @@ describe('GET /api/devices/:id/connection-events', () => {
     expect(res.body[0]).toMatchObject({ status: 'connected' })
   })
 })
+
+describe('JwtTenantGuard — thu hồi giữa phiên (đặt CUỐI file: đổi trạng thái tenantB)', () => {
+  it('bệnh viện bị tạm ngưng: token cũ (chữ ký còn hợp lệ, chưa hết hạn theo exp) bị từ chối 401 — KHÔNG phải 500', async () => {
+    const admin = app.get(AdminDbService)
+    await admin.db
+      .updateTable('tenants')
+      .set({ status: 'suspended' })
+      .where('id', '=', tenantB)
+      .execute()
+
+    // Trước bản sửa round-1, TenantRegistryService ném Error thường (không
+    // phải HttpException) khi tenant tạm ngưng, và guard không tra lại DB nên
+    // request lọt xuống tới đó — Nest trả 500 kèm stack trace thay vì 401.
+    await request(app.getHttpServer())
+      .get('/api/devices')
+      .set('Authorization', `Bearer ${tokenB}`)
+      .expect(401)
+  })
+})
+
+describe('POST /api/auth/login — request hỏng/rỗng', () => {
+  it('không có body nào (không header Content-Type) trả 401, KHÔNG phải 500', async () => {
+    // Không gọi .send(...) — mô phỏng đúng `curl -X POST` trần mà reviewer
+    // dùng để phát hiện lỗi: @Body() trả undefined, .tenantCode trên đó từng
+    // ném TypeError chưa bắt, lộ ra thành 500 kèm stack trace.
+    await request(app.getHttpServer()).post('/api/auth/login').expect(401)
+  })
+
+  it('body rỗng {} trả 401', async () => {
+    await request(app.getHttpServer()).post('/api/auth/login').send({}).expect(401)
+  })
+
+  it('trường lạ kiểu object/mảng (thử tiêm toán tử Mongo-style) không gây lỗi, trả 401', async () => {
+    await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ tenantCode: { $ne: null }, username: ['rv-c'], password: 123 })
+      .expect(401)
+  })
+})

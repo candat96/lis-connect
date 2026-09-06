@@ -25,14 +25,16 @@ export class JwtTenantGuard implements CanActivate {
   // tiêm `undefined` vào `auth`.
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<TenantRequest>()
     const header = request.headers['authorization']
     if (!header || !header.startsWith(BEARER_PREFIX)) {
       throw new UnauthorizedException('thiếu token đăng nhập')
     }
     const token = header.slice(BEARER_PREFIX.length)
-    const payload = this.auth.verifyToken(token)
+    // `verifyToken` tra lại DB mỗi lần (xem ghi chú trong auth.service.ts) —
+    // guard vì vậy phải async, không còn là một phép kiểm chữ ký thuần đồng bộ.
+    const payload = await this.auth.verifyToken(token)
 
     request.tenantId = payload.tenantId
     request.userId = payload.userId

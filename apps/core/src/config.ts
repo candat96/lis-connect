@@ -39,6 +39,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     }
     throw new Error('thiếu biến môi trường JWT_SECRET')
   }
+  // Bí mật ngắn/dễ đoán (vd "lisconnect") có thể bị dò offline từ chính một
+  // token đã phát hành trong vài phút, sau đó kẻ tấn công tự ký token cho BẤT
+  // KỲ tenant nào — phá thẳng cô lập giữa các bệnh viện. 32 ký tự là sàn tối
+  // thiểu hợp lý cho một khoá HMAC-SHA256; sinh bằng `openssl rand -base64 48`
+  // (xem deploy/README.md) sẽ luôn vượt xa mức này.
+  if (jwtSecret.length < 32) {
+    throw new Error(
+      'JWT_SECRET quá ngắn (tối thiểu 32 ký tự) — sinh bằng: openssl rand -base64 48',
+    )
+  }
 
   return {
     port: Number(env.CORE_PORT ?? 3000),
