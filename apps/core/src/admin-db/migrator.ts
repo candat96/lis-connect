@@ -1,9 +1,11 @@
 import { Kysely, Migrator, type Migration, type MigrationProvider } from 'kysely'
 import type { AdminDatabase } from './schema.js'
 import * as initial from './migrations/001-initial.js'
+import * as users from './migrations/002-users.js'
 
 const migrations: Record<string, Migration> = {
   '001-initial': initial,
+  '002-users': users,
 }
 
 class StaticProvider implements MigrationProvider {

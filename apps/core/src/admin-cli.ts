@@ -1,7 +1,9 @@
 import 'reflect-metadata'
+import { randomBytes } from 'node:crypto'
 import { NestFactory } from '@nestjs/core'
 import { AdminDbService } from './admin-db/admin-db.service.js'
 import { AppModule } from './app.module.js'
+import { hashPassword } from './auth/auth.service.js'
 import { AgentKeyService } from './tenant/agent-key.service.js'
 import { TenantMigratorService } from './tenant/tenant-migrator.service.js'
 
@@ -9,6 +11,14 @@ function databaseNameFor(code: string): string {
   const slug = code.toLowerCase().replace(/[^a-z0-9]/g, '_')
   return `lis_t_${slug}`
 }
+
+/** Mật khẩu ngẫu nhiên đủ mạnh cho tài khoản mới cấp/reset — chỉ hiện một lần. */
+function generatePassword(): string {
+  return randomBytes(18).toString('base64url')
+}
+
+/** Vai trò mặc định cho tài khoản tạo qua CLI — chưa có UI phân quyền, chỉ một vai trò kỹ thuật viên. */
+const DEFAULT_ROLE = 'ky_thuat_vien'
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2)
@@ -61,6 +71,62 @@ async function main(): Promise<void> {
       return
     }
 
+    if (command === 'create-user') {
+      const [code, username, ...nameParts] = args
+      if (!code || !username) {
+        throw new Error('cú pháp: create-user <tenantCode> <username> <tên đầy đủ>')
+      }
+      const tenant = await admin.db
+        .selectFrom('tenants')
+        .selectAll()
+        .where('code', '=', code)
+        .executeTakeFirst()
+      if (!tenant) throw new Error(`không tìm thấy cơ sở có mã "${code}"`)
+
+      const password = generatePassword()
+      await admin.db
+        .insertInto('users')
+        .values({
+          tenant_id: tenant.id,
+          username,
+          password_hash: hashPassword(password),
+          full_name: nameParts.join(' ') || username,
+          role: DEFAULT_ROLE,
+          status: 'active',
+        })
+        .execute()
+
+      console.log('MẬT KHẨU (chỉ hiện một lần duy nhất, hãy chép lại ngay):')
+      console.log(password)
+      return
+    }
+
+    if (command === 'reset-password') {
+      const [code, username] = args
+      if (!code || !username) throw new Error('cú pháp: reset-password <tenantCode> <username>')
+      const tenant = await admin.db
+        .selectFrom('tenants')
+        .selectAll()
+        .where('code', '=', code)
+        .executeTakeFirst()
+      if (!tenant) throw new Error(`không tìm thấy cơ sở có mã "${code}"`)
+
+      const password = generatePassword()
+      const result = await admin.db
+        .updateTable('users')
+        .set({ password_hash: hashPassword(password) })
+        .where('tenant_id', '=', tenant.id)
+        .where('username', '=', username)
+        .executeTakeFirst()
+      if (result.numUpdatedRows === 0n) {
+        throw new Error(`không tìm thấy người dùng "${username}" ở cơ sở "${code}"`)
+      }
+
+      console.log('MẬT KHẨU MỚI (chỉ hiện một lần duy nhất, hãy chép lại ngay):')
+      console.log(password)
+      return
+    }
+
     if (command === 'migrate-all') {
       const result = await migrator.migrateAll()
       console.log(`thành công: ${result.ok.length} cơ sở`)
@@ -71,7 +137,9 @@ async function main(): Promise<void> {
       return
     }
 
-    console.log('các lệnh: migrate-admin, create-tenant, issue-key, migrate-all')
+    console.log(
+      'các lệnh: migrate-admin, create-tenant, issue-key, create-user, reset-password, migrate-all',
+    )
   } finally {
     await app.close()
   }

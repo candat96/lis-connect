@@ -1,5 +1,5 @@
 import { Controller, Get, Inject, Param, ParseUUIDPipe, Query, Req, UseGuards } from '@nestjs/common'
-import { DevTenantGuard, withTenant } from '../auth/dev-tenant.guard.js'
+import { JwtTenantGuard, withTenant } from '../auth/jwt-tenant.guard.js'
 import { DevicesService } from './devices.service.js'
 
 interface TenantRequest {
@@ -13,7 +13,7 @@ function parseLimit(raw: string | undefined): number {
 }
 
 @Controller('api/devices')
-@UseGuards(DevTenantGuard)
+@UseGuards(JwtTenantGuard)
 export class DevicesController {
   // `@Inject` tường minh vì bản build test dùng esbuild (qua vitest/tsx),
   // và esbuild không phát ra metadata `design:paramtypes` cho

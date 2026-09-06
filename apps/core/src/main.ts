@@ -9,7 +9,7 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule)
   app.enableCors({
     origin: config.corsOrigins,
-    allowedHeaders: ['Content-Type', 'X-Tenant-Id', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
   await app.listen(config.port)
   app.get(AgentGateway).attach(app.getHttpServer())

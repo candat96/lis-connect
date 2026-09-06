@@ -2,6 +2,7 @@ import type { ColumnType, Generated } from 'kysely'
 
 export type TenantStatus = 'active' | 'suspended'
 export type AgentKeyStatus = 'active' | 'revoked'
+export type UserStatus = 'active' | 'suspended'
 
 export interface TenantsTable {
   id: Generated<string>
@@ -30,8 +31,22 @@ export interface TenantMigrationsTable {
   applied_at: Generated<Date>
 }
 
+export interface UsersTable {
+  id: Generated<string>
+  tenant_id: string
+  /** Duy nhất trong phạm vi MỘT tenant (ràng buộc unique kép với tenant_id), không phải duy nhất toàn cục. */
+  username: string
+  /** Chuỗi "scrypt:<salt hex>:<hash hex>" — xem hashPassword() trong auth.service.ts. */
+  password_hash: string
+  full_name: string
+  role: string
+  status: UserStatus
+  created_at: Generated<Date>
+}
+
 export interface AdminDatabase {
   tenants: TenantsTable
   agent_keys: AgentKeysTable
   tenant_migrations: TenantMigrationsTable
+  users: UsersTable
 }
