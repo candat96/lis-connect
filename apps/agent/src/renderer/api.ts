@@ -9,6 +9,8 @@ export interface SerialPortInfo {
 export interface AgentStatus {
   coreConnected: boolean
   queueDepth: number
+  /** true nếu hàng đợi vượt trần cảnh báo — không có nghĩa mất dữ liệu, chỉ cần người kiểm tra. */
+  queueOverThreshold: boolean
   devices: Array<{ deviceKey: string; name: string; status: string }>
 }
 

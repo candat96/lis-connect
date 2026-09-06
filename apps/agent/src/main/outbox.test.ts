@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { newMessageId } from '@lis/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { LocalDb } from './local-db.js'
-import { Outbox } from './outbox.js'
+import { Outbox, QUEUE_WARNING_THRESHOLD } from './outbox.js'
 
 let dir: string
 let db: LocalDb
@@ -94,5 +94,27 @@ describe('Outbox', () => {
   it('purgeOlderThan không xoá gì khi mọi message còn trong hạn', () => {
     outbox.enqueue(rawMessage('mới'))
     expect(outbox.purgeOlderThan(7)).toBe(0)
+  })
+
+  it('chưa vượt trần thì isOverThreshold false, không cảnh báo', () => {
+    outbox.enqueue(rawMessage('một'))
+    expect(outbox.isOverThreshold()).toBe(false)
+  })
+
+  it('vượt trần số lượng thì báo cảnh báo chứ không xoá gì', () => {
+    // Chèn thẳng qua DB cho nhanh, tương đương enqueue() nhiều lần.
+    const insert = db.raw.prepare('INSERT INTO outbox (message_id, payload) VALUES (?, ?)')
+    const insertMany = db.raw.transaction((n: number) => {
+      for (let i = 0; i < n; i += 1) {
+        insert.run(`msg-${i}`, JSON.stringify(rawMessage(`m${i}`)))
+      }
+    })
+    insertMany(QUEUE_WARNING_THRESHOLD + 1)
+
+    expect(outbox.depth()).toBe(QUEUE_WARNING_THRESHOLD + 1)
+    expect(outbox.isOverThreshold()).toBe(true)
+
+    // Vượt trần không xoá bất cứ gì — chỉ là một tín hiệu cảnh báo.
+    expect(outbox.depth()).toBe(QUEUE_WARNING_THRESHOLD + 1)
   })
 })

@@ -56,6 +56,10 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle('agent:status', () => ({
     coreConnected: deps.getCoreClient()?.isConnected() ?? false,
     queueDepth: deps.outbox.depth(),
+    // Vượt trần KHÔNG có nghĩa mất dữ liệu — chỉ là dấu hiệu Core mất liên
+    // lạc lâu bất thường, cần người kiểm tra. Tab Kết nối Core dùng cờ này để
+    // hiện cảnh báo (spec 6.2: đầy thì cảnh báo lớn, không âm thầm xóa).
+    queueOverThreshold: deps.outbox.isOverThreshold(),
     devices: deps.configStore.load().devices.map((d) => ({
       deviceKey: d.deviceKey,
       name: d.name,

@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
-import { api } from '../api.js'
+import { api, type AgentStatus } from '../api.js'
 
 type MessageKind = 'info' | 'ok' | 'bad' | 'warn'
 
@@ -15,7 +15,11 @@ function messageClass(kind: MessageKind): string {
   return 'message'
 }
 
-export function CoreTab(): JSX.Element {
+export interface CoreTabProps {
+  status: AgentStatus | null
+}
+
+export function CoreTab({ status }: CoreTabProps): JSX.Element {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [coreUrl, setCoreUrl] = useState('')
@@ -126,6 +130,14 @@ export function CoreTab(): JSX.Element {
       {message && (
         <p className={messageClass(message.kind)} role="status" aria-live="polite">
           {message.text}
+        </p>
+      )}
+
+      {status?.queueOverThreshold && (
+        <p className={messageClass('bad')} role="status" aria-live="polite">
+          Hàng đợi đang vượt trần cảnh báo ({status.queueDepth} message chưa gửi). Core có thể
+          đã mất liên lạc lâu bất thường — kiểm tra kết nối mạng và tình trạng Core. Dữ liệu
+          KHÔNG bị xoá.
         </p>
       )}
     </section>

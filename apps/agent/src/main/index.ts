@@ -9,7 +9,8 @@ import { LocalDb } from './local-db.js'
 import { Outbox } from './outbox.js'
 
 const AGENT_VERSION = app.getVersion()
-const QUEUE_RETENTION_DAYS = 7
+/** Chu kỳ kiểm tra hàng đợi có vượt trần cảnh báo hay không. */
+const QUEUE_CHECK_INTERVAL_MS = 5 * 60_000
 
 let window: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -19,6 +20,20 @@ export const configStore = new ConfigStore(join(app.getPath('userData'), 'config
 const localDb = LocalDb.open(join(app.getPath('userData'), 'agent.sqlite'))
 const outbox = new Outbox(localDb)
 const deviceManager = new DeviceManager(outbox, () => coreClient?.pump())
+
+/**
+ * Cảnh báo lớn khi hàng đợi vượt trần — KHÔNG bao giờ xoá gì (spec 6.2).
+ * Kênh trạng thái (`agent:status`, đọc trực tiếp `outbox.isOverThreshold()`
+ * trong ipc.ts) đã đủ để giao diện hiện cảnh báo; hàm này chỉ lo phần log,
+ * để có dấu vết ngay cả khi không ai đang mở cửa sổ Agent Console.
+ */
+function checkQueueThreshold(): void {
+  if (outbox.isOverThreshold()) {
+    console.warn(
+      `[outbox] hàng đợi vượt trần cảnh báo (${outbox.depth()} message) — Core có thể đã mất liên lạc lâu, cần người kiểm tra. KHÔNG tự xoá dữ liệu.`,
+    )
+  }
+}
 
 function restartCoreClient(): void {
   const config = configStore.load()
@@ -71,9 +86,11 @@ app.whenReady().then(async () => {
     getWindow: () => window,
   })
 
-  outbox.purgeOlderThan(QUEUE_RETENTION_DAYS)
   await deviceManager.applyConfig(configStore.load().devices)
   restartCoreClient()
+
+  checkQueueThreshold()
+  setInterval(checkQueueThreshold, QUEUE_CHECK_INTERVAL_MS).unref()
 
   createWindow()
   tray = new Tray(nativeImage.createEmpty())

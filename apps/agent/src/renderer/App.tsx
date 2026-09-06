@@ -129,7 +129,7 @@ export function App(): JSX.Element {
       </nav>
 
       <main className="content">
-        {tab === 'core' && <CoreTab />}
+        {tab === 'core' && <CoreTab status={status} />}
         {tab === 'devices' && <DevicesTab status={status} />}
         {tab === 'terminal' && <TerminalTab />}
       </main>
