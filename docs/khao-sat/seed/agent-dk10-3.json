@@ -1,0 +1,66 @@
+{
+  "coreUrl": "",
+  "agentKey": "",
+  "proxyUrl": null,
+  "hisPort": 8080,
+  "devices": [
+    {
+      "deviceKey": "e2010",
+      "name": "e2010",
+      "driver": "astm-e1394",
+      "enabled": true,
+      "transport": {
+        "kind": "serial",
+        "path": "COM6",
+        "baudRate": 9600,
+        "dataBits": 8,
+        "parity": "none",
+        "stopBits": 1
+      },
+      "_ghiChu": "InsID 2 ở hệ cũ, protocol ASTM, 21 mã XN"
+    },
+    {
+      "deviceKey": "aia360",
+      "name": "AIA360",
+      "driver": "tosoh-aia360",
+      "enabled": false,
+      "transport": {
+        "kind": "serial",
+        "path": "COM1",
+        "baudRate": 9600,
+        "dataBits": 8,
+        "parity": "none",
+        "stopBits": 1
+      },
+      "_ghiChu": "InsID 12 ở hệ cũ, protocol AIA360, 20 mã XN"
+    },
+    {
+      "deviceKey": "cdruby",
+      "name": "CDRUBY",
+      "driver": "astm-e1394",
+      "enabled": true,
+      "transport": {
+        "kind": "serial",
+        "path": "COM4",
+        "baudRate": 9600,
+        "dataBits": 8,
+        "parity": "none",
+        "stopBits": 1
+      },
+      "_ghiChu": "InsID 16 ở hệ cũ, protocol ASTM, 22 mã XN"
+    },
+    {
+      "deviceKey": "cobas-8000",
+      "name": "COBAS 8000",
+      "driver": "astm-e1394",
+      "enabled": true,
+      "transport": {
+        "kind": "tcp",
+        "role": "client",
+        "host": "192.168.1.4",
+        "port": 50001
+      },
+      "_ghiChu": "InsID 19 ở hệ cũ, protocol ASTM, 23 mã XN"
+    }
+  ]
+}

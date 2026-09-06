@@ -1,0 +1,53 @@
+{
+  "coreUrl": "",
+  "agentKey": "",
+  "proxyUrl": null,
+  "hisPort": 8080,
+  "devices": [
+    {
+      "deviceKey": "sysmex-ca500",
+      "name": "Sysmex CA500",
+      "driver": "astm-e1394",
+      "enabled": true,
+      "transport": {
+        "kind": "serial",
+        "path": "COM7",
+        "baudRate": 9600,
+        "dataBits": 8,
+        "parity": "none",
+        "stopBits": 1
+      },
+      "_ghiChu": "InsID 6 ở hệ cũ, protocol ASTM, 4 mã XN"
+    },
+    {
+      "deviceKey": "cdruby-17",
+      "name": "CDRUBY",
+      "driver": "astm-e1394",
+      "enabled": true,
+      "transport": {
+        "kind": "serial",
+        "path": "COM8",
+        "baudRate": 9600,
+        "dataBits": 8,
+        "parity": "none",
+        "stopBits": 1
+      },
+      "_ghiChu": "InsID 17 ở hệ cũ, protocol ASTM, 22 mã XN"
+    },
+    {
+      "deviceKey": "hba1c-g11",
+      "name": "HbA1C G11",
+      "driver": "tosoh-g11",
+      "enabled": false,
+      "transport": {
+        "kind": "serial",
+        "path": "COM5",
+        "baudRate": 9600,
+        "dataBits": 8,
+        "parity": "none",
+        "stopBits": 1
+      },
+      "_ghiChu": "InsID 18 ở hệ cũ, protocol TOSHO, 1 mã XN"
+    }
+  ]
+}

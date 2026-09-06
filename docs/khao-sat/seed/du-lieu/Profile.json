@@ -1,0 +1,22 @@
+[
+  {
+    "ProfileID": "TPTMau22",
+    "ProfileName": "Tổng phân máu 22 thống số",
+    "QuickInput": false,
+    "Category": null,
+    "InTime": "2026-02-05T13:41:53.587",
+    "UpdateTime": null,
+    "UserI": "admin",
+    "UserU": null
+  },
+  {
+    "ProfileID": "TPTNT",
+    "ProfileName": "Tổng phân tích nước tiểu",
+    "QuickInput": false,
+    "Category": null,
+    "InTime": "2026-02-05T13:38:56.013",
+    "UpdateTime": null,
+    "UserI": "admin",
+    "UserU": null
+  }
+]

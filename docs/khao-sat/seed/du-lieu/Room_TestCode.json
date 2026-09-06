@@ -1,0 +1,137 @@
+[
+  {
+    "AutoID": 24,
+    "RoomID": "104",
+    "TestCode": "001KhamSan",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin     ",
+    "CreateTime": "2021-08-26T14:43:00.867"
+  },
+  {
+    "AutoID": 25,
+    "RoomID": "102",
+    "TestCode": "001KhamNgoai",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:53:46.760"
+  },
+  {
+    "AutoID": 26,
+    "RoomID": "201",
+    "TestCode": "001KhamNgoai",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:53:47.863"
+  },
+  {
+    "AutoID": 27,
+    "RoomID": "206",
+    "TestCode": "001KhamNoi",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:53:56.847"
+  },
+  {
+    "AutoID": 28,
+    "RoomID": "207",
+    "TestCode": "001KhamNoi",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:53:58.160"
+  },
+  {
+    "AutoID": 29,
+    "RoomID": "208",
+    "TestCode": "001KhamNoi",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:53:59.230"
+  },
+  {
+    "AutoID": 30,
+    "RoomID": "202",
+    "TestCode": "001KhamTMH",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:54:27.717"
+  },
+  {
+    "AutoID": 31,
+    "RoomID": "202",
+    "TestCode": "001NSTMH",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:54:32.580"
+  },
+  {
+    "AutoID": 32,
+    "RoomID": "203",
+    "TestCode": "001KhamCKN",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:54:46.540"
+  },
+  {
+    "AutoID": 33,
+    "RoomID": "204",
+    "TestCode": "001KhamCKN",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:54:49.753"
+  },
+  {
+    "AutoID": 34,
+    "RoomID": "205",
+    "TestCode": "001SieuAm",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:55:11.897"
+  },
+  {
+    "AutoID": 36,
+    "RoomID": "302",
+    "TestCode": "001NoiSoiDTGM",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:55:27.583"
+  },
+  {
+    "AutoID": 37,
+    "RoomID": "302",
+    "TestCode": "001NoiSoiDDGM",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:55:28.217"
+  },
+  {
+    "AutoID": 38,
+    "RoomID": "302",
+    "TestCode": "001NoiSoiDD",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:55:28.853"
+  },
+  {
+    "AutoID": 39,
+    "RoomID": "302",
+    "TestCode": "001NoiSoi",
+    "OrderNumber": null,
+    "Active": true,
+    "UserI": "admin",
+    "CreateTime": "2021-11-19T14:55:29.543"
+  }
+]

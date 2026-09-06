@@ -1,0 +1,13 @@
+[
+  {
+    "LocationID": "HDL",
+    "LocationName": "HDL",
+    "LocationNameE": "HDL",
+    "StartBy": null,
+    "LocationHIS": null,
+    "LocationGroup": null,
+    "IsAdvisory": null,
+    "SendTest": null,
+    "SendSMSEmail": false
+  }
+]

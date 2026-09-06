@@ -14,7 +14,7 @@ tích hợp với HIS. Các ràng buộc đã chốt:
 |---|---|
 | Mô hình sản phẩm | Đóng gói bán cho nhiều cơ sở; cài đặt phải dễ, cấu hình phải linh hoạt |
 | Giao tiếp máy XN | Serial RS-232 (ASTM E1381), TCP/IP socket (ASTM/HL7 MLLP), file-based (watch folder) |
-| Tích hợp HIS | REST API JSON do LIS Connect định nghĩa; HIS của khách gọi vào |
+| Tích hợp HIS | **Hai chiều, cấu hình theo từng cơ sở** (cập nhật 2026-09-06). Ban đầu chốt "HIS gọi vào API của mình", nhưng khảo sát hệ đang chạy ở khách hàng đầu tiên cho thấy ngược lại: LIS **chủ động gọi sang** HIS — đăng nhập lấy token, kéo chỉ định theo barcode, đẩy kết quả trả lại. Vì vậy hỗ trợ cả hai hướng, mỗi cơ sở chọn một |
 | Phạm vi standalone | Tối thiểu: nhập bệnh nhân + chỉ định, sinh barcode, gửi máy, nhận kết quả, duyệt, in phiếu. **Không** thu ngân, kho hóa chất, QC nội kiểm trong giai đoạn này |
 | Mô hình triển khai | **Cloud multi-tenant là chính**: Core chạy trên hạ tầng của nhà cung cấp, khách chỉ cài Agent tại phòng xét nghiệm. On-premise là ngoại lệ cho khách bắt buộc giữ dữ liệu trong viện — cùng một codebase, chạy với đúng một tenant |
 | Cô lập dữ liệu | Một Postgres host duy nhất; bên trong là một database quản trị và mỗi khách một database riêng (database-per-tenant) |
@@ -537,5 +537,19 @@ một LIS độc lập bán được.
 LAN của Agent), ánh xạ analyte ↔ mã HIS, webhook trả kết quả có retry, API kéo lại
 theo `since`, cấu hình gửi sớm/gửi sau khi duyệt theo từng khách, nhật ký truy cập.
 
-Việc brainstorm và lập kế hoạch chi tiết sẽ đi theo từng giai đoạn, bắt đầu từ
-giai đoạn 1.
+Việc brainstorm và lập kế hoạch chi tiết đi theo từng giai đoạn.
+
+**Cập nhật 2026-09-06:** giai đoạn 1 đã hoàn tất. Giai đoạn 2 được phân rã tiếp thành
+năm khối vì quá lớn cho một spec — xem
+`2026-09-06-giai-doan-2a-danh-muc-di-tru-design.md`:
+
+| Khối | Nội dung |
+|---|---|
+| 2A | Danh mục và di trú từ hệ cũ |
+| 2B | Bệnh nhân, chỉ định, barcode/SID |
+| 2C | Diễn giải kết quả (làm tròn, cờ cao/thấp, biện luận) |
+| 2D | Duyệt, in phiếu, trả kết quả về HIS |
+| 2E | Gửi chỉ định xuống máy (host-query và broadcast) |
+
+Khách hàng đầu tiên là Bệnh viện Đa khoa 10, nơi sẽ thay thế một hệ LIS đang chạy —
+nên giai đoạn 2 bắt buộc phải di trú dữ liệu thật và giữ nguyên mã xét nghiệm cũ.
