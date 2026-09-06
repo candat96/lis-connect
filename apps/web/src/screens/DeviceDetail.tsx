@@ -17,10 +17,19 @@ type LoadState = 'loading' | 'ok' | 'error'
 export function DeviceDetail({
   deviceId,
   device,
+  devicesRefreshFailed,
   onBack,
 }: {
   deviceId: string
   device: DeviceSummary | null
+  /**
+   * true khi vòng polling `GET /api/devices` ở App thất bại gần nhất — huy
+   * hiệu trạng thái của máy này (đọc từ `device`, vốn là kết quả lần fetch
+   * TRƯỚC ĐÓ) phải bị ép về "không rõ" trong trường hợp này, giống hệt cách
+   * DeviceMonitor xử lý, để không hiển thị "Đang kết nối" cũ như thể máy vẫn
+   * ổn trong khi banner đầu trang đang báo mất kết nối tới Core.
+   */
+  devicesRefreshFailed: boolean
   onBack: () => void
 }): JSX.Element {
   const [messages, setMessages] = useState<RawMessageView[]>([])
@@ -76,7 +85,7 @@ export function DeviceDetail({
         </button>
         <div className="detail-title">
           <h2 className="detail-name">{device?.name ?? 'Máy xét nghiệm'}</h2>
-          <StatusBadge status={device?.status ?? 'unknown'} size="sm" />
+          <StatusBadge status={devicesRefreshFailed ? 'unknown' : (device?.status ?? 'unknown')} size="sm" />
         </div>
       </div>
 

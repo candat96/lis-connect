@@ -128,6 +128,7 @@ export function App(): JSX.Element {
           <DeviceDetail
             deviceId={selectedDeviceId}
             device={devices.find((d) => d.id === selectedDeviceId) ?? null}
+            devicesRefreshFailed={refreshFailed}
             onBack={() => setSelectedDeviceId(null)}
           />
         )}
