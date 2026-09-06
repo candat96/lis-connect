@@ -1,7 +1,8 @@
 import { useEffect, useState, type JSX } from 'react'
-import { api, tenant, type DeviceSummary } from './api.js'
+import { api, logout, session, type DeviceSummary, type Session } from './api.js'
 import { DeviceDetail } from './screens/DeviceDetail.js'
 import { DeviceMonitor } from './screens/DeviceMonitor.js'
+import { Login } from './screens/Login.js'
 import { UnknownDashedIcon, WarningTriangleIcon } from './statusMeta.js'
 
 const REFRESH_MS = 5000
@@ -19,7 +20,13 @@ interface DevicesPollState {
   loading: boolean
 }
 
-function useDevicesPolling(tenantId: string): DevicesPollState {
+/**
+ * `sessionKey` (rỗng khi chưa đăng nhập, hoặc token hiện tại) là dependency
+ * duy nhất của vòng polling: đổi phiên (đăng nhập lại sau khi hết hạn, hoặc
+ * đăng nhập tài khoản khác) phải khởi động lại vòng từ đầu, không tiếp tục
+ * dùng token cũ đã mất hiệu lực.
+ */
+function useDevicesPolling(sessionKey: string): DevicesPollState {
   const [state, setState] = useState<DevicesPollState>({
     devices: [],
     refreshFailed: false,
@@ -27,7 +34,7 @@ function useDevicesPolling(tenantId: string): DevicesPollState {
   })
 
   useEffect(() => {
-    if (!tenantId) {
+    if (!sessionKey) {
       setState({ devices: [], refreshFailed: false, loading: false })
       return
     }
@@ -43,7 +50,10 @@ function useDevicesPolling(tenantId: string): DevicesPollState {
         .catch(() => {
           if (cancelled) return
           // Vòng tự làm mới bắt lỗi và chuyển sang "không rõ" — KHÔNG giữ
-          // nguyên danh sách cũ như thể mọi máy vẫn đang ổn.
+          // nguyên danh sách cũ như thể mọi máy vẫn đang ổn. Nếu lỗi là do
+          // token hết hạn (401), `session.onExpired` (đăng ký ở App) sẽ đưa
+          // người dùng về màn hình đăng nhập ngay sau đây — nhánh này chỉ lo
+          // phần hiển thị "đang mất kết nối" cho các lỗi mạng/tạm thời khác.
           setState((prev) => ({ ...prev, refreshFailed: true, loading: false }))
         })
     }
@@ -54,20 +64,42 @@ function useDevicesPolling(tenantId: string): DevicesPollState {
       cancelled = true
       clearInterval(timer)
     }
-  }, [tenantId])
+  }, [sessionKey])
 
   return state
 }
 
 export function App(): JSX.Element {
-  const [tenantId, setTenantId] = useState(tenant.get())
+  const [currentSession, setCurrentSession] = useState<Session | null>(session.get())
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
-  const { devices, refreshFailed, loading } = useDevicesPolling(tenantId)
+  const [authNotice, setAuthNotice] = useState<string | null>(null)
+  const { devices, refreshFailed, loading } = useDevicesPolling(currentSession?.token ?? '')
 
-  const applyTenant = (value: string): void => {
-    tenant.set(value)
-    setTenantId(value)
+  useEffect(() => {
+    // Đăng ký MỘT lần cho toàn app: bất kỳ lời gọi API nào (không chỉ vòng
+    // polling danh sách máy) nhận 401 đều phải đưa người dùng về màn hình
+    // đăng nhập kèm lý do rõ ràng — không để màn hình trắng hay kẹt "đang
+    // tải" khi token hết hạn giữa ca trực.
+    return session.onExpired((reason) => {
+      setAuthNotice(reason)
+      setCurrentSession(null)
+      setSelectedDeviceId(null)
+    })
+  }, [])
+
+  const handleLoginSuccess = (value: Session): void => {
+    setAuthNotice(null)
+    setCurrentSession(value)
+  }
+
+  const handleLogout = (): void => {
+    logout()
+    setCurrentSession(null)
     setSelectedDeviceId(null)
+  }
+
+  if (!currentSession) {
+    return <Login onSuccess={handleLoginSuccess} notice={authNotice} />
   }
 
   const offlineCount = devices.filter((d) => d.status !== 'connected').length
@@ -81,20 +113,21 @@ export function App(): JSX.Element {
           </span>
           <div className="brand-text">
             <h1>LIS Connect</h1>
-            <p>Theo dõi máy xét nghiệm</p>
+            <p>{currentSession.tenant.name}</p>
           </div>
         </div>
-        <label className="tenant-picker">
-          <span>Mã cơ sở (tenant)</span>
-          <input
-            value={tenantId}
-            placeholder="dán tenant id"
-            onChange={(e) => applyTenant(e.target.value)}
-          />
-        </label>
+        <div className="user-panel">
+          <div className="user-info">
+            <span className="user-name">{currentSession.user.fullName}</span>
+            <span className="user-role">{currentSession.user.username}</span>
+          </div>
+          <button type="button" className="logout-button" onClick={handleLogout}>
+            Đăng xuất
+          </button>
+        </div>
       </header>
 
-      {tenantId && !loading && refreshFailed && (
+      {!loading && refreshFailed && (
         <div className="alert-banner alert-banner-warn" role="status" aria-live="polite">
           <UnknownDashedIcon className="alert-banner-icon" />
           <span>
@@ -104,7 +137,7 @@ export function App(): JSX.Element {
         </div>
       )}
 
-      {tenantId && !loading && !refreshFailed && offlineCount > 0 && (
+      {!loading && !refreshFailed && offlineCount > 0 && (
         <div className="alert-banner alert-banner-danger" role="status" aria-live="polite">
           <WarningTriangleIcon className="alert-banner-icon" />
           <span>
@@ -115,8 +148,7 @@ export function App(): JSX.Element {
       )}
 
       <main className="content">
-        {!tenantId && <p className="empty">Nhập tenant id để xem dữ liệu.</p>}
-        {tenantId && !selectedDeviceId && (
+        {!selectedDeviceId && (
           <DeviceMonitor
             devices={devices}
             loading={loading}
@@ -124,7 +156,7 @@ export function App(): JSX.Element {
             onSelect={setSelectedDeviceId}
           />
         )}
-        {tenantId && selectedDeviceId && (
+        {selectedDeviceId && (
           <DeviceDetail
             deviceId={selectedDeviceId}
             device={devices.find((d) => d.id === selectedDeviceId) ?? null}
