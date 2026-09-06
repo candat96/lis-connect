@@ -1,6 +1,8 @@
 import { useEffect, useState, type JSX } from 'react'
 import { api, logout, session, type DeviceSummary, type Session } from './api.js'
 import { CatalogueAnalytes } from './screens/CatalogueAnalytes.js'
+import { CatalogueChannelMap } from './screens/CatalogueChannelMap.js'
+import { CatalogueResultRules } from './screens/CatalogueResultRules.js'
 import { DeviceDetail } from './screens/DeviceDetail.js'
 import { DeviceMonitor } from './screens/DeviceMonitor.js'
 import { Login } from './screens/Login.js'
@@ -14,11 +16,13 @@ const REFRESH_MS = 5000
  * phần nó giải quyết. Danh sách máy vẫn do App polling MỘT lần và truyền xuống
  * cả ba màn hình cần nó.
  */
-type View = 'devices' | 'analytes'
+type View = 'devices' | 'analytes' | 'channels' | 'rules'
 
 const VIEW_TABS: Array<{ id: View; label: string }> = [
   { id: 'devices', label: 'Theo dõi máy' },
   { id: 'analytes', label: 'Danh mục xét nghiệm' },
+  { id: 'channels', label: 'Ánh xạ mã kênh' },
+  { id: 'rules', label: 'Luật ghi đè kết quả' },
 ]
 
 /**
@@ -200,6 +204,10 @@ export function App(): JSX.Element {
           />
         )}
         {view === 'analytes' && <CatalogueAnalytes />}
+        {view === 'channels' && (
+          <CatalogueChannelMap devices={devices} devicesLoading={loading} />
+        )}
+        {view === 'rules' && <CatalogueResultRules devices={devices} devicesLoading={loading} />}
       </main>
     </div>
   )
