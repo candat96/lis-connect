@@ -3,6 +3,7 @@ import { api, logout, session, type DeviceSummary, type Session } from './api.js
 import { CatalogueAnalytes } from './screens/CatalogueAnalytes.js'
 import { CatalogueChannelMap } from './screens/CatalogueChannelMap.js'
 import { CatalogueHisMap } from './screens/CatalogueHisMap.js'
+import { CatalogueProfiles } from './screens/CatalogueProfiles.js'
 import { CatalogueResultRules } from './screens/CatalogueResultRules.js'
 import { DeviceDetail } from './screens/DeviceDetail.js'
 import { DeviceMonitor } from './screens/DeviceMonitor.js'
@@ -23,7 +24,7 @@ const REFRESH_MS = 5000
  * giải quyết. Danh sách máy vẫn do App polling MỘT lần và truyền xuống các màn
  * hình cần nó.
  */
-type View = 'devices' | 'analytes' | 'channels' | 'rules' | 'his-map'
+type View = 'devices' | 'analytes' | 'channels' | 'rules' | 'his-map' | 'profiles'
 
 const VIEW_TABS: Array<{ id: View; label: string }> = [
   { id: 'devices', label: 'Theo dõi máy' },
@@ -31,6 +32,7 @@ const VIEW_TABS: Array<{ id: View; label: string }> = [
   { id: 'channels', label: 'Ánh xạ mã kênh' },
   { id: 'rules', label: 'Luật ghi đè kết quả' },
   { id: 'his-map', label: 'Ánh xạ mã HIS' },
+  { id: 'profiles', label: 'Nhóm xét nghiệm' },
 ]
 
 /**
@@ -233,6 +235,7 @@ export function App(): JSX.Element {
         )}
         {view === 'rules' && <CatalogueResultRules devices={devices} devicesLoading={loading} />}
         {view === 'his-map' && <CatalogueHisMap />}
+        {view === 'profiles' && <CatalogueProfiles />}
       </main>
     </div>
   )

@@ -16,7 +16,7 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { JwtTenantGuard, withTenant } from '../auth/jwt-tenant.guard.js'
-import type { AnalyteSource } from '../tenant/tenant-schema.js'
+import type { AnalyteSource, ProfileSource } from '../tenant/tenant-schema.js'
 import { type CatalogueActor, CatalogueService } from './catalogue.service.js'
 
 interface TenantRequest {
@@ -83,6 +83,17 @@ function parseBoolFilter(raw: string | undefined): boolean | undefined {
   return undefined
 }
 
+const PROFILE_SOURCES = ['legacy-declared', 'legacy-inferred', 'manual'] as const
+
+/**
+ * Đọc bộ lọc nguồn gốc nhóm. Giá trị lạ cho ra `undefined` nghĩa là KHÔNG LỌC,
+ * thay vì lọc theo một chuỗi không khớp gì rồi trả về danh sách rỗng — người
+ * dùng sẽ tưởng bệnh viện không có nhóm nào.
+ */
+function parseProfileSourceFilter(raw: string | undefined): ProfileSource | undefined {
+  return PROFILE_SOURCES.find((s) => s === raw)
+}
+
 @Controller('api/catalogue')
 @UseGuards(JwtTenantGuard)
 export class CatalogueController {
@@ -126,6 +137,106 @@ export class CatalogueController {
   updateAnalyte(@Req() req: TenantRequest, @Param('code') code: string, @Body() body: unknown) {
     return withTenant(req.tenantId, () =>
       this.catalogue.updateAnalyte(req.tenantId, actorOf(req), code, body),
+    )
+  }
+
+  /* ------------------------------------ nhóm xét nghiệm và các chỉ số con
+   *
+   * `profiles-summary` và `profiles-orphan-heads` cố tình KHÔNG nằm dưới
+   * `profiles/...`: mã nhóm là mã nghiệp vụ tự do của hệ cũ, một route
+   * `profiles/:code` sẽ nuốt mất mọi đường con đặt cạnh nó.
+   */
+
+  @Get('profiles')
+  searchProfiles(
+    @Req() req: TenantRequest,
+    @Query('q') q?: string,
+    @Query('source') source?: string,
+    @Query('confirmed') confirmed?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.searchProfiles(req.tenantId, {
+        q: typeof q === 'string' ? q : undefined,
+        source: parseProfileSourceFilter(source),
+        confirmed: parseBoolFilter(confirmed),
+        limit: parseLimit(limit),
+        offset: parseOffset(offset),
+      }),
+    )
+  }
+
+  @Get('profiles-summary')
+  profileSummary(@Req() req: TenantRequest) {
+    return withTenant(req.tenantId, () => this.catalogue.profileSummary(req.tenantId))
+  }
+
+  @Get('profiles-orphan-heads')
+  orphanHeads(
+    @Req() req: TenantRequest,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.listOrphanHeads(req.tenantId, {
+        q: typeof q === 'string' ? q : undefined,
+        limit: parseLimit(limit),
+        offset: parseOffset(offset),
+      }),
+    )
+  }
+
+  @Post('profiles')
+  createProfile(@Req() req: TenantRequest, @Body() body: unknown) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.createProfile(req.tenantId, actorOf(req), body),
+    )
+  }
+
+  @Get('profiles/:code')
+  getProfile(@Req() req: TenantRequest, @Param('code') code: string) {
+    return withTenant(req.tenantId, () => this.catalogue.getProfile(req.tenantId, code))
+  }
+
+  @Post('profiles/:code/confirm')
+  confirmProfile(@Req() req: TenantRequest, @Param('code') code: string) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.confirmProfile(req.tenantId, actorOf(req), code),
+    )
+  }
+
+  @Post('profiles/:code/members')
+  addProfileMember(
+    @Req() req: TenantRequest,
+    @Param('code') code: string,
+    @Body() body: unknown,
+  ) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.addProfileMember(req.tenantId, actorOf(req), code, body),
+    )
+  }
+
+  @Delete('profiles/:code/members/:analyteCode')
+  removeProfileMember(
+    @Req() req: TenantRequest,
+    @Param('code') code: string,
+    @Param('analyteCode') analyteCode: string,
+  ) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.removeProfileMember(req.tenantId, actorOf(req), code, analyteCode),
+    )
+  }
+
+  @Put('profiles/:code/members-order')
+  reorderProfileMembers(
+    @Req() req: TenantRequest,
+    @Param('code') code: string,
+    @Body() body: unknown,
+  ) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.reorderProfileMembers(req.tenantId, actorOf(req), code, body),
     )
   }
 

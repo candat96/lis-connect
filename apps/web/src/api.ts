@@ -334,6 +334,73 @@ export interface HisMapSummary {
   unmappedAnalyteCount: number
 }
 
+/** Nhóm xét nghiệm (profile) — mã cha gom nhiều chỉ số con. */
+export interface ProfileView {
+  code: string
+  name: string
+  /**
+   * BA giá trị: 'legacy-declared' (hệ cũ khai tường minh — đáng tin),
+   * 'legacy-inferred' (phần mềm SUY RA từ thụt lề tên — chỉ là đề xuất),
+   * 'manual' (tạo tay trên phần mềm này). Kiểu để `string` để giá trị lạ vẫn
+   * hiển thị được thay vì làm hỏng màn hình.
+   */
+  source: string
+  /** Nhãn tiếng Việt do Core dựng sẵn cho `source`. */
+  sourceLabel: string
+  /**
+   * ĐỘC LẬP với `source`: một nhóm suy diễn đã được kỹ thuật viên xác nhận vẫn
+   * giữ nguyên `source = 'legacy-inferred'` (nguồn gốc không sửa lại được),
+   * nhưng `confirmed` thành true.
+   */
+  confirmed: boolean
+  /** Nhãn tiếng Việt do Core dựng sẵn cho `confirmed`. */
+  confirmedLabel: string
+  memberCount: number
+}
+
+export interface ProfileSearchResult {
+  items: ProfileView[]
+  total: number
+}
+
+export interface ProfileMemberView {
+  analyteCode: string
+  analyteName: string | null
+  unit: string | null
+  displayOrder: number
+}
+
+export interface ProfileDetailView extends ProfileView {
+  members: ProfileMemberView[]
+}
+
+/**
+ * Một mã cha CHƯA CÓ CON NÀO: xét nghiệm được đánh dấu là đầu nhóm ở hệ cũ
+ * nhưng không có chỉ số con nào trong bảng thành viên. Thuật toán suy diễn
+ * theo thụt lề không bắt được các mã này (ví dụ `920IONDO`).
+ */
+export interface OrphanHeadView {
+  code: string
+  name: string
+  /** true: đã có dòng nhóm nhưng rỗng; false: chưa có dòng nhóm nào. */
+  hasProfileRow: boolean
+}
+
+export interface OrphanHeadResult {
+  items: OrphanHeadView[]
+  total: number
+}
+
+export interface ProfileSummary {
+  profileCount: number
+  declaredCount: number
+  inferredCount: number
+  /** Số nhóm đang chờ kỹ thuật viên xác nhận. */
+  pendingCount: number
+  memberCount: number
+  orphanHeadCount: number
+}
+
 /**
  * Đọc câu giải thích của Core từ thân phản hồi lỗi. Nest trả
  * `{ statusCode, message, error }` với `message` là chuỗi hoặc mảng chuỗi.
@@ -493,6 +560,65 @@ export const catalogueApi = {
 
   deleteHisMap: (hisServiceCode: string): Promise<void> =>
     request<void>('DELETE', `/api/catalogue/his-map/${segment(hisServiceCode)}`),
+
+  /* --------------------------------------- nhóm xét nghiệm và chỉ số con */
+
+  searchProfiles: (params: {
+    q: string
+    /** '' = không lọc. 'legacy-declared' | 'legacy-inferred' | 'manual'. */
+    source?: string
+    /** '' = không lọc. 'true' | 'false'. */
+    confirmed?: string
+    limit: number
+    offset: number
+  }): Promise<ProfileSearchResult> => {
+    const search = new URLSearchParams()
+    if (params.q.trim() !== '') search.set('q', params.q.trim())
+    if (params.source && params.source !== '') search.set('source', params.source)
+    if (params.confirmed && params.confirmed !== '') search.set('confirmed', params.confirmed)
+    search.set('limit', String(params.limit))
+    search.set('offset', String(params.offset))
+    return request<ProfileSearchResult>('GET', `/api/catalogue/profiles?${search.toString()}`)
+  },
+
+  profile: (code: string): Promise<ProfileDetailView> =>
+    request<ProfileDetailView>('GET', `/api/catalogue/profiles/${segment(code)}`),
+
+  profileSummary: (): Promise<ProfileSummary> =>
+    request<ProfileSummary>('GET', '/api/catalogue/profiles-summary'),
+
+  orphanHeads: (params: { q: string; limit: number; offset: number }): Promise<OrphanHeadResult> => {
+    const search = new URLSearchParams()
+    if (params.q.trim() !== '') search.set('q', params.q.trim())
+    search.set('limit', String(params.limit))
+    search.set('offset', String(params.offset))
+    return request<OrphanHeadResult>(
+      'GET',
+      `/api/catalogue/profiles-orphan-heads?${search.toString()}`,
+    )
+  },
+
+  confirmProfile: (code: string): Promise<ProfileDetailView> =>
+    request<ProfileDetailView>('POST', `/api/catalogue/profiles/${segment(code)}/confirm`),
+
+  createProfile: (code: string): Promise<ProfileDetailView> =>
+    request<ProfileDetailView>('POST', '/api/catalogue/profiles', { code }),
+
+  addProfileMember: (code: string, analyteCode: string): Promise<ProfileDetailView> =>
+    request<ProfileDetailView>('POST', `/api/catalogue/profiles/${segment(code)}/members`, {
+      analyteCode,
+    }),
+
+  removeProfileMember: (code: string, analyteCode: string): Promise<ProfileDetailView> =>
+    request<ProfileDetailView>(
+      'DELETE',
+      `/api/catalogue/profiles/${segment(code)}/members/${segment(analyteCode)}`,
+    ),
+
+  reorderProfileMembers: (code: string, analyteCodes: string[]): Promise<ProfileDetailView> =>
+    request<ProfileDetailView>('PUT', `/api/catalogue/profiles/${segment(code)}/members-order`, {
+      analyteCodes,
+    }),
 }
 
 /** Câu hiển thị được cho mọi lỗi lọt tới giao diện, kể cả lỗi không lường trước. */

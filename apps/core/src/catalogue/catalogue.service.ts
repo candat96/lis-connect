@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common'
 import type { Kysely, Transaction } from 'kysely'
 import { TenantRegistryService } from '../tenant/tenant-registry.service.js'
-import type { AnalyteSource, TenantDatabase } from '../tenant/tenant-schema.js'
+import type { AnalyteSource, ProfileSource, TenantDatabase } from '../tenant/tenant-schema.js'
 
 /** Người thực hiện thay đổi, lấy từ JWT đã được JwtTenantGuard xác thực. */
 export interface CatalogueActor {
@@ -154,6 +154,85 @@ export interface HisMapSearchQuery {
   offset: number
 }
 
+/**
+ * Một nhóm xét nghiệm (profile): mã cha gom nhiều chỉ số con.
+ *
+ * `source` và `confirmed` là HAI thông tin độc lập và cả hai đều phải ra tới
+ * giao diện kèm NHÃN CHỮ:
+ *   - `source` là nguồn gốc, không sửa lại được. 'legacy-declared' nghĩa là hệ
+ *     cũ khai báo tường minh; 'legacy-inferred' nghĩa là phần mềm SUY RA từ
+ *     thụt lề tên khi di trú — một ĐỀ XUẤT, có thể thiếu con hoặc lẫn con
+ *     không thuộc nhóm (783PROGES và 766HE3 trong dữ liệu thật).
+ *   - `confirmed` là việc đã có kỹ thuật viên đọc và chịu trách nhiệm hay chưa.
+ * Xác nhận một nhóm suy diễn KHÔNG biến nó thành nhóm khai báo: nguồn gốc là
+ * quá khứ, ép `source` sang giá trị khác là xoá mất dấu vết nó từng là suy đoán.
+ */
+export interface ProfileView {
+  code: string
+  name: string
+  source: string
+  /** Nhãn tiếng Việt dựng sẵn cho `source` — sản phẩm chỉ phục vụ tiếng Việt. */
+  sourceLabel: string
+  confirmed: boolean
+  /** Nhãn tiếng Việt dựng sẵn cho `confirmed`. */
+  confirmedLabel: string
+  memberCount: number
+}
+
+export interface ProfileSearchResult {
+  items: ProfileView[]
+  total: number
+}
+
+export interface ProfileMemberView {
+  analyteCode: string
+  analyteName: string | null
+  unit: string | null
+  displayOrder: number
+}
+
+export interface ProfileDetailView extends ProfileView {
+  members: ProfileMemberView[]
+}
+
+/**
+ * Một mã cha CHƯA CÓ CON NÀO.
+ *
+ * Hệ cũ đánh dấu 319 xét nghiệm là đầu nhóm, nhưng thuật toán suy diễn theo
+ * thụt lề chỉ dựng lại được một phần. Số còn lại (ví dụ `920IONDO`) là những
+ * nhóm mà phần mềm KHÔNG bắt được — chúng phải hiện ra thành một danh sách để
+ * người dùng biết còn việc phải làm, chứ không im lặng biến mất.
+ */
+export interface OrphanHeadView {
+  code: string
+  name: string
+  /** true: đã có dòng nhóm nhưng rỗng; false: chưa có dòng nhóm nào cả. */
+  hasProfileRow: boolean
+}
+
+export interface OrphanHeadResult {
+  items: OrphanHeadView[]
+  total: number
+}
+
+export interface ProfileSummary {
+  profileCount: number
+  declaredCount: number
+  inferredCount: number
+  /** Số nhóm chờ kỹ thuật viên xác nhận. */
+  pendingCount: number
+  memberCount: number
+  orphanHeadCount: number
+}
+
+export interface ProfileSearchQuery {
+  q?: string | undefined
+  source?: ProfileSource | undefined
+  confirmed?: boolean | undefined
+  limit: number
+  offset: number
+}
+
 export interface AnalyteSearchQuery {
   q?: string | undefined
   category?: string | undefined
@@ -197,11 +276,28 @@ const CHANNEL_STATE_LABEL = {
   undecided: 'CHƯA QUYẾT — hệ cũ khai nhiều xét nghiệm cho mã kênh này',
 } as const
 
+/**
+ * Nhãn chữ cho nguồn gốc nhóm. Ba nhãn KHÁC HẲN nhau về chữ, không chỉ khác
+ * màu: kỹ thuật viên phải đọc ra ngay rằng nhóm suy diễn mới chỉ là đề xuất.
+ */
+const PROFILE_SOURCE_LABEL: Record<string, string> = {
+  'legacy-declared': 'Hệ cũ khai báo tường minh',
+  'legacy-inferred': 'Phần mềm suy ra từ thụt lề tên (đề xuất)',
+  manual: 'Tạo tay trên phần mềm này',
+}
+
+const PROFILE_CONFIRMED_LABEL = {
+  yes: 'ĐÃ XÁC NHẬN',
+  no: 'CHỜ KỸ THUẬT VIÊN XÁC NHẬN',
+} as const
+
 type AuditEntity =
   | 'analyte'
   | 'device_analyte_map'
   | 'result_mapping'
   | 'his_analyte_map'
+  | 'profile'
+  | 'profile_member'
 type AuditAction = 'create' | 'update' | 'delete'
 
 function pgErrorCode(err: unknown): string | undefined {
@@ -919,6 +1015,398 @@ export class CatalogueService {
     })
   }
 
+  // ------------------------------------------ nhóm xét nghiệm và chỉ số con
+
+  async searchProfiles(
+    tenantId: string,
+    query: ProfileSearchQuery,
+  ): Promise<ProfileSearchResult> {
+    const db = await this.registry.forTenant(tenantId)
+
+    let base = db.selectFrom('profiles as p')
+    const q = query.q?.trim()
+    if (q) {
+      // Thoát `%` và `_` một lần rồi dùng cho cả hai mẫu: mã nhóm cũng là mã
+      // xét nghiệm của hệ cũ, có mã chứa ký tự đại diện của LIKE.
+      const escaped = escapeLikePattern(q)
+      base = base.where((eb) =>
+        eb.or([eb('p.code', 'ilike', `${escaped}%`), eb('p.name', 'ilike', `%${escaped}%`)]),
+      )
+    }
+    if (query.source) base = base.where('p.source', '=', query.source)
+    if (query.confirmed !== undefined) base = base.where('p.confirmed', '=', query.confirmed)
+
+    const [rows, count] = await Promise.all([
+      base
+        .select((eb) => [
+          'p.code',
+          'p.name',
+          'p.source',
+          'p.confirmed',
+          eb
+            .selectFrom('profile_members as m')
+            .select((e) => e.fn.countAll<string>().as('n'))
+            .whereRef('m.profile_code', '=', 'p.code')
+            .as('member_count'),
+        ])
+        .orderBy('p.code')
+        .limit(query.limit)
+        .offset(query.offset)
+        .execute(),
+      base.select((eb) => eb.fn.countAll<string>().as('total')).executeTakeFirstOrThrow(),
+    ])
+
+    return {
+      items: rows.map((r) =>
+        toProfileView({
+          code: r.code,
+          name: r.name,
+          source: r.source,
+          confirmed: r.confirmed,
+          memberCount: Number(r.member_count ?? 0),
+        }),
+      ),
+      total: Number(count.total),
+    }
+  }
+
+  async getProfile(tenantId: string, code: string): Promise<ProfileDetailView> {
+    const db = await this.registry.forTenant(tenantId)
+    return this.profileDetail(db, code)
+  }
+
+  async profileSummary(tenantId: string): Promise<ProfileSummary> {
+    const db = await this.registry.forTenant(tenantId)
+    const [profiles, members, orphans] = await Promise.all([
+      db.selectFrom('profiles').select(['source', 'confirmed']).execute(),
+      db
+        .selectFrom('profile_members')
+        .select((eb) => eb.fn.countAll<string>().as('total'))
+        .executeTakeFirstOrThrow(),
+      this.orphanHeadBase(db)
+        .select((eb) => eb.fn.countAll<string>().as('total'))
+        .executeTakeFirstOrThrow(),
+    ])
+
+    return {
+      profileCount: profiles.length,
+      declaredCount: profiles.filter((p) => p.source === 'legacy-declared').length,
+      inferredCount: profiles.filter((p) => p.source === 'legacy-inferred').length,
+      pendingCount: profiles.filter((p) => !p.confirmed).length,
+      memberCount: Number(members.total),
+      orphanHeadCount: Number(orphans.total),
+    }
+  }
+
+  /**
+   * Các mã cha chưa có chỉ số con nào.
+   *
+   * Hai tình huống KHÁC NHAU cùng nằm ở đây và được phân biệt bằng
+   * `hasProfileRow`: chưa có dòng nhóm nào (thuật toán suy diễn không bắt được
+   * mã cha này), và có dòng nhóm nhưng rỗng (suy ra được cái vỏ mà không suy ra
+   * được con nào). Gộp làm một thì người dùng không biết mình đang phải tạo
+   * nhóm hay đang phải điền thành viên.
+   */
+  async listOrphanHeads(
+    tenantId: string,
+    query: HisMapSearchQuery,
+  ): Promise<OrphanHeadResult> {
+    const db = await this.registry.forTenant(tenantId)
+
+    let base = this.orphanHeadBase(db)
+    const q = query.q?.trim()
+    if (q) {
+      const escaped = escapeLikePattern(q)
+      base = base.where((eb) =>
+        eb.or([eb('a.code', 'ilike', `${escaped}%`), eb('a.name', 'ilike', `%${escaped}%`)]),
+      )
+    }
+
+    const [rows, count] = await Promise.all([
+      base
+        .select((eb) => [
+          'a.code',
+          'a.name',
+          eb
+            .exists(
+              eb.selectFrom('profiles as p').select('p.code').whereRef('p.code', '=', 'a.code'),
+            )
+            .as('has_profile_row'),
+        ])
+        .orderBy('a.code')
+        .limit(query.limit)
+        .offset(query.offset)
+        .execute(),
+      base.select((eb) => eb.fn.countAll<string>().as('total')).executeTakeFirstOrThrow(),
+    ])
+
+    return {
+      items: rows.map((r) => ({
+        code: r.code,
+        name: r.name,
+        hasProfileRow: r.has_profile_row === true,
+      })),
+      total: Number(count.total),
+    }
+  }
+
+  /**
+   * Kỹ thuật viên xác nhận một nhóm.
+   *
+   * Chỉ đặt `confirmed = true`; `source` giữ nguyên. Nhóm suy diễn đã xác nhận
+   * vẫn là nhóm suy diễn — nhưng từ giờ có người chịu trách nhiệm cho nó.
+   * Xác nhận lại một nhóm đã xác nhận không ghi thêm vết: nhật ký chỉ ghi
+   * những gì THỰC SỰ thay đổi.
+   */
+  async confirmProfile(
+    tenantId: string,
+    actor: CatalogueActor,
+    code: string,
+  ): Promise<ProfileDetailView> {
+    const db = await this.registry.forTenant(tenantId)
+    return db.transaction().execute(async (trx) => {
+      const before = await trx
+        .selectFrom('profiles')
+        .selectAll()
+        .where('code', '=', code)
+        .executeTakeFirst()
+      if (!before) throw new NotFoundException(`không tìm thấy nhóm xét nghiệm có mã "${code}"`)
+
+      if (!before.confirmed) {
+        const after = await trx
+          .updateTable('profiles')
+          .set({ confirmed: true })
+          .where('code', '=', code)
+          .returningAll()
+          .executeTakeFirstOrThrow()
+        await this.writeAudit(trx, actor, 'profile', code, 'update', before, after)
+      }
+      return this.profileDetail(trx, code)
+    })
+  }
+
+  /**
+   * Tạo nhóm cho một mã cha chưa có nhóm nào.
+   *
+   * Nhóm do người tạo tay là nhóm ĐÁNG TIN (`confirmed = true`) — nó không
+   * phải một suy đoán của phần mềm. Mã phải có sẵn trong danh mục xét nghiệm:
+   * nhóm không phải một thực thể độc lập mà là một xét nghiệm đầu nhóm.
+   */
+  async createProfile(
+    tenantId: string,
+    actor: CatalogueActor,
+    body: unknown,
+  ): Promise<ProfileDetailView> {
+    if (!isPlainObject(body)) throw new BadRequestException('body phải là một đối tượng JSON')
+    const code = requireNonEmptyString(body.code, 'code').trim()
+    const nameOverride = 'name' in body ? optionalText(body.name, 'name') : null
+
+    const db = await this.registry.forTenant(tenantId)
+    return db.transaction().execute(async (trx) => {
+      const analyte = await trx
+        .selectFrom('analytes')
+        .select('name')
+        .where('code', '=', code)
+        .executeTakeFirst()
+      if (!analyte) {
+        throw new BadRequestException(`mã xét nghiệm "${code}" không có trong danh mục`)
+      }
+
+      const existing = await trx
+        .selectFrom('profiles')
+        .select('code')
+        .where('code', '=', code)
+        .executeTakeFirst()
+      if (existing) {
+        throw new ConflictException(`đã có nhóm xét nghiệm mang mã "${code}"`)
+      }
+
+      const created = await trx
+        .insertInto('profiles')
+        .values({
+          code,
+          name: nameOverride && nameOverride.trim() !== '' ? nameOverride : analyte.name,
+          source: 'manual',
+          confirmed: true,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow()
+      await this.writeAudit(trx, actor, 'profile', code, 'create', null, created)
+      return this.profileDetail(trx, code)
+    })
+  }
+
+  async addProfileMember(
+    tenantId: string,
+    actor: CatalogueActor,
+    code: string,
+    body: unknown,
+  ): Promise<ProfileDetailView> {
+    if (!isPlainObject(body)) throw new BadRequestException('body phải là một đối tượng JSON')
+    const analyteCode = requireNonEmptyString(body.analyteCode, 'analyteCode').trim()
+
+    const db = await this.registry.forTenant(tenantId)
+    return db.transaction().execute(async (trx) => {
+      await this.assertProfile(trx, code)
+
+      const existing = await trx
+        .selectFrom('profile_members')
+        .select('analyte_code')
+        .where('profile_code', '=', code)
+        .where('analyte_code', '=', analyteCode)
+        .executeTakeFirst()
+      if (existing) {
+        throw new ConflictException(`xét nghiệm "${analyteCode}" đã là thành viên của nhóm "${code}"`)
+      }
+
+      // Thành viên mới xếp vào CUỐI: chèn vào giữa mà không nói gì sẽ đổi thứ
+      // tự in phiếu kết quả — thứ tự ở đây chính là thứ tự người đọc phiếu thấy.
+      const last = await trx
+        .selectFrom('profile_members')
+        .select((eb) => eb.fn.max<number>('display_order').as('max_order'))
+        .where('profile_code', '=', code)
+        .executeTakeFirst()
+      const displayOrder = (last?.max_order ?? 0) + 1
+
+      let saved
+      try {
+        saved = await trx
+          .insertInto('profile_members')
+          .values({ profile_code: code, analyte_code: analyteCode, display_order: displayOrder })
+          .returningAll()
+          .executeTakeFirstOrThrow()
+      } catch (err) {
+        const pgCode = pgErrorCode(err)
+        if (pgCode === PG_FOREIGN_KEY_VIOLATION) {
+          throw new BadRequestException(`mã xét nghiệm "${analyteCode}" không có trong danh mục`)
+        }
+        if (pgCode === PG_UNIQUE_VIOLATION) {
+          throw new ConflictException(
+            `xét nghiệm "${analyteCode}" vừa được thêm vào nhóm "${code}" bởi một thao tác khác`,
+          )
+        }
+        throw err
+      }
+
+      await this.writeAudit(
+        trx,
+        actor,
+        'profile_member',
+        `${code}:${analyteCode}`,
+        'create',
+        null,
+        saved,
+      )
+      return this.profileDetail(trx, code)
+    })
+  }
+
+  async removeProfileMember(
+    tenantId: string,
+    actor: CatalogueActor,
+    code: string,
+    analyteCode: string,
+  ): Promise<ProfileDetailView> {
+    const db = await this.registry.forTenant(tenantId)
+    return db.transaction().execute(async (trx) => {
+      await this.assertProfile(trx, code)
+
+      const deleted = await trx
+        .deleteFrom('profile_members')
+        .where('profile_code', '=', code)
+        .where('analyte_code', '=', analyteCode)
+        .returningAll()
+        .executeTakeFirst()
+      if (!deleted) {
+        throw new NotFoundException(
+          `xét nghiệm "${analyteCode}" không phải thành viên của nhóm "${code}"`,
+        )
+      }
+
+      await this.writeAudit(
+        trx,
+        actor,
+        'profile_member',
+        `${code}:${analyteCode}`,
+        'delete',
+        deleted,
+        null,
+      )
+      return this.profileDetail(trx, code)
+    })
+  }
+
+  /**
+   * Đổi thứ tự các chỉ số con.
+   *
+   * Danh sách gửi lên phải là ĐÚNG tập thành viên hiện có — không thiếu, không
+   * thừa. Chấp nhận một danh sách thiếu rồi tự xếp phần còn lại xuống cuối là
+   * âm thầm đổi thứ tự những dòng người dùng không hề đụng tới; chấp nhận một
+   * danh sách thừa là âm thầm thêm thành viên. Cả hai đều lặng lẽ đổi phiếu
+   * kết quả của bệnh nhân.
+   */
+  async reorderProfileMembers(
+    tenantId: string,
+    actor: CatalogueActor,
+    code: string,
+    body: unknown,
+  ): Promise<ProfileDetailView> {
+    if (!isPlainObject(body)) throw new BadRequestException('body phải là một đối tượng JSON')
+    const raw = body.analyteCodes
+    if (!Array.isArray(raw) || raw.some((c) => typeof c !== 'string')) {
+      throw new BadRequestException('trường "analyteCodes" phải là mảng mã xét nghiệm')
+    }
+    const wanted = raw as string[]
+    if (new Set(wanted).size !== wanted.length) {
+      throw new BadRequestException('trường "analyteCodes" có mã bị lặp')
+    }
+
+    const db = await this.registry.forTenant(tenantId)
+    return db.transaction().execute(async (trx) => {
+      await this.assertProfile(trx, code)
+
+      const before = await trx
+        .selectFrom('profile_members')
+        .selectAll()
+        .where('profile_code', '=', code)
+        .orderBy('display_order')
+        .execute()
+      const current = new Set(before.map((m) => m.analyte_code))
+
+      const thieu = [...current].filter((c) => !wanted.includes(c))
+      const thua = wanted.filter((c) => !current.has(c))
+      if (thieu.length > 0 || thua.length > 0) {
+        const phan = [
+          thieu.length > 0 ? `thiếu ${thieu.join(', ')}` : null,
+          thua.length > 0 ? `thừa ${thua.join(', ')}` : null,
+        ]
+          .filter(Boolean)
+          .join('; ')
+        throw new BadRequestException(
+          `danh sách thứ tự phải liệt kê đúng các thành viên hiện có của nhóm "${code}" — ${phan}`,
+        )
+      }
+
+      for (const [index, analyteCode] of wanted.entries()) {
+        await trx
+          .updateTable('profile_members')
+          .set({ display_order: index + 1 })
+          .where('profile_code', '=', code)
+          .where('analyte_code', '=', analyteCode)
+          .execute()
+      }
+
+      const after = await trx
+        .selectFrom('profile_members')
+        .selectAll()
+        .where('profile_code', '=', code)
+        .orderBy('display_order')
+        .execute()
+      await this.writeAudit(trx, actor, 'profile', code, 'update', before, after)
+      return this.profileDetail(trx, code)
+    })
+  }
+
   // ------------------------------------------------------------------ nội bộ
 
   /**
@@ -986,6 +1474,69 @@ export class CatalogueService {
       .where('code', '=', analyteCode)
       .executeTakeFirst()
     return { hisServiceCode, analyteCode, analyteName: analyte?.name ?? null }
+  }
+
+  /** Truy vấn nền cho "mã cha chưa có con nào" — dùng chung cho danh sách và số đếm. */
+  private orphanHeadBase(db: Kysely<TenantDatabase>) {
+    return db
+      .selectFrom('analytes as a')
+      .where('a.is_profile_head', '=', true)
+      .where(({ not, exists, selectFrom }) =>
+        not(
+          exists(
+            selectFrom('profile_members as m')
+              .select('m.analyte_code')
+              .whereRef('m.profile_code', '=', 'a.code'),
+          ),
+        ),
+      )
+  }
+
+  private async assertProfile(db: Kysely<TenantDatabase>, code: string): Promise<void> {
+    const found = await db
+      .selectFrom('profiles')
+      .select('code')
+      .where('code', '=', code)
+      .executeTakeFirst()
+    // 404 chứ không phải 403: không tiết lộ rằng mã nhóm đó tồn tại ở cơ sở khác.
+    if (!found) throw new NotFoundException(`không tìm thấy nhóm xét nghiệm có mã "${code}"`)
+  }
+
+  private async profileDetail(
+    db: Kysely<TenantDatabase>,
+    code: string,
+  ): Promise<ProfileDetailView> {
+    const profile = await db
+      .selectFrom('profiles')
+      .selectAll()
+      .where('code', '=', code)
+      .executeTakeFirst()
+    if (!profile) throw new NotFoundException(`không tìm thấy nhóm xét nghiệm có mã "${code}"`)
+
+    const members = await db
+      .selectFrom('profile_members as m')
+      .leftJoin('analytes as a', 'a.code', 'm.analyte_code')
+      .select(['m.analyte_code', 'm.display_order', 'a.name as analyte_name', 'a.unit'])
+      .where('m.profile_code', '=', code)
+      .orderBy('m.display_order')
+      .orderBy('m.analyte_code')
+      .execute()
+
+    return {
+      ...toProfileView({
+        code: profile.code,
+        name: profile.name,
+        source: profile.source,
+        confirmed: profile.confirmed,
+        memberCount: members.length,
+      }),
+      members: members.map((m) => ({
+        analyteCode: m.analyte_code,
+        analyteName: m.analyte_name ?? null,
+        unit: m.unit ?? null,
+        displayOrder: m.display_order,
+      })),
+    }
   }
 
   private async channelsOf(
@@ -1184,3 +1735,22 @@ function toAnalyteView(row: {
   }
 }
 
+function toProfileView(row: {
+  code: string
+  name: string
+  source: string
+  confirmed: boolean
+  memberCount: number
+}): ProfileView {
+  return {
+    code: row.code,
+    name: row.name,
+    source: row.source,
+    // Nguồn gốc lạ (Core cũ hơn, hoặc dữ liệu sửa tay dưới DB) vẫn phải hiện ra
+    // thành chữ đọc được thay vì một ô trống.
+    sourceLabel: PROFILE_SOURCE_LABEL[row.source] ?? `Nguồn gốc không rõ (${row.source})`,
+    confirmed: row.confirmed,
+    confirmedLabel: row.confirmed ? PROFILE_CONFIRMED_LABEL.yes : PROFILE_CONFIRMED_LABEL.no,
+    memberCount: row.memberCount,
+  }
+}
