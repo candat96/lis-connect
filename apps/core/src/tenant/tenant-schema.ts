@@ -30,7 +30,15 @@ export interface DevicesTable {
   protocol: ColumnType<string | null, string | null | undefined, string | null>
   location: ColumnType<string | null, string | null | undefined, string | null>
   has_port_config: Generated<boolean>
-  has_sent_results: Generated<boolean>
+  /**
+   * Cờ `Instrument.Active` của hệ LIS cũ, giữ nguyên nghĩa của hệ cũ ("bệnh
+   * viện còn dùng máy này không"). KHÁC HẲN `enabled` — thứ trả lời "có cho
+   * Agent kết nối tới máy này không". NULL nghĩa là máy không đến từ hệ cũ.
+   *
+   * Không có `has_sent_results` ở đây: nguồn sự thật duy nhất cho "máy đã từng
+   * gửi kết quả chưa" là `device_status.last_message_at`.
+   */
+  legacy_active: ColumnType<boolean | null, boolean | null | undefined, boolean | null>
 }
 
 export interface RawMessagesTable {
@@ -88,6 +96,12 @@ export interface AnalytesTable {
   is_profile_head: Generated<boolean>
   source: AnalyteSource
   active: Generated<boolean>
+  /**
+   * Dòng này đã bị sửa tay từ giao diện hay chưa. Tách khỏi `source` có chủ ý:
+   * `source` là NGUỒN GỐC (bảng nào của hệ cũ) và phải giữ được để lọc bớt
+   * danh mục 2619 dòng; ép nó về 'manual' mỗi lần sửa là xoá vĩnh viễn nguồn gốc.
+   */
+  manually_edited: Generated<boolean>
   created_at: Generated<Date>
 }
 
@@ -115,6 +129,14 @@ export interface DeviceAnalyteMapTable {
   /** Mã kênh máy trả về (01, 19, GLU) — duy nhất trong phạm vi một máy. */
   channel_code: string
   analyte_code: ColumnType<string | null, string | null | undefined, string | null>
+  /**
+   * true: mã kênh này ĐANG XUNG ĐỘT VÀ CHƯA AI QUYẾT — hệ cũ khai nhiều xét
+   * nghiệm cho cùng một mã kênh, phần mềm không được chọn hộ. Khác hẳn
+   * `analyte_code IS NULL` đơn thuần ("chưa gán" — không ai khai, là chỗ bị quên).
+   */
+  pending_decision: Generated<boolean>
+  /** Các mã xét nghiệm ứng viên của một mã kênh chưa quyết. */
+  decision_candidates: ColumnType<string[] | null, string | null | undefined, string | null>
   round: ColumnType<number | null, number | null | undefined, number | null>
   allow_insert: Generated<boolean>
   omit: Generated<boolean>

@@ -12,12 +12,14 @@ import { assertValidDatabaseName } from './database-name.js'
 import * as initial from './migrations/001-initial.js'
 import * as catalogue from './migrations/002-catalogue.js'
 import * as catalogueAudit from './migrations/003-catalogue-audit.js'
+import * as catalogueState from './migrations/004-trang-thai-danh-muc.js'
 import type { TenantDatabase } from './tenant-schema.js'
 
 const migrations: Record<string, Migration> = {
   '001-initial': initial,
   '002-catalogue': catalogue,
   '003-catalogue-audit': catalogueAudit,
+  '004-trang-thai-danh-muc': catalogueState,
 }
 
 class StaticProvider implements MigrationProvider {

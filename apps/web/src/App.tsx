@@ -6,7 +6,13 @@ import { CatalogueResultRules } from './screens/CatalogueResultRules.js'
 import { DeviceDetail } from './screens/DeviceDetail.js'
 import { DeviceMonitor } from './screens/DeviceMonitor.js'
 import { Login } from './screens/Login.js'
-import { UnknownDashedIcon, WarningTriangleIcon } from './statusMeta.js'
+import {
+  UnknownDashedIcon,
+  UnpluggedIcon,
+  WarningTriangleIcon,
+  isAlarmingStatus,
+  toUiStatus,
+} from './statusMeta.js'
 
 const REFRESH_MS = 5000
 
@@ -123,7 +129,12 @@ export function App(): JSX.Element {
     return <Login onSuccess={handleLoginSuccess} notice={authNotice} />
   }
 
-  const offlineCount = devices.filter((d) => d.status !== 'connected').length
+  // Chỉ máy TỪNG kết nối rồi mất mới được tính vào banner đỏ. Máy "chưa từng
+  // kết nối" (điển hình: 20 máy giữ chỗ do công cụ di trú danh mục tạo ra khi
+  // chưa cài Agent nào) là một trạng thái KHÁC, có banner riêng màu trung tính.
+  const offlineCount = devices.filter((d) => isAlarmingStatus(toUiStatus(d.status))).length
+  const neverConnectedCount = devices.filter((d) => toUiStatus(d.status) === 'never-connected')
+    .length
 
   return (
     <div className="app">
@@ -182,6 +193,17 @@ export function App(): JSX.Element {
           <span>
             {offlineCount}/{devices.length} MÁY ĐANG MẤT KẾT NỐI — kết quả từ các máy này sẽ
             không về hệ thống cho tới khi được nối lại.
+          </span>
+        </div>
+      )}
+
+      {!loading && !refreshFailed && offlineCount === 0 && neverConnectedCount > 0 && (
+        <div className="alert-banner alert-banner-info" role="status" aria-live="polite">
+          <UnpluggedIcon className="alert-banner-icon" />
+          <span>
+            {neverConnectedCount}/{devices.length} máy CHƯA TỪNG KẾT NỐI — có trong danh mục nhưng
+            chưa Agent nào nối vào lần nào. Đây không phải sự cố: cần cài Agent và khai báo cổng
+            cho các máy này.
           </span>
         </div>
       )}

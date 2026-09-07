@@ -29,6 +29,8 @@ import {
  *      xét nghiệm", không phải một bảng phẳng bắt người dùng tự dò ô trống.
  *   3. Hàng kênh chưa gán được tô nền cả hàng và mang nhãn chữ "CHƯA GÁN XÉT
  *      NGHIỆM", đúng quy ước "không dùng riêng màu để truyền nghĩa".
+ *   4. "CHƯA GÁN" và "CHƯA QUYẾT" là HAI nhãn khác nhau, đếm riêng, và thẻ máy
+ *      chỉ nói "đã gán đủ" khi cả hai con số đều bằng 0.
  *
  * Việc chặn gán trùng (Core trả 409) được xử lý bằng một hộp thoại GIẢI THÍCH
  * chứ không phải một câu báo lỗi: nói rõ mã kênh đó đang trỏ tới xét nghiệm
@@ -67,6 +69,22 @@ interface Conflict {
 /** Ánh xạ vừa bị xoá, giữ lại đủ dữ liệu để hoàn tác bằng một lời gọi PUT. */
 interface UndoableDelete {
   channel: ChannelMapView
+}
+
+/**
+ * Trạng thái của một mã kênh, đọc từ Core và có đường lùi cho Core cũ hơn.
+ *
+ * BA trạng thái, không phải hai — đây chính là lỗi nặng nhất mà vòng review
+ * toàn nhánh tìm ra. Mã kênh đang xung đột mà chưa ai quyết trước đây không tồn
+ * tại thành dòng nào trong database, nên màn hình này không có gì để đếm và
+ * báo "đã gán đủ" cho đúng những máy đang thiếu mã kênh (AU640 thiếu `01` và
+ * `19` — ca `128LDL` vs `244ACo`, nồng độ cồn về nhầm ô LDL).
+ */
+type ChannelState = 'assigned' | 'unassigned' | 'undecided'
+
+function stateOf(channel: ChannelMapView): ChannelState {
+  if (channel.state) return channel.state
+  return channel.analyteCode === null ? 'unassigned' : 'assigned'
 }
 
 function emptyForm(channelCode: string): ChannelForm {
@@ -123,7 +141,9 @@ function payloadOf(form: ChannelForm): ChannelMapPayload {
 }
 
 /**
- * Ba cờ tình trạng hoạt động của máy. Mỗi giá trị một HÌNH DẠNG icon riêng
+ * Một nhãn tình trạng của máy. Bốn nhãn hiện dùng (có cấu hình cổng / từng gửi
+ * kết quả / đang bật / hệ cũ còn dùng) ĐỘC LẬP với nhau, không suy ra được từ
+ * nhau. Mỗi giá trị một HÌNH DẠNG icon riêng
  * (tròn có tick / tam giác / vòng nét đứt) đi kèm nhãn chữ đầy đủ — nhìn từ xa
  * hay bị mù màu vẫn phân biệt được, và "chưa rõ" không bị nhầm thành "không".
  */
@@ -133,12 +153,12 @@ function ActivityFlag({
   labelNo,
   labelUnknown,
 }: {
-  value: boolean | undefined
+  value: boolean | null | undefined
   labelYes: string
   labelNo: string
   labelUnknown: string
 }): JSX.Element {
-  if (value === undefined) {
+  if (value === undefined || value === null) {
     return (
       <span className="status-badge status-badge-sm tone-warn">
         <UnknownDashedIcon className="status-badge-icon" />
@@ -256,9 +276,11 @@ export function CatalogueChannelMap({
     [devices, selectedId],
   )
   const selectedChannels = selectedId ? (channelsByDevice[selectedId] ?? []) : []
-  const unassignedCount = selectedChannels.filter((c) => c.analyteCode === null).length
+  const unassignedCount = selectedChannels.filter((c) => stateOf(c) === 'unassigned').length
+  const undecidedCount = selectedChannels.filter((c) => stateOf(c) === 'undecided').length
+  const needsAttentionCount = unassignedCount + undecidedCount
   const visibleChannels = showOnlyUnassigned
-    ? selectedChannels.filter((c) => c.analyteCode === null)
+    ? selectedChannels.filter((c) => stateOf(c) !== 'assigned')
     : selectedChannels
 
   const closeEditor = (): void => {
@@ -443,8 +465,21 @@ export function CatalogueChannelMap({
             {devices.map((device) => {
               const channels = channelsByDevice[device.id]
               const known = channels !== undefined
-              const unassigned = channels?.filter((c) => c.analyteCode === null).length ?? 0
+              const unassigned = channels?.filter((c) => stateOf(c) === 'unassigned').length ?? 0
+              const undecided = channels?.filter((c) => stateOf(c) === 'undecided').length ?? 0
               const noChannels = known && channels.length === 0
+              // "Đã gán đủ" chỉ được nói khi CẢ HAI con số bằng 0. Một mã kênh
+              // chưa quyết vẫn là một mã kênh sẽ không bao giờ trả kết quả lên.
+              const summary =
+                unassigned === 0 && undecided === 0
+                  ? ' — đã gán đủ'
+                  : [
+                      unassigned > 0 ? `${unassigned} chưa gán` : null,
+                      undecided > 0 ? `${undecided} chưa quyết` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(', ')
+                      .replace(/^/, ' — ')
               return (
                 <button
                   key={device.id}
@@ -473,8 +508,13 @@ export function CatalogueChannelMap({
                   )}
                   {known && !noChannels && (
                     <span className="device-item-meta">
-                      {channels.length} mã kênh
-                      {unassigned > 0 ? ` — ${unassigned} chưa gán xét nghiệm` : ' — đã gán đủ'}
+                      {channels.length} mã kênh{summary}
+                    </span>
+                  )}
+                  {known && undecided > 0 && (
+                    <span className="status-badge status-badge-sm tone-danger">
+                      <WarningTriangleIcon className="status-badge-icon" />
+                      <span className="status-badge-label">CÓ MÃ KÊNH CHƯA QUYẾT</span>
                     </span>
                   )}
                   {known && unassigned > 0 && (
@@ -529,9 +569,15 @@ export function CatalogueChannelMap({
                 />
                 <ActivityFlag
                   value={selectedDevice.enabled}
-                  labelYes="Đang bật"
-                  labelNo="Đang tắt"
+                  labelYes="Đang bật (cho Agent kết nối)"
+                  labelNo="Đang tắt (không cho Agent kết nối)"
                   labelUnknown="Chưa rõ đang bật hay tắt"
+                />
+                <ActivityFlag
+                  value={selectedDevice.legacyActive}
+                  labelYes="Hệ cũ: còn dùng"
+                  labelNo="Hệ cũ: đã ngừng dùng"
+                  labelUnknown="Hệ cũ không có thông tin về máy này"
                 />
               </div>
 
@@ -564,6 +610,28 @@ export function CatalogueChannelMap({
 
               {/* Câu trả lời cho "vì sao kết quả không hiện lên" phải nằm ở
                   dòng đầu tiên, trước bảng. */}
+              {/* Hai khối riêng: "chưa quyết" và "chưa gán" là HAI VIỆC KHÁC
+                  NHAU. Chưa gán là chỗ bị quên, chỉ cần khai. Chưa quyết là hệ
+                  cũ khai hai xét nghiệm cho cùng một mã kênh và phần mềm KHÔNG
+                  ĐƯỢC chọn hộ — phải có người đọc rồi quyết. */}
+              {undecidedCount > 0 && (
+                <div className="notice notice-danger" role="alert">
+                  <WarningTriangleIcon className="notice-icon" />
+                  <div>
+                    <p>
+                      <strong>
+                        {undecidedCount}/{selectedChannels.length} mã kênh của máy này CHƯA ĐƯỢC
+                        QUYẾT.
+                      </strong>{' '}
+                      Phần mềm LIS cũ khai nhiều xét nghiệm cho cùng một mã kênh rồi tự chọn bừa
+                      một cái — chính chỗ đó làm kết quả về nhầm ô. Hệ thống KHÔNG chọn hộ: mỗi mã
+                      kênh dưới đây đang chờ người đọc rồi quyết, và tới lúc đó kết quả máy gửi ở
+                      các kênh đó sẽ không vào xét nghiệm nào.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {unassignedCount > 0 && (
                 <div className="notice notice-warn" role="status">
                   <UnlinkIcon className="notice-icon" />
@@ -576,25 +644,28 @@ export function CatalogueChannelMap({
                       Kết quả máy gửi ở các kênh đó về tới hệ thống nhưng không vào ô nào — đây là
                       nguyên nhân thường gặp nhất của “máy trả kết quả mà không hiện lên”.
                     </p>
-                    <label className="checkbox">
-                      <input
-                        type="checkbox"
-                        checked={showOnlyUnassigned}
-                        onChange={(e) => setShowOnlyUnassigned(e.target.checked)}
-                      />
-                      Chỉ hiện {unassignedCount} mã kênh chưa gán
-                    </label>
                   </div>
                 </div>
               )}
 
-              {selectedChannels.length > 0 && unassignedCount === 0 && (
+              {needsAttentionCount > 0 && (
+                <label className="checkbox" style={{ marginBottom: 'var(--space-4)' }}>
+                  <input
+                    type="checkbox"
+                    checked={showOnlyUnassigned}
+                    onChange={(e) => setShowOnlyUnassigned(e.target.checked)}
+                  />
+                  Chỉ hiện {needsAttentionCount} mã kênh cần xử lý (chưa gán hoặc chưa quyết)
+                </label>
+              )}
+
+              {selectedChannels.length > 0 && needsAttentionCount === 0 && (
                 <div className="notice notice-ok" role="status">
                   <CheckCircleIcon className="notice-icon" />
                   <p>
-                    Cả {selectedChannels.length} mã kênh của máy này đều đã gán xét nghiệm. Nếu kết
-                    quả vẫn không hiện lên, nguyên nhân nằm ở chỗ khác (cấu hình cổng, driver, hoặc
-                    máy chưa gửi).
+                    Cả {selectedChannels.length} mã kênh của máy này đều đã gán xét nghiệm, và không
+                    còn mã kênh nào chờ quyết. Nếu kết quả vẫn không hiện lên, nguyên nhân nằm ở chỗ
+                    khác (cấu hình cổng, driver, hoặc máy chưa gửi).
                   </p>
                 </div>
               )}
@@ -752,14 +823,30 @@ export function CatalogueChannelMap({
                   </thead>
                   <tbody>
                     {visibleChannels.map((channel) => {
-                      const unassigned = channel.analyteCode === null
+                      const state = stateOf(channel)
+                      const unassigned = state !== 'assigned'
+                      const candidates = channel.decisionCandidates ?? []
                       return (
                         <tr key={channel.id} className={unassigned ? 'row-warn' : undefined}>
                           <td>
                             <code>{channel.channelCode}</code>
                           </td>
                           <td className="cell-wrap">
-                            {unassigned ? (
+                            {state === 'undecided' ? (
+                              <>
+                                <span className="status-badge status-badge-sm tone-danger">
+                                  <WarningTriangleIcon className="status-badge-icon" />
+                                  <span className="status-badge-label">
+                                    CHƯA QUYẾT — HỆ CŨ KHAI NHIỀU XÉT NGHIỆM
+                                  </span>
+                                </span>
+                                <span className="cell-sub">
+                                  {candidates.length > 0
+                                    ? `Ứng viên trong hệ cũ: ${candidates.join(' hoặc ')}. Bấm “Quyết mã kênh này” để chọn một.`
+                                    : 'Bấm “Quyết mã kênh này” để chọn xét nghiệm đúng.'}
+                                </span>
+                              </>
+                            ) : state === 'unassigned' ? (
                               <span className="status-badge status-badge-sm tone-warn">
                                 <UnlinkIcon className="status-badge-icon" />
                                 <span className="status-badge-label">CHƯA GÁN XÉT NGHIỆM</span>
@@ -786,7 +873,11 @@ export function CatalogueChannelMap({
                                 onClick={() => startEdit(channel)}
                               >
                                 <PencilIcon />
-                                {unassigned ? 'Gán xét nghiệm' : 'Sửa'}
+                                {state === 'undecided'
+                                  ? 'Quyết mã kênh này'
+                                  : state === 'unassigned'
+                                    ? 'Gán xét nghiệm'
+                                    : 'Sửa'}
                               </button>
                               <button
                                 type="button"
@@ -821,7 +912,10 @@ export function CatalogueChannelMap({
                               </p>
                             </>
                           ) : (
-                            <p>Không còn mã kênh nào chưa gán — bỏ lọc để xem toàn bộ bảng.</p>
+                            <p>
+                              Không còn mã kênh nào chưa gán hay chưa quyết — bỏ lọc để xem toàn bộ
+                              bảng.
+                            </p>
                           )}
                         </td>
                       </tr>

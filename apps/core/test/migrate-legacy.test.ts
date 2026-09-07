@@ -1,4 +1,5 @@
 import 'reflect-metadata'
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +9,7 @@ import { sql } from 'kysely'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { AdminDbService } from '../src/admin-db/admin-db.service.js'
 import { AppModule } from '../src/app.module.js'
+import { CatalogueService } from '../src/catalogue/catalogue.service.js'
 import { buildDecisionTemplate } from '../src/migration/legacy-decisions.js'
 import { loadLegacySource, type LegacySource } from '../src/migration/legacy-source.js'
 import { validateLegacySource } from '../src/migration/legacy-validator.js'
@@ -125,7 +127,7 @@ describe('writeLegacyCatalogue', () => {
     expect(outcome.counts.analytes).toMatchObject({ read: 2, written: 2, skipped: 0 })
   })
 
-  it('bỏ qua mã kênh xung đột chưa được quyết, và ghi rõ lý do', async () => {
+  it('KHÔNG gán bừa mã kênh xung đột chưa được quyết, nhưng vẫn ghi dòng giữ chỗ', async () => {
     write('TestCode.json', [
       { TestCode: '128LDL', TestName: 'LDL', GetComment: false },
       { TestCode: '244ACo', TestName: 'Nồng độ cồn', GetComment: false },
@@ -142,9 +144,95 @@ describe('writeLegacyCatalogue', () => {
 
     const db = await registry.forTenant(tenantId)
     const maps = await db.selectFrom('device_analyte_map').selectAll().execute()
-    expect(maps).toHaveLength(0)
+    // Đúng MỘT dòng, và KHÔNG gán xét nghiệm nào — không được đoán hộ.
+    expect(maps).toHaveLength(1)
+    expect(maps[0]!.channel_code).toBe('19')
+    expect(maps[0]!.analyte_code).toBeNull()
+    // Nhưng mã kênh phải TỒN TẠI thành một dòng, có cờ phân biệt "chưa quyết"
+    // với "chưa gán": không có dòng này thì màn hình ánh xạ không có gì để đếm
+    // và báo máy "đã gán đủ" trong khi kênh 19 sẽ không bao giờ trả kết quả lên.
+    expect(maps[0]!.pending_decision).toBe(true)
+    expect(maps[0]!.decision_candidates).toEqual(['128LDL', '244ACo'])
+
     expect(outcome.counts.device_analyte_map?.skipped).toBe(2)
     expect(outcome.skipped.some((s) => /chưa được quyết/.test(s.reason))).toBe(true)
+    expect(outcome.counts.ma_kenh_chua_quyet).toMatchObject({ read: 1, written: 1 })
+  })
+
+  it('gán tay cho mã kênh chưa quyết thì xoá hẳn cờ chờ quyết', async () => {
+    write('TestCode.json', [
+      { TestCode: '128LDL', TestName: 'LDL', GetComment: false },
+      { TestCode: '244ACo', TestName: 'Nồng độ cồn', GetComment: false },
+    ])
+    write('Instrument.json', [
+      { InsID: 1, InsName: 'AU640', ProtocolID: 'AU', ConType: 'C', Active: true },
+    ])
+    write('InsTest.json', [
+      { InsID: 1, TestCode: '128LDL', TestcodeIN: '19' },
+      { InsID: 1, TestCode: '244ACo', TestcodeIN: '19' },
+    ])
+    tenantId = await freshTenant('mig2b')
+    await runMigration(tenantId)
+
+    const db = await registry.forTenant(tenantId)
+    const device = await db.selectFrom('devices').select('id').executeTakeFirstOrThrow()
+    const catalogue = app.get(CatalogueService)
+    const view = await catalogue.putChannel(
+      tenantId,
+      { userId: randomUUID(), username: 'ktv' },
+      device.id,
+      '19',
+      { analyteCode: '244ACo' },
+    )
+    expect(view.state).toBe('assigned')
+
+    const after = await catalogue.listChannels(tenantId, device.id)
+    expect(after).toHaveLength(1)
+    expect(after[0]!.state).toBe('assigned')
+    expect(after[0]!.decisionCandidates).toEqual([])
+
+    // Chạy lại công cụ di trú KHÔNG được kéo mã kênh vừa quyết về "chưa quyết".
+    await runMigration(tenantId)
+    const afterRerun = await catalogue.listChannels(tenantId, device.id)
+    expect(afterRerun[0]!.state).toBe('assigned')
+    expect(afterRerun[0]!.analyteCode).toBe('244ACo')
+  })
+
+  it('mã kênh chưa quyết và mã kênh chưa gán là HAI trạng thái khác nhau ở API', async () => {
+    write('TestCode.json', [
+      { TestCode: '128LDL', TestName: 'LDL', GetComment: false },
+      { TestCode: '244ACo', TestName: 'Nồng độ cồn', GetComment: false },
+      { TestCode: '120GLUS', TestName: 'Glucose', GetComment: false },
+    ])
+    write('Instrument.json', [
+      { InsID: 1, InsName: 'AU640', ProtocolID: 'AU', ConType: 'C', Active: true },
+    ])
+    write('InsTest.json', [
+      { InsID: 1, TestCode: '128LDL', TestcodeIN: '19' },
+      { InsID: 1, TestCode: '244ACo', TestcodeIN: '19' },
+      { InsID: 1, TestCode: '120GLUS', TestcodeIN: '01' },
+    ])
+    tenantId = await freshTenant('mig2c')
+    await runMigration(tenantId)
+
+    const db = await registry.forTenant(tenantId)
+    const device = await db.selectFrom('devices').select('id').executeTakeFirstOrThrow()
+    // Một mã kênh khai mà chưa gán ai — trạng thái "quên", khác "chưa quyết".
+    await db
+      .insertInto('device_analyte_map')
+      .values({ device_id: device.id, channel_code: 'HDL', analyte_code: null })
+      .execute()
+
+    const channels = await app.get(CatalogueService).listChannels(tenantId, device.id)
+    const byCode = new Map(channels.map((c) => [c.channelCode, c]))
+    expect(byCode.get('01')!.state).toBe('assigned')
+    expect(byCode.get('HDL')!.state).toBe('unassigned')
+    expect(byCode.get('19')!.state).toBe('undecided')
+    // Nhãn CHỮ, không chỉ dựa vào cờ boolean.
+    expect(byCode.get('19')!.stateLabel).toMatch(/CHƯA QUYẾT/)
+    expect(byCode.get('HDL')!.stateLabel).toMatch(/CHƯA GÁN/)
+    // Và không có chỗ nào để giao diện kết luận "đã gán đủ".
+    expect(channels.filter((c) => c.state !== 'assigned')).toHaveLength(2)
   })
 
   it('ghi mã kênh khi đã có quyết định', async () => {
@@ -194,8 +282,16 @@ describe('writeLegacyCatalogue', () => {
     const outcome = await runMigration(tenantId)
 
     const db = await registry.forTenant(tenantId)
-    const maps = await db.selectFrom('device_analyte_map').selectAll().execute()
-    expect(maps.map((m) => m.channel_code)).toEqual(['01'])
+    const maps = await db
+      .selectFrom('device_analyte_map')
+      .selectAll()
+      .orderBy('channel_code')
+      .execute()
+    // Kênh 01 sạch được ghi bình thường; kênh 19 xung đột chỉ có dòng giữ chỗ.
+    expect(maps.map((m) => [m.channel_code, m.analyte_code, m.pending_decision])).toEqual([
+      ['01', '120GLUS', false],
+      ['19', null, true],
+    ])
     expect(outcome.counts.device_analyte_map).toMatchObject({ read: 3, written: 1, skipped: 2 })
   })
 

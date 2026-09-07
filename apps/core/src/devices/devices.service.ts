@@ -7,17 +7,34 @@ export interface DeviceSummary {
   name: string
   transport: string
   driver: string
+  /**
+   * BỐN giá trị: ba trạng thái do Agent báo ('connected' | 'disconnected' |
+   * 'error') và 'never-connected' cho máy CHƯA TỪNG có Agent nào nối vào.
+   *
+   * Máy giữ chỗ do công cụ di trú danh mục tạo ra rơi đúng vào nhóm cuối. Trước
+   * đây chúng bị trả về 'disconnected', nên ngay sau khi di trú màn hình theo
+   * dõi bật banner đỏ "20/20 MÁY ĐANG MẤT KẾT NỐI" dù chưa cài Agent nào —
+   * dạy kỹ thuật viên bỏ qua đúng cảnh báo dùng để bắt sự cố thật.
+   */
   status: string
   lastMessageAt: string | null
-  /** Máy có đang được bật để Agent kết nối hay không. */
+  /** Máy có đang được bật để Agent kết nối hay không (khái niệm của hệ MỚI). */
   enabled: boolean
+  /**
+   * Cờ `Active` của hệ LIS CŨ: bệnh viện còn dùng máy này không.
+   * `null` = máy không đến từ hệ cũ nên không có thông tin. Đây là nhãn thứ ba,
+   * độc lập với `enabled` và `hasPortConfig` — không được dùng thay cho nhau.
+   */
+  legacyActive: boolean | null
+  /** Máy có cấu hình cổng trong hệ cũ hay không (từ `InterfacePara`). */
+  hasPortConfig: boolean
   /**
    * Máy đã từng gửi kết quả về hay chưa.
    *
-   * Suy ra từ `last_message_at`, không phải một cột riêng. Đây là dấu hiệu quan
-   * trọng khi kỹ thuật viên đi tìm nguyên nhân "máy trả kết quả về mà không hiện
-   * lên": một máy chưa từng gửi gì bao giờ là vấn đề khác hẳn một máy từng gửi
-   * rồi ngừng.
+   * NGUỒN SỰ THẬT DUY NHẤT là `device_status.last_message_at`. Cột
+   * `devices.has_sent_results` từng tồn tại song song, do bộ ghi di trú đặt
+   * `false` cứng, và đã bị bỏ ở migration 004 vì hai định nghĩa cùng một tên là
+   * cách chắc chắn để người sau sửa nhầm chỗ.
    */
   hasSentResults: boolean
 }
@@ -65,6 +82,8 @@ export class DevicesService {
         'devices.transport',
         'devices.driver',
         'devices.enabled',
+        'devices.has_port_config',
+        'devices.legacy_active',
         'device_status.status',
         'device_status.last_message_at',
       ])
@@ -77,9 +96,13 @@ export class DevicesService {
       name: r.name,
       transport: r.transport,
       driver: r.driver,
-      status: r.status ?? 'disconnected',
+      // Không có dòng `device_status` nghĩa là chưa Agent nào từng báo cáo về
+      // máy này — "chưa từng kết nối", KHÁC HẲN "mất kết nối".
+      status: r.status ?? 'never-connected',
       lastMessageAt: r.last_message_at?.toISOString() ?? null,
       enabled: r.enabled,
+      legacyActive: r.legacy_active,
+      hasPortConfig: r.has_port_config,
       hasSentResults: r.last_message_at != null,
     }))
   }

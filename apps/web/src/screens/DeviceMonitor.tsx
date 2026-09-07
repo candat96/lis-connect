@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import type { DeviceSummary } from '../api.js'
-import { StatusBadge, toUiStatus } from '../statusMeta.js'
+import { StatusBadge, isAlarmingStatus, toUiStatus } from '../statusMeta.js'
 
 function formatTime(iso: string | null): string {
   if (!iso) return 'chưa có dữ liệu'
@@ -46,7 +46,10 @@ export function DeviceMonitor({
             <tbody>
               {devices.map((device) => {
                 const uiStatus = refreshFailed ? 'unknown' : toUiStatus(device.status)
-                const isAlert = uiStatus !== 'connected'
+                // Tô cả hàng chỉ dành cho sự cố thật. "Chưa từng kết nối" có
+                // nhãn chữ riêng ở cột trạng thái là đủ — tô đỏ nó nghĩa là
+                // ngay sau khi di trú danh mục cả bảng đỏ rực mà không có gì hỏng.
+                const isAlert = uiStatus === 'unknown' || isAlarmingStatus(uiStatus)
                 return (
                   <tr
                     key={device.id}
@@ -74,8 +77,8 @@ export function DeviceMonitor({
               {devices.length === 0 && (
                 <tr>
                   <td colSpan={6} className="empty-cell">
-                    Chưa có máy nào gửi dữ liệu lên. Kiểm tra Agent đã cấu hình và kết nối tới Core
-                    chưa.
+                    Chưa có máy nào trong danh sách. Kiểm tra Agent đã cấu hình và kết nối tới
+                    Core chưa, hoặc chạy công cụ di trú danh mục từ hệ LIS cũ.
                   </td>
                 </tr>
               )}

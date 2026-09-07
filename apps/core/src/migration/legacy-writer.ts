@@ -282,9 +282,12 @@ async function writeDevices(
         protocol: ins.protocol,
         location: ins.location,
         has_port_config: portConfigured.has(ins.insId),
-        // Dấu vết "từng gửi kết quả" nằm ở bảng Result_OUT của hệ cũ, không có trong
-        // bộ tệp trích. Để mặc định false; kỹ thuật viên bật lại ở màn hình quản lý.
-        has_sent_results: false,
+        // Cờ `Active` của hệ cũ được GIỮ NGUYÊN Ở CỘT RIÊNG, không nhập vào
+        // `enabled`. Hai khái niệm khác nhau: `legacy_active` là "bệnh viện còn
+        // dùng máy này không" theo hệ cũ, `enabled` là "có cho Agent kết nối
+        // không" của hệ mới. Trước đây cờ này được đọc lên rồi vứt đi, và giao
+        // diện hiển thị `enabled` thay thế — đúng chỉ vì cả 20 máy đều Active.
+        legacy_active: ins.active,
       })
       .onConflict((oc) => oc.doNothing())
       .returning('id')
@@ -296,15 +299,33 @@ async function writeDevices(
       continue
     }
 
-    // Đã có từ lần chạy trước: lấy lại id để các bảng phía sau còn trỏ tới được.
+    // Đã có từ lần chạy trước: lấy lại id để các bảng phía sau còn trỏ tới được,
+    // và CẬP NHẬT các cờ đọc từ hệ cũ. `ON CONFLICT DO NOTHING` một mình nghĩa là
+    // trích lại `InterfacePara.json` rồi chạy lại cũng không sửa được
+    // `has_port_config` — báo cáo nói "đã có sẵn từ lần chạy trước" và người vận
+    // hành tưởng dữ liệu mới đã vào. Chỉ ghi đè những cột do hệ cũ quyết định;
+    // `enabled` và mọi thứ kỹ thuật viên đã sửa tay đều không đụng tới.
     const existing = await trx
-      .selectFrom('devices')
-      .select('id')
+      .updateTable('devices')
+      .set({
+        name: ins.name,
+        transport: ins.conType === 'S' ? 'tcp' : 'serial',
+        legacy_ins_id: ins.insId,
+        protocol: ins.protocol,
+        location: ins.location,
+        has_port_config: portConfigured.has(ins.insId),
+        legacy_active: ins.active,
+      })
       .where('agent_id', '=', agentId)
       .where('device_key', '=', deviceKey)
+      .returning('id')
       .executeTakeFirstOrThrow()
     deviceIdByInsId.set(ins.insId, existing.id)
-    h.skip('devices', `máy ${ins.insId} (${ins.name})`, ALREADY_PRESENT)
+    h.skip(
+      'devices',
+      `máy ${ins.insId} (${ins.name})`,
+      `${ALREADY_PRESENT}; các cờ đọc từ hệ cũ đã được cập nhật lại`,
+    )
   }
 
   return deviceIdByInsId
@@ -319,6 +340,12 @@ async function writeChannelMaps(
   const table = 'device_analyte_map'
   ctx.bump(table, 'read', src.insTests.length)
   const usedChannels = new Set<string>()
+  // Mã kênh xung đột chưa ai quyết: gom lại để ghi DÒNG GIỮ CHỖ sau vòng lặp.
+  // Xem `writePendingChannels` để biết vì sao dòng này bắt buộc phải tồn tại.
+  const pending = new Map<
+    string,
+    { insId: number; deviceId: string; channelCode: string; candidates: string[] }
+  >()
 
   for (const t of src.insTests) {
     const ref = `máy ${t.insId} kênh ${t.channelCode} → ${t.analyteCode}`
@@ -339,18 +366,39 @@ async function writeChannelMaps(
     switch (decision.kind) {
       case 'no-conflict':
         break
-      case 'keep':
-        if (decision.analyteCode !== t.analyteCode) {
+      case 'keep': {
+        // So sánh SAU KHI phân giải bí danh ở cả hai vế. Lựa chọn của người vận
+        // hành được chép từ danh sách ứng viên (mã thô của hệ cũ); nếu một ứng
+        // viên là mã bí danh thì so mã thô với mã thô vẫn đúng, nhưng so một
+        // dòng đã quy về mã chính với một lựa chọn chưa quy về thì trượt và
+        // dòng người ta vừa quyết giữ lại bị bỏ trong im lặng.
+        const chosen = resolveAnalyteCode(decision.analyteCode, ctx.analyteCodes, ctx.aliases)
+        const chosenCode = chosen.kind === 'primary' || chosen.kind === 'alias' ? chosen.code : null
+        if (chosenCode !== analyteCode) {
           ctx.skip(table, ref, `người vận hành chọn ${decision.analyteCode}`)
           continue
         }
         break
+      }
       case 'skip':
         ctx.skip(table, ref, 'người vận hành quyết bỏ mã kênh này')
         continue
-      case 'undecided':
+      case 'undecided': {
         ctx.skip(table, ref, 'mã kênh có nhiều xét nghiệm, chưa được quyết')
+        const key = `${t.insId} ${t.channelCode}`
+        const entry = pending.get(key)
+        if (entry) {
+          if (!entry.candidates.includes(t.analyteCode)) entry.candidates.push(t.analyteCode)
+        } else {
+          pending.set(key, {
+            insId: t.insId,
+            deviceId,
+            channelCode: t.channelCode,
+            candidates: [t.analyteCode],
+          })
+        }
         continue
+      }
       default: {
         const never: never = decision
         throw new Error(`nhánh quyết định chưa xử lý: ${JSON.stringify(never)}`)
@@ -383,6 +431,56 @@ async function writeChannelMaps(
       .returning('id')
       .executeTakeFirst()
 
+    if (inserted) ctx.bump(table, 'written')
+    else ctx.skip(table, ref, ALREADY_PRESENT)
+  }
+
+  await writePendingChannels(trx, pending, ctx)
+}
+
+/**
+ * Ghi DÒNG GIỮ CHỖ cho mọi mã kênh đang xung đột mà chưa ai quyết.
+ *
+ * Vì sao phải có dòng này: mã kênh chưa quyết KHÔNG được gán bừa cho một xét
+ * nghiệm — đó chính là hành vi của hệ cũ mà khối 2A sinh ra để loại bỏ. Nhưng
+ * nếu vì thế mà không ghi gì cả thì mã kênh đó không tồn tại dưới bất kỳ hình
+ * dạng nào trong database, và màn hình ánh xạ — vốn định nghĩa "kênh cần chú ý"
+ * là dòng có `analyte_code IS NULL` — không có gì để đếm nên kết luận máy
+ * "đã gán đủ". Trên dữ liệu thật, AU640 hiện 22 mã kênh và báo "đã gán đủ"
+ * trong khi nguồn có 24, thiếu đúng hai ca xung đột `01` và `19`
+ * (`128LDL` vs `244ACo` — nồng độ cồn về nhầm ô LDL).
+ *
+ * Dòng giữ chỗ có `analyte_code = NULL` và `pending_decision = true`. Nó KHÔNG
+ * phá ràng buộc `UNIQUE (device_id, channel_code)`: mã kênh chưa quyết theo
+ * định nghĩa chưa có dòng nào. `ON CONFLICT DO NOTHING` để lần chạy thứ hai —
+ * hoặc một mã kênh đã được kỹ thuật viên gán tay từ giao diện — không bị ghi đè
+ * ngược trở lại thành "chưa quyết".
+ */
+async function writePendingChannels(
+  trx: Transaction<TenantDatabase>,
+  pending: Map<
+    string,
+    { insId: number; deviceId: string; channelCode: string; candidates: string[] }
+  >,
+  ctx: RefContext,
+): Promise<void> {
+  const table = 'ma_kenh_chua_quyet'
+  ctx.bump(table, 'read', pending.size)
+  for (const entry of pending.values()) {
+    const candidates = [...entry.candidates].sort()
+    const ref = `máy ${entry.insId} kênh ${entry.channelCode} (${candidates.join(' hoặc ')})`
+    const inserted = await trx
+      .insertInto('device_analyte_map')
+      .values({
+        device_id: entry.deviceId,
+        channel_code: entry.channelCode,
+        analyte_code: null,
+        pending_decision: true,
+        decision_candidates: JSON.stringify(candidates),
+      })
+      .onConflict((oc) => oc.doNothing())
+      .returning('id')
+      .executeTakeFirst()
     if (inserted) ctx.bump(table, 'written')
     else ctx.skip(table, ref, ALREADY_PRESENT)
   }

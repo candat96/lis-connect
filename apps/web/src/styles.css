@@ -183,6 +183,17 @@ select {
   font-weight: 600;
 }
 
+/* Thông báo TRUNG TÍNH, không phải cảnh báo: "máy chưa từng kết nối" là một
+   tình trạng bình thường sau khi di trú danh mục, không phải sự cố. Dùng lại
+   token nền/viền có sẵn thay vì sinh màu mới, và nhẹ hơn hẳn hai banner trên
+   để mắt không quen với việc bỏ qua một dải màu đậm ở đầu trang. */
+.alert-banner-info {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 600;
+}
+
 /* ---------- Nội dung ---------- */
 
 .content {

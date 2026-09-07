@@ -50,6 +50,19 @@ export interface ChannelMapView {
   channelCode: string
   analyteCode: string | null
   analyteName: string | null
+  /**
+   * BA trạng thái, không phải hai:
+   * - 'assigned': đã gán xét nghiệm;
+   * - 'unassigned': CHƯA GÁN — không ai khai xét nghiệm cho mã kênh này (quên);
+   * - 'undecided': CHƯA QUYẾT — hệ cũ khai nhiều xét nghiệm cho cùng mã kênh,
+   *   phần mềm không được chọn hộ và đang chờ người quyết.
+   * Gộp hai trạng thái sau làm một là mất hẳn thông tin về 7 ca xung đột.
+   */
+  state: 'assigned' | 'unassigned' | 'undecided'
+  /** Nhãn tiếng Việt dựng sẵn cho `state` — sản phẩm chỉ phục vụ tiếng Việt. */
+  stateLabel: string
+  /** Với 'undecided': các mã xét nghiệm ứng viên của hệ cũ, để người quyết chọn. */
+  decisionCandidates: string[]
   round: number | null
   allowInsert: boolean
   omit: boolean
@@ -94,6 +107,12 @@ const PG_FOREIGN_KEY_VIOLATION = '23503'
 const SCOPE_LABEL = {
   device: 'Luật riêng của máy này',
   common: 'Luật chung (áp dụng cho mọi máy)',
+} as const
+
+const CHANNEL_STATE_LABEL = {
+  assigned: 'Đã gán xét nghiệm',
+  unassigned: 'CHƯA GÁN XÉT NGHIỆM',
+  undecided: 'CHƯA QUYẾT — hệ cũ khai nhiều xét nghiệm cho mã kênh này',
 } as const
 
 type AuditEntity = 'analyte' | 'device_analyte_map' | 'result_mapping'
@@ -313,7 +332,14 @@ export class CatalogueService {
     if (!isPlainObject(body)) throw new BadRequestException('body phải là một đối tượng JSON')
     const analyteCode = requireNonEmptyString(body.analyteCode, 'analyteCode')
 
-    const values: Record<string, unknown> = { analyte_code: analyteCode }
+    // Gán được xét nghiệm nghĩa là mã kênh này KHÔNG còn "chưa quyết" nữa: xoá
+    // luôn cờ và danh sách ứng viên, nếu không màn hình sẽ vừa báo đã gán vừa
+    // báo đang chờ quyết.
+    const values: Record<string, unknown> = {
+      analyte_code: analyteCode,
+      pending_decision: false,
+      decision_candidates: null,
+    }
     if ('round' in body) values.round = optionalInteger(body.round, 'round')
     if ('allowInsert' in body) values.allow_insert = optionalBoolean(body.allowInsert, 'allowInsert')
     if ('omit' in body) values.omit = optionalBoolean(body.omit, 'omit')
@@ -595,6 +621,8 @@ export class CatalogueService {
         'm.device_id',
         'm.channel_code',
         'm.analyte_code',
+        'm.pending_decision',
+        'm.decision_candidates',
         'm.round',
         'm.allow_insert',
         'm.omit',
@@ -682,6 +710,8 @@ interface ChannelRow {
   device_id: string
   channel_code: string
   analyte_code: string | null
+  pending_decision: boolean
+  decision_candidates: unknown
   round: number | null
   allow_insert: boolean
   omit: boolean
@@ -689,13 +719,24 @@ interface ChannelRow {
   keep_lower_sign: boolean
 }
 
+/** jsonb về từ `pg` đã là mảng; mọi hình dạng khác đều coi như không có ứng viên. */
+function toCandidateList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((v): v is string => typeof v === 'string')
+}
+
 function toChannelView(row: ChannelRow, analyteName: string | null): ChannelMapView {
+  const state =
+    row.analyte_code !== null ? 'assigned' : row.pending_decision ? 'undecided' : 'unassigned'
   return {
     id: row.id,
     deviceId: row.device_id,
     channelCode: row.channel_code,
     analyteCode: row.analyte_code,
     analyteName,
+    state,
+    stateLabel: CHANNEL_STATE_LABEL[state],
+    decisionCandidates: toCandidateList(row.decision_candidates),
     round: row.round,
     allowInsert: row.allow_insert,
     omit: row.omit,

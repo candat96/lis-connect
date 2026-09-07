@@ -1,17 +1,28 @@
 import type { JSX } from 'react'
 
 /**
- * Bốn trạng thái người dùng có thể thấy trên màn hình theo dõi:
- * - ba trạng thái do Core trả về ("connected" | "disconnected" | "error")
- * - một trạng thái do chính client suy ra khi vòng làm mới tự động gọi
- *   API thất bại ("unknown") — KHÔNG được lẫn với "connected", vì hiển thị
- *   dữ liệu cũ như thể máy vẫn ổn là nguy hiểm cho một màn hình treo cả ngày.
+ * Năm trạng thái người dùng có thể thấy trên màn hình theo dõi:
+ * - ba trạng thái do Agent báo về ("connected" | "disconnected" | "error")
+ * - "never-connected": máy có trong danh mục nhưng CHƯA TỪNG có Agent nào nối
+ *   vào. Đây KHÔNG phải "mất kết nối". Máy giữ chỗ do công cụ di trú danh mục
+ *   tạo ra rơi đúng vào nhóm này; gộp chúng vào "mất kết nối" làm màn hình bật
+ *   banner đỏ "20/20 MÁY ĐANG MẤT KẾT NỐI" ngay sau khi di trú, khi chưa cài
+ *   Agent nào — cách chắc chắn nhất để dạy kỹ thuật viên bỏ qua đúng cảnh báo
+ *   mà hệ thống dùng để bắt sự cố thật.
+ * - "unknown": do chính client suy ra khi vòng làm mới tự động gọi API thất
+ *   bại — KHÔNG được lẫn với "connected", vì hiển thị dữ liệu cũ như thể máy
+ *   vẫn ổn là nguy hiểm cho một màn hình treo cả ngày.
  *
  * Mỗi trạng thái có: màu + NHÃN CHỮ + HÌNH DẠNG icon riêng biệt (tròn/tam
- * giác/bát giác/nét đứt) — không dựa vào màu sắc một mình, để người mù màu
- * và người nhìn từ xa vài mét vẫn phân biệt được ngay.
+ * giác/bát giác/nét đứt/ổ cắm rời) — không dựa vào màu sắc một mình, để người
+ * mù màu và người nhìn từ xa vài mét vẫn phân biệt được ngay.
  */
-export type DeviceUiStatus = 'connected' | 'disconnected' | 'error' | 'unknown'
+export type DeviceUiStatus =
+  | 'connected'
+  | 'disconnected'
+  | 'error'
+  | 'never-connected'
+  | 'unknown'
 
 export interface StatusMeta {
   label: string
@@ -121,17 +132,57 @@ export function EyeOffIcon({ className }: { className?: string }): JSX.Element {
   )
 }
 
+/** Phích cắm rời — máy chưa từng được Agent nối vào lần nào. */
+export function UnpluggedIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <path
+        d="M4.5 12h5M14.5 12h5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <rect x="2.5" y="8" width="3" height="8" rx="1" fill="none" stroke="currentColor" strokeWidth="2" />
+      <rect x="18.5" y="8" width="3" height="8" rx="1" fill="none" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 8.5v7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="2.4 2.4" />
+    </svg>
+  )
+}
+
 export const STATUS_META: Record<DeviceUiStatus, StatusMeta> = {
   connected: { label: 'Đang kết nối', toneClass: 'tone-ok', Icon: CheckCircleIcon },
   disconnected: { label: 'Mất kết nối', toneClass: 'tone-danger', Icon: WarningTriangleIcon },
   error: { label: 'Lỗi thiết bị', toneClass: 'tone-danger', Icon: StopOctagonIcon },
+  'never-connected': {
+    label: 'Chưa từng kết nối',
+    toneClass: 'tone-neutral',
+    Icon: UnpluggedIcon,
+  },
   unknown: { label: 'Không rõ trạng thái', toneClass: 'tone-warn', Icon: UnknownDashedIcon },
 }
 
-/** Core hiện chỉ trả về ba giá trị đã biết; mọi giá trị lạ đều coi là "không rõ" thay vì đoán mò. */
+/** Core hiện chỉ trả về bốn giá trị đã biết; mọi giá trị lạ đều coi là "không rõ" thay vì đoán mò. */
 export function toUiStatus(status: string): DeviceUiStatus {
-  if (status === 'connected' || status === 'disconnected' || status === 'error') return status
+  if (
+    status === 'connected' ||
+    status === 'disconnected' ||
+    status === 'error' ||
+    status === 'never-connected'
+  ) {
+    return status
+  }
   return 'unknown'
+}
+
+/**
+ * Máy có đang ở trạng thái CẦN BÁO ĐỘNG hay không.
+ *
+ * "Chưa từng kết nối" không phải sự cố: máy vừa được di trú danh mục sang, Agent
+ * chưa cài. Đếm nó vào banner đỏ là báo động giả ngay từ ngày đầu.
+ */
+export function isAlarmingStatus(status: DeviceUiStatus): boolean {
+  return status === 'disconnected' || status === 'error'
 }
 
 export function StatusBadge({ status, size }: { status: string; size?: 'sm' }): JSX.Element {

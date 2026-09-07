@@ -10,14 +10,23 @@ export interface DeviceSummary {
   status: string
   lastMessageAt: string | null
   /**
-   * Ba cờ tình trạng hoạt động của máy (có cấu hình cổng / từng gửi kết quả /
-   * đang bật) tồn tại trong database từ bước di trú nhưng `GET /api/devices`
-   * CHƯA trả về. Khai báo tuỳ chọn để màn hình ánh xạ mã kênh hiển thị ngay
-   * khi Core bổ sung, và trong lúc chờ thì nói thẳng "chưa rõ" thay vì đoán
-   * bừa là `false` — nói máy "chưa từng gửi kết quả" khi thực ra không biết
-   * sẽ đẩy kỹ thuật viên đi dò nhầm hướng.
+   * Bốn nhãn tình trạng ĐỘC LẬP, đều do `GET /api/devices` trả về:
+   *
+   *   - `enabled`: hệ MỚI có cho Agent kết nối tới máy này không;
+   *   - `legacyActive`: hệ CŨ đánh dấu bệnh viện còn dùng máy này không
+   *     (`null` = máy không đến từ hệ cũ nên không có thông tin);
+   *   - `hasPortConfig`: hệ cũ có khai cấu hình cổng cho máy này không — nằm
+   *     trong database nghiệp vụ, do chính công cụ di trú của khối 2A ghi vào
+   *     (bản ghi chú cũ ở đây nói cờ này "nằm ở Agent" là SAI);
+   *   - `hasSentResults`: máy đã từng gửi kết quả về chưa, Core suy từ
+   *     `device_status.last_message_at`.
+   *
+   * Vẫn khai `?` cho ba cờ boolean: gặp một Core cũ hơn không trả về thì giao
+   * diện nói thẳng "chưa rõ" thay vì đoán bừa là `false` — nói máy "chưa từng
+   * gửi kết quả" khi thực ra không biết sẽ đẩy kỹ thuật viên đi dò nhầm hướng.
    */
   enabled?: boolean
+  legacyActive?: boolean | null
   hasPortConfig?: boolean
   hasSentResults?: boolean
 }
@@ -227,6 +236,17 @@ export interface ChannelMapView {
   channelCode: string
   analyteCode: string | null
   analyteName: string | null
+  /**
+   * BA trạng thái, không phải hai. `unassigned` là "quên khai"; `undecided` là
+   * "hệ cũ khai nhiều xét nghiệm cho cùng mã kênh, đang chờ người quyết". Gộp
+   * lại thì màn hình lại nói "đã gán đủ" cho đúng những máy có xung đột.
+   * Core cũ hơn không trả trường này: coi như suy từ `analyteCode`.
+   */
+  state?: 'assigned' | 'unassigned' | 'undecided'
+  /** Nhãn tiếng Việt do Core dựng sẵn cho `state`. */
+  stateLabel?: string
+  /** Với `undecided`: các mã xét nghiệm ứng viên của hệ cũ. */
+  decisionCandidates?: string[]
   round: number | null
   allowInsert: boolean
   omit: boolean
