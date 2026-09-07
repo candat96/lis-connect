@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 import { api, logout, session, type DeviceSummary, type Session } from './api.js'
 import { CatalogueAnalytes } from './screens/CatalogueAnalytes.js'
 import { CatalogueChannelMap } from './screens/CatalogueChannelMap.js'
+import { CatalogueHisMap } from './screens/CatalogueHisMap.js'
 import { CatalogueResultRules } from './screens/CatalogueResultRules.js'
 import { DeviceDetail } from './screens/DeviceDetail.js'
 import { DeviceMonitor } from './screens/DeviceMonitor.js'
@@ -17,18 +18,19 @@ import {
 const REFRESH_MS = 5000
 
 /**
- * Bốn màn hình của Web UI. Chuyển màn hình bằng state chứ không bằng router:
- * ứng dụng chỉ có bốn đích, và thêm một thư viện định tuyến vào đây sẽ đắt hơn
- * phần nó giải quyết. Danh sách máy vẫn do App polling MỘT lần và truyền xuống
- * cả ba màn hình cần nó.
+ * Các màn hình của Web UI. Chuyển màn hình bằng state chứ không bằng router:
+ * số đích còn ít, và thêm một thư viện định tuyến vào đây sẽ đắt hơn phần nó
+ * giải quyết. Danh sách máy vẫn do App polling MỘT lần và truyền xuống các màn
+ * hình cần nó.
  */
-type View = 'devices' | 'analytes' | 'channels' | 'rules'
+type View = 'devices' | 'analytes' | 'channels' | 'rules' | 'his-map'
 
 const VIEW_TABS: Array<{ id: View; label: string }> = [
   { id: 'devices', label: 'Theo dõi máy' },
   { id: 'analytes', label: 'Danh mục xét nghiệm' },
   { id: 'channels', label: 'Ánh xạ mã kênh' },
   { id: 'rules', label: 'Luật ghi đè kết quả' },
+  { id: 'his-map', label: 'Ánh xạ mã HIS' },
 ]
 
 /**
@@ -230,6 +232,7 @@ export function App(): JSX.Element {
           <CatalogueChannelMap devices={devices} devicesLoading={loading} />
         )}
         {view === 'rules' && <CatalogueResultRules devices={devices} devicesLoading={loading} />}
+        {view === 'his-map' && <CatalogueHisMap />}
       </main>
     </div>
   )

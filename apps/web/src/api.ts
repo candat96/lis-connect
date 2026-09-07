@@ -296,6 +296,45 @@ export interface ResultRulePayload {
 }
 
 /**
+ * Một dòng của bảng dịch mã HIS → xét nghiệm.
+ *
+ * `analyteName` luôn đi kèm `analyteCode`: mã của hệ cũ (`929AG`, `034NEU%`)
+ * không đọc ra nghĩa, mà đây lại là bảng quyết định chỉ định của bác sĩ chạy
+ * vào xét nghiệm nào.
+ */
+export interface HisMapView {
+  hisServiceCode: string
+  analyteCode: string
+  /** null nghĩa là mã đích không còn trong danh mục — phải hiện chữ, không giấu. */
+  analyteName: string | null
+}
+
+export interface HisMapSearchResult {
+  items: HisMapView[]
+  total: number
+}
+
+/** Một xét nghiệm chưa có mã HIS nào trỏ tới — HIS không gọi được xét nghiệm này. */
+export interface UnmappedAnalyteView {
+  code: string
+  name: string
+  category: string | null
+  active: boolean
+}
+
+export interface UnmappedAnalyteResult {
+  items: UnmappedAnalyteView[]
+  total: number
+}
+
+export interface HisMapSummary {
+  mappingCount: number
+  analyteCount: number
+  mappedAnalyteCount: number
+  unmappedAnalyteCount: number
+}
+
+/**
  * Đọc câu giải thích của Core từ thân phản hồi lỗi. Nest trả
  * `{ statusCode, message, error }` với `message` là chuỗi hoặc mảng chuỗi.
  * Không đọc được thì mới lùi về câu chung chung có kèm mã HTTP.
@@ -415,6 +454,45 @@ export const catalogueApi = {
 
   deleteResultRule: (id: string): Promise<void> =>
     request<void>('DELETE', `/api/catalogue/result-rules/${segment(id)}`),
+
+  /* ------------------------------------------- ánh xạ mã HIS ↔ xét nghiệm */
+
+  searchHisMap: (params: { q: string; limit: number; offset: number }): Promise<HisMapSearchResult> => {
+    const search = new URLSearchParams()
+    if (params.q.trim() !== '') search.set('q', params.q.trim())
+    search.set('limit', String(params.limit))
+    search.set('offset', String(params.offset))
+    return request<HisMapSearchResult>('GET', `/api/catalogue/his-map?${search.toString()}`)
+  },
+
+  unmappedAnalytes: (params: {
+    q: string
+    limit: number
+    offset: number
+  }): Promise<UnmappedAnalyteResult> => {
+    const search = new URLSearchParams()
+    if (params.q.trim() !== '') search.set('q', params.q.trim())
+    search.set('limit', String(params.limit))
+    search.set('offset', String(params.offset))
+    return request<UnmappedAnalyteResult>(
+      'GET',
+      `/api/catalogue/his-map/unmapped-analytes?${search.toString()}`,
+    )
+  },
+
+  hisMapSummary: (): Promise<HisMapSummary> =>
+    request<HisMapSummary>('GET', '/api/catalogue/his-map/summary'),
+
+  createHisMap: (hisServiceCode: string, analyteCode: string): Promise<HisMapView> =>
+    request<HisMapView>('POST', '/api/catalogue/his-map', { hisServiceCode, analyteCode }),
+
+  updateHisMap: (hisServiceCode: string, analyteCode: string): Promise<HisMapView> =>
+    request<HisMapView>('PUT', `/api/catalogue/his-map/${segment(hisServiceCode)}`, {
+      analyteCode,
+    }),
+
+  deleteHisMap: (hisServiceCode: string): Promise<void> =>
+    request<void>('DELETE', `/api/catalogue/his-map/${segment(hisServiceCode)}`),
 }
 
 /** Câu hiển thị được cho mọi lỗi lọt tới giao diện, kể cả lỗi không lường trước. */

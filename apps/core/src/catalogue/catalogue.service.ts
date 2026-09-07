@@ -100,6 +100,60 @@ export interface ResultRuleView {
   color: number | null
 }
 
+/**
+ * Một dòng của bảng dịch mã HIS → xét nghiệm của LIS.
+ *
+ * `analyteName` đi kèm mã có chủ ý: mã xét nghiệm của hệ cũ (`929AG`,
+ * `034NEU%`) không đọc ra nghĩa được, mà đây lại đúng là chỗ một dòng sai làm
+ * chỉ định của bác sĩ chạy sang xét nghiệm khác. Bắt người dùng tra mã sang
+ * màn hình khác để biết mình đang nối vào cái gì là đẩy rủi ro đó cho họ.
+ */
+export interface HisMapView {
+  hisServiceCode: string
+  analyteCode: string
+  /** null khi mã đích không còn trong danh mục — hiện chữ, không giấu dòng. */
+  analyteName: string | null
+}
+
+export interface HisMapSearchResult {
+  items: HisMapView[]
+  /** Tổng số dòng khớp bộ lọc, độc lập với limit/offset. */
+  total: number
+}
+
+/** Một xét nghiệm CHƯA có mã HIS nào trỏ tới — HIS không gọi được xét nghiệm này. */
+export interface UnmappedAnalyteView {
+  code: string
+  name: string
+  category: string | null
+  active: boolean
+}
+
+export interface UnmappedAnalyteResult {
+  items: UnmappedAnalyteView[]
+  total: number
+}
+
+/**
+ * Các con số mở đầu màn hình ánh xạ HIS.
+ *
+ * `unmappedAnalyteCount` là câu hỏi chính người dùng mang tới đây ("xét nghiệm
+ * nào HIS chưa gọi được"), nên nó phải tính ở máy chủ trên toàn bộ danh mục,
+ * không phải đếm trên trang đang hiện.
+ */
+export interface HisMapSummary {
+  mappingCount: number
+  analyteCount: number
+  mappedAnalyteCount: number
+  unmappedAnalyteCount: number
+}
+
+export interface HisMapSearchQuery {
+  q?: string | undefined
+  limit: number
+  offset: number
+}
+
 export interface AnalyteSearchQuery {
   q?: string | undefined
   category?: string | undefined
@@ -143,7 +197,11 @@ const CHANNEL_STATE_LABEL = {
   undecided: 'CHƯA QUYẾT — hệ cũ khai nhiều xét nghiệm cho mã kênh này',
 } as const
 
-type AuditEntity = 'analyte' | 'device_analyte_map' | 'result_mapping'
+type AuditEntity =
+  | 'analyte'
+  | 'device_analyte_map'
+  | 'result_mapping'
+  | 'his_analyte_map'
 type AuditAction = 'create' | 'update' | 'delete'
 
 function pgErrorCode(err: unknown): string | undefined {
@@ -622,6 +680,245 @@ export class CatalogueService {
     })
   }
 
+  // --------------------------------------------------- ánh xạ mã HIS ↔ LIS
+
+  /**
+   * Liệt kê bảng dịch mã HIS, có phân trang và tìm kiếm PHÍA MÁY CHỦ.
+   *
+   * Dữ liệu thật có 650 dòng: tải hết về rồi lọc trong trình duyệt là chỗ bắt
+   * đầu của một màn hình chậm dần theo thời gian. Chuỗi tìm được so với cả mã
+   * HIS lẫn mã/tên xét nghiệm đích — kỹ thuật viên tới đây từ cả hai phía
+   * ("mã dịch vụ này của HIS chạy vào đâu" và "xét nghiệm này HIS gọi bằng mã
+   * nào").
+   */
+  async searchHisMap(tenantId: string, query: HisMapSearchQuery): Promise<HisMapSearchResult> {
+    const db = await this.registry.forTenant(tenantId)
+
+    let base = db.selectFrom('his_analyte_map as h').leftJoin('analytes as a', 'a.code', 'h.analyte_code')
+    const q = query.q?.trim()
+    if (q) {
+      // Thoát MỘT lần cho cả ba mẫu: 48 mã xét nghiệm thật chứa `%` hoặc `_`,
+      // đều là ký tự đại diện của LIKE. Không thoát thì tìm '034NEU%' kéo về
+      // cả '034NEUT' — đúng loại nhầm lẫn màn hình này sinh ra để tránh.
+      const escaped = escapeLikePattern(q)
+      base = base.where((eb) =>
+        eb.or([
+          eb('h.his_service_code', 'ilike', `${escaped}%`),
+          eb('h.analyte_code', 'ilike', `${escaped}%`),
+          eb('a.name', 'ilike', `%${escaped}%`),
+        ]),
+      )
+    }
+
+    const [rows, count] = await Promise.all([
+      base
+        .select(['h.his_service_code', 'h.analyte_code', 'a.name as analyte_name'])
+        .orderBy('h.his_service_code')
+        .limit(query.limit)
+        .offset(query.offset)
+        .execute(),
+      base.select((eb) => eb.fn.countAll<string>().as('total')).executeTakeFirstOrThrow(),
+    ])
+
+    return {
+      items: rows.map((r) => ({
+        hisServiceCode: r.his_service_code,
+        analyteCode: r.analyte_code,
+        analyteName: r.analyte_name ?? null,
+      })),
+      total: Number(count.total),
+    }
+  }
+
+  /**
+   * Các xét nghiệm CHƯA có mã HIS nào trỏ tới.
+   *
+   * Đây là câu hỏi chính người dùng mang tới màn hình này: một xét nghiệm
+   * không nằm trong bảng dịch là xét nghiệm mà HIS KHÔNG GỌI ĐƯỢC — bác sĩ chỉ
+   * định thì chỉ định được ở HIS, nhưng chỉ định đó không sang tới LIS. Nhìn
+   * bảng ánh xạ không trả lời được câu này, vì thứ cần tìm chính là những dòng
+   * KHÔNG có mặt ở đó.
+   */
+  async listUnmappedAnalytes(
+    tenantId: string,
+    query: HisMapSearchQuery,
+  ): Promise<UnmappedAnalyteResult> {
+    const db = await this.registry.forTenant(tenantId)
+
+    let base = db
+      .selectFrom('analytes as a')
+      .where(({ not, exists, selectFrom }) =>
+        not(
+          exists(
+            selectFrom('his_analyte_map as h')
+              .select('h.his_service_code')
+              .whereRef('h.analyte_code', '=', 'a.code'),
+          ),
+        ),
+      )
+    const q = query.q?.trim()
+    if (q) {
+      const escaped = escapeLikePattern(q)
+      base = base.where((eb) =>
+        eb.or([eb('a.code', 'ilike', `${escaped}%`), eb('a.name', 'ilike', `%${escaped}%`)]),
+      )
+    }
+
+    const [rows, count] = await Promise.all([
+      base
+        .select(['a.code', 'a.name', 'a.category', 'a.active'])
+        .orderBy('a.code')
+        .limit(query.limit)
+        .offset(query.offset)
+        .execute(),
+      base.select((eb) => eb.fn.countAll<string>().as('total')).executeTakeFirstOrThrow(),
+    ])
+
+    return {
+      items: rows.map((r) => ({
+        code: r.code,
+        name: r.name,
+        category: r.category,
+        active: r.active,
+      })),
+      total: Number(count.total),
+    }
+  }
+
+  async hisMapSummary(tenantId: string): Promise<HisMapSummary> {
+    const db = await this.registry.forTenant(tenantId)
+    const [mappings, analytes, mapped] = await Promise.all([
+      db
+        .selectFrom('his_analyte_map')
+        .select((eb) => eb.fn.countAll<string>().as('total'))
+        .executeTakeFirstOrThrow(),
+      db
+        .selectFrom('analytes')
+        .select((eb) => eb.fn.countAll<string>().as('total'))
+        .executeTakeFirstOrThrow(),
+      // Một xét nghiệm có thể được NHIỀU mã HIS trỏ tới (dữ liệu thật: A/01 và
+      // A/02 cùng vào 929AG), nên phải đếm mã xét nghiệm KHÁC NHAU, không phải
+      // đếm số dòng ánh xạ.
+      db
+        .selectFrom('his_analyte_map')
+        .select((eb) => eb.fn.count<string>('analyte_code').distinct().as('total'))
+        .executeTakeFirstOrThrow(),
+    ])
+
+    const analyteCount = Number(analytes.total)
+    const mappedAnalyteCount = Number(mapped.total)
+    return {
+      mappingCount: Number(mappings.total),
+      analyteCount,
+      mappedAnalyteCount,
+      unmappedAnalyteCount: analyteCount - mappedAnalyteCount,
+    }
+  }
+
+  /**
+   * Thêm một dòng dịch mã.
+   *
+   * Mã HIS là KHOÁ CHÍNH: thêm trùng bị chặn bằng 409 kèm câu nói rõ mã đó
+   * đang trỏ tới xét nghiệm nào (mã và tên). Để rơi xuống 500 của Postgres thì
+   * người dùng chỉ thấy "lỗi hệ thống" và không biết mình vừa suýt đổi đường
+   * đi của một chỉ định; còn ghi đè im lặng thì tệ hơn nữa.
+   */
+  async createHisMap(tenantId: string, actor: CatalogueActor, body: unknown): Promise<HisMapView> {
+    if (!isPlainObject(body)) throw new BadRequestException('body phải là một đối tượng JSON')
+    const hisServiceCode = requireNonEmptyString(body.hisServiceCode, 'hisServiceCode').trim()
+    const analyteCode = requireNonEmptyString(body.analyteCode, 'analyteCode').trim()
+    if (hisServiceCode === '') throw new BadRequestException('thiếu hoặc sai kiểu trường "hisServiceCode"')
+
+    const db = await this.registry.forTenant(tenantId)
+    return db.transaction().execute(async (trx) => {
+      await this.assertHisMapConflict(trx, hisServiceCode)
+
+      let saved
+      try {
+        saved = await trx
+          .insertInto('his_analyte_map')
+          .values({ his_service_code: hisServiceCode, analyte_code: analyteCode })
+          .returningAll()
+          .executeTakeFirstOrThrow()
+      } catch (err) {
+        const code = pgErrorCode(err)
+        // Lưới an toàn cho hai request cùng thêm một mã HIS: kiểm tra ở trên
+        // không nguyên tử, khoá chính mới là chỗ chốt.
+        if (code === PG_UNIQUE_VIOLATION) {
+          await this.assertHisMapConflict(trx, hisServiceCode)
+          throw new ConflictException(`mã HIS "${hisServiceCode}" vừa được ánh xạ bởi một thao tác khác`)
+        }
+        if (code === PG_FOREIGN_KEY_VIOLATION) {
+          throw new BadRequestException(`mã xét nghiệm "${analyteCode}" không có trong danh mục`)
+        }
+        throw err
+      }
+
+      await this.writeAudit(trx, actor, 'his_analyte_map', hisServiceCode, 'create', null, saved)
+      return this.hisMapViewOf(trx, saved.his_service_code, saved.analyte_code)
+    })
+  }
+
+  /** Đổi xét nghiệm đích của một mã HIS đã có. */
+  async updateHisMap(
+    tenantId: string,
+    actor: CatalogueActor,
+    hisServiceCode: string,
+    body: unknown,
+  ): Promise<HisMapView> {
+    if (!isPlainObject(body)) throw new BadRequestException('body phải là một đối tượng JSON')
+    const analyteCode = requireNonEmptyString(body.analyteCode, 'analyteCode').trim()
+
+    const db = await this.registry.forTenant(tenantId)
+    return db.transaction().execute(async (trx) => {
+      const before = await trx
+        .selectFrom('his_analyte_map')
+        .selectAll()
+        .where('his_service_code', '=', hisServiceCode)
+        .executeTakeFirst()
+      if (!before) {
+        throw new NotFoundException(`không tìm thấy ánh xạ cho mã HIS "${hisServiceCode}"`)
+      }
+
+      let after
+      try {
+        after = await trx
+          .updateTable('his_analyte_map')
+          .set({ analyte_code: analyteCode })
+          .where('his_service_code', '=', hisServiceCode)
+          .returningAll()
+          .executeTakeFirstOrThrow()
+      } catch (err) {
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
+          throw new BadRequestException(`mã xét nghiệm "${analyteCode}" không có trong danh mục`)
+        }
+        throw err
+      }
+
+      await this.writeAudit(trx, actor, 'his_analyte_map', hisServiceCode, 'update', before, after)
+      return this.hisMapViewOf(trx, after.his_service_code, after.analyte_code)
+    })
+  }
+
+  async deleteHisMap(
+    tenantId: string,
+    actor: CatalogueActor,
+    hisServiceCode: string,
+  ): Promise<void> {
+    const db = await this.registry.forTenant(tenantId)
+    await db.transaction().execute(async (trx) => {
+      const deleted = await trx
+        .deleteFrom('his_analyte_map')
+        .where('his_service_code', '=', hisServiceCode)
+        .returningAll()
+        .executeTakeFirst()
+      if (!deleted) {
+        throw new NotFoundException(`không tìm thấy ánh xạ cho mã HIS "${hisServiceCode}"`)
+      }
+      await this.writeAudit(trx, actor, 'his_analyte_map', hisServiceCode, 'delete', deleted, null)
+    })
+  }
+
   // ------------------------------------------------------------------ nội bộ
 
   /**
@@ -649,6 +946,46 @@ export class CatalogueService {
         after_value: after === null || after === undefined ? null : JSON.stringify(after),
       })
       .execute()
+  }
+
+  /**
+   * Nếu mã HIS đã có ánh xạ thì ném 409 kèm ĐÍCH hiện tại (mã và tên).
+   *
+   * Câu "mã đã tồn tại" trần trụi không đủ: người dùng cần biết mã đó đang
+   * chạy vào xét nghiệm nào để quyết định giữ nguyên hay sửa dòng cũ.
+   */
+  private async assertHisMapConflict(
+    db: Kysely<TenantDatabase>,
+    hisServiceCode: string,
+  ): Promise<void> {
+    const existing = await db
+      .selectFrom('his_analyte_map as h')
+      .leftJoin('analytes as a', 'a.code', 'h.analyte_code')
+      .select(['h.analyte_code', 'a.name as analyte_name'])
+      .where('h.his_service_code', '=', hisServiceCode)
+      .executeTakeFirst()
+    if (!existing) return
+
+    const ten = existing.analyte_name
+      ? ` (${existing.analyte_name})`
+      : ' (mã này không còn trong danh mục)'
+    throw new ConflictException(
+      `mã HIS "${hisServiceCode}" đã được ánh xạ tới xét nghiệm "${existing.analyte_code}"${ten}. ` +
+        `Hãy sửa hoặc xoá dòng ánh xạ hiện có thay vì thêm mới.`,
+    )
+  }
+
+  private async hisMapViewOf(
+    db: Kysely<TenantDatabase>,
+    hisServiceCode: string,
+    analyteCode: string,
+  ): Promise<HisMapView> {
+    const analyte = await db
+      .selectFrom('analytes')
+      .select('name')
+      .where('code', '=', analyteCode)
+      .executeTakeFirst()
+    return { hisServiceCode, analyteCode, analyteName: analyte?.name ?? null }
   }
 
   private async channelsOf(
@@ -846,3 +1183,4 @@ function toAnalyteView(row: {
     manuallyEdited: row.manually_edited,
   }
 }
+

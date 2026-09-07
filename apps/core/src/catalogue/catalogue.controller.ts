@@ -129,6 +129,78 @@ export class CatalogueController {
     )
   }
 
+  /* ---------------------------------------------- ánh xạ mã HIS ↔ xét nghiệm
+   *
+   * `unmapped-analytes` và `summary` được khai TRƯỚC các route có tham số để
+   * không bị `:hisServiceCode` nuốt mất — mã HIS thật có dạng `A/01`, `AC02`,
+   * nên một route tham số đặt trước sẽ khớp cả hai đường này.
+   */
+
+  @Get('his-map/unmapped-analytes')
+  unmappedAnalytes(
+    @Req() req: TenantRequest,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.listUnmappedAnalytes(req.tenantId, {
+        q: typeof q === 'string' ? q : undefined,
+        limit: parseLimit(limit),
+        offset: parseOffset(offset),
+      }),
+    )
+  }
+
+  @Get('his-map/summary')
+  hisMapSummary(@Req() req: TenantRequest) {
+    return withTenant(req.tenantId, () => this.catalogue.hisMapSummary(req.tenantId))
+  }
+
+  @Get('his-map')
+  searchHisMap(
+    @Req() req: TenantRequest,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.searchHisMap(req.tenantId, {
+        q: typeof q === 'string' ? q : undefined,
+        limit: parseLimit(limit),
+        offset: parseOffset(offset),
+      }),
+    )
+  }
+
+  @Post('his-map')
+  createHisMap(@Req() req: TenantRequest, @Body() body: unknown) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.createHisMap(req.tenantId, actorOf(req), body),
+    )
+  }
+
+  // `:hisServiceCode` là mã nghiệp vụ của bệnh viện, có thể chứa `/` và `%` —
+  // client phải mã hoá URL; Express giải mã lại trước khi tới đây.
+  @Put('his-map/:hisServiceCode')
+  updateHisMap(
+    @Req() req: TenantRequest,
+    @Param('hisServiceCode') hisServiceCode: string,
+    @Body() body: unknown,
+  ) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.updateHisMap(req.tenantId, actorOf(req), hisServiceCode, body),
+    )
+  }
+
+  @Delete('his-map/:hisServiceCode')
+  @HttpCode(204)
+  deleteHisMap(@Req() req: TenantRequest, @Param('hisServiceCode') hisServiceCode: string) {
+    return withTenant(req.tenantId, () =>
+      this.catalogue.deleteHisMap(req.tenantId, actorOf(req), hisServiceCode),
+    )
+  }
+
   @Get('devices/:deviceId/channels')
   listChannels(@Req() req: TenantRequest, @Param('deviceId', ParseUUIDPipe) deviceId: string) {
     return withTenant(req.tenantId, () => this.catalogue.listChannels(req.tenantId, deviceId))
