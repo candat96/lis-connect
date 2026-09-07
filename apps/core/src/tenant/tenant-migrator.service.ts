@@ -13,6 +13,7 @@ import * as initial from './migrations/001-initial.js'
 import * as catalogue from './migrations/002-catalogue.js'
 import * as catalogueAudit from './migrations/003-catalogue-audit.js'
 import * as catalogueState from './migrations/004-trang-thai-danh-muc.js'
+import * as reception from './migrations/005-tiep-don.js'
 import type { TenantDatabase } from './tenant-schema.js'
 
 const migrations: Record<string, Migration> = {
@@ -20,6 +21,7 @@ const migrations: Record<string, Migration> = {
   '002-catalogue': catalogue,
   '003-catalogue-audit': catalogueAudit,
   '004-trang-thai-danh-muc': catalogueState,
+  '005-tiep-don': reception,
 }
 
 class StaticProvider implements MigrationProvider {

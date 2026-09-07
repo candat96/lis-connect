@@ -95,6 +95,15 @@ export interface AnalytesTable {
   print_order: ColumnType<number | null, number | null | undefined, number | null>
   is_profile_head: Generated<boolean>
   source: AnalyteSource
+  /**
+   * Ranh giới "chỉ dịch vụ xét nghiệm mới được chỉ định".
+   *
+   * Danh mục di trú toàn là xét nghiệm nên mặc định 'xet_nghiem'; nhưng khối
+   * tiếp đón về sau nhận dữ liệu từ HIS, nơi có cả dịch vụ khám bệnh. Ranh giới
+   * này được CHỐT ở tầng database bằng khoá ngoại ghép từ `order_items`, không
+   * chỉ bằng một phép kiểm trong service.
+   */
+  service_kind: Generated<ServiceKind>
   active: Generated<boolean>
   /**
    * Dòng này đã bị sửa tay từ giao diện hay chưa. Tách khỏi `source` có chủ ý:
@@ -198,6 +207,97 @@ export interface CatalogueAuditTable {
   after_value: ColumnType<unknown, string | null | undefined, string | null>
 }
 
+
+export type ServiceKind = 'xet_nghiem' | 'kham_benh' | 'khac'
+export type PatientSex = 'nam' | 'nu' | 'khac'
+export type OrderStatus = 'moi' | 'da_lay_mau' | 'dang_chay' | 'co_ket_qua' | 'da_duyet' | 'huy'
+export type OrderSource = 'lis' | 'his'
+export type SpecimenStatus = 'cho_lay_mau' | 'da_lay_mau' | 'da_nhan' | 'da_chay' | 'huy'
+export type OrderItemStatus = 'cho' | 'dang_chay' | 'co_ket_qua' | 'da_duyet' | 'huy'
+
+export interface PatientsTable {
+  id: Generated<string>
+  /** Mã bệnh nhân của LIS, sinh từ sequence nếu tiếp đón không nhập. */
+  patient_code: string
+  full_name: string
+  /**
+   * Ba cách khai tuổi vì thực tế Việt Nam rất hay chỉ có tuổi, không có ngày
+   * sinh. Ràng buộc CHECK ở database đòi có ÍT NHẤT MỘT trong bốn cột tuổi.
+   */
+  birth_date: ColumnType<string | null, string | null | undefined, string | null>
+  birth_year: ColumnType<number | null, number | null | undefined, number | null>
+  age_years: ColumnType<number | null, number | null | undefined, number | null>
+  age_months: ColumnType<number | null, number | null | undefined, number | null>
+  sex: PatientSex
+  address: ColumnType<string | null, string | null | undefined, string | null>
+  phone: ColumnType<string | null, string | null | undefined, string | null>
+  /** Mã bệnh nhân bên HIS — không unique, HIS có thể chưa trả. */
+  his_patient_code: ColumnType<string | null, string | null | undefined, string | null>
+  department: ColumnType<string | null, string | null | undefined, string | null>
+  patient_type: Generated<string>
+  note: ColumnType<string | null, string | null | undefined, string | null>
+  created_at: Generated<Date>
+  updated_at: Generated<Date>
+}
+
+export interface OrdersTable {
+  id: Generated<string>
+  /** Số phiếu cho người đọc — KHÁC barcode, thứ định danh từng ống. */
+  order_no: string
+  patient_id: string
+  ordered_at: Generated<Date>
+  ordering_doctor: ColumnType<string | null, string | null | undefined, string | null>
+  diagnosis: ColumnType<string | null, string | null | undefined, string | null>
+  department: ColumnType<string | null, string | null | undefined, string | null>
+  status: Generated<OrderStatus>
+  source: Generated<OrderSource>
+  his_order_code: ColumnType<string | null, string | null | undefined, string | null>
+  note: ColumnType<string | null, string | null | undefined, string | null>
+  created_at: Generated<Date>
+  updated_at: Generated<Date>
+}
+
+/**
+ * Ống bệnh phẩm. Barcode nằm ở ĐÂY chứ không ở `orders`: kỹ thuật viên dán mã
+ * lên từng ống và máy xét nghiệm đọc mã của ống. Một phiếu chia thành nhiều ống
+ * theo loại bệnh phẩm.
+ */
+export interface SpecimensTable {
+  id: Generated<string>
+  order_id: string
+  specimen_type: string
+  /** Mã đầy đủ in lên ống: `ddmmyy-<serial>`. */
+  barcode: string
+  /**
+   * Phần đuôi barcode — chính là thứ máy xét nghiệm gửi về.
+   *
+   * Lấy từ sequence không quay vòng và mang UNIQUE trên TOÀN BẢNG, nên khớp
+   * ngược theo đuôi là phép so khớp CHÍNH XÁC trên số nguyên, không phải `LIKE`
+   * mờ trong cửa sổ 10 ngày như hệ cũ. `bigint` về từ `pg` dưới dạng chuỗi.
+   */
+  barcode_serial: ColumnType<string, string | number | bigint, never>
+  collected_at: ColumnType<Date | null, Date | null | undefined, Date | null>
+  status: Generated<SpecimenStatus>
+  created_at: Generated<Date>
+}
+
+export interface OrderItemsTable {
+  id: Generated<string>
+  order_id: string
+  specimen_id: ColumnType<string | null, string | null | undefined, string | null>
+  analyte_code: string
+  /**
+   * Cột hằng, luôn bằng 'xet_nghiem'. Tồn tại để làm nửa còn lại của khoá ngoại
+   * ghép (analyte_code, service_kind) → analytes(code, service_kind): Postgres
+   * từ chối chỉ định một dịch vụ khám bệnh, kể cả khi tầng ứng dụng có lỗ hổng.
+   */
+  service_kind: Generated<'xet_nghiem'>
+  /** Mã nhóm đã bung ra dòng này; NULL nếu được chỉ định lẻ. */
+  parent_analyte_code: ColumnType<string | null, string | null | undefined, string | null>
+  status: Generated<OrderItemStatus>
+  created_at: Generated<Date>
+}
+
 export interface TenantDatabase {
   agents: AgentsTable
   devices: DevicesTable
@@ -212,4 +312,8 @@ export interface TenantDatabase {
   his_analyte_map: HisAnalyteMapTable
   reference_ranges: ReferenceRangesTable
   catalogue_audit: CatalogueAuditTable
+  patients: PatientsTable
+  orders: OrdersTable
+  specimens: SpecimensTable
+  order_items: OrderItemsTable
 }
