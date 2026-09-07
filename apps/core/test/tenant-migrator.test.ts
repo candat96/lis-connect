@@ -68,7 +68,7 @@ describe('TenantMigratorService', () => {
 
     const db = new Kysely<TenantDatabase>({
       dialect: new PostgresDialect({
-        pool: new pg.Pool({ connectionString: 'postgres://lis:lis@localhost:55432/lis_t_mig_a' }),
+        pool: new pg.Pool({ connectionString: `postgres://lis:lis@localhost:55432/${testDbName('lis_t_mig_a')}` }),
       }),
     })
     const devices = await db.selectFrom('devices').selectAll().execute()
