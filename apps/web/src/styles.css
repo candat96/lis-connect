@@ -1096,6 +1096,101 @@ select {
   margin-bottom: var(--space-4);
 }
 
+/* ---------- Ô gợi ý mã xét nghiệm (AnalytePicker) ---------- */
+
+.analyte-picker-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.analyte-picker-icon {
+  position: absolute;
+  left: var(--space-3);
+  color: var(--color-text-faint);
+  pointer-events: none;
+}
+
+.analyte-picker-input-wrap input {
+  padding-left: var(--space-8);
+  width: 100%;
+}
+
+.analyte-picker-list {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  z-index: 30;
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.16);
+}
+
+.analyte-picker-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.analyte-picker-option code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.analyte-picker-option-name {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.analyte-picker-option:hover,
+.analyte-picker-option.is-highlighted {
+  background: var(--color-surface-muted);
+}
+
+/* Xác nhận / cảnh báo dưới ô gợi ý — cùng quy ước "chữ đi kèm icon", không
+   dựa riêng vào màu. */
+.analyte-picker-match {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: 12.5px;
+  margin: 0;
+}
+
+.analyte-picker-match code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.analyte-picker-match-ok {
+  color: var(--color-success);
+}
+
+.analyte-picker-match-warn {
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
 /* ---------- Phân trang ---------- */
 
 .pager {

@@ -6,6 +6,7 @@ import {
   type ResultRulePayload,
   type ResultRuleView,
 } from '../api.js'
+import { AnalytePicker } from '../components/AnalytePicker.js'
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -416,23 +417,14 @@ export function CatalogueResultRules({
               </select>
             </div>
 
-            <div className="editor-field">
-              <label htmlFor="rule-analyte">Mã xét nghiệm</label>
-              <input
-                id="rule-analyte"
-                type="text"
-                value={form.analyteCode}
-                onChange={(e) => setField('analyteCode', e.target.value)}
-                onBlur={() => setFormErrors(validateForm(form))}
-                aria-invalid={formErrors.analyteCode ? true : undefined}
-                aria-describedby={formErrors.analyteCode ? 'rule-analyte-error' : undefined}
-              />
-              {formErrors.analyteCode && (
-                <p className="editor-error" id="rule-analyte-error">
-                  {formErrors.analyteCode}
-                </p>
-              )}
-            </div>
+            <AnalytePicker
+              id="rule-analyte"
+              label="Mã xét nghiệm"
+              value={form.analyteCode}
+              onChange={(code) => setField('analyteCode', code)}
+              onBlur={() => setFormErrors(validateForm(form))}
+              error={formErrors.analyteCode}
+            />
 
             <div className="editor-field">
               <label htmlFor="rule-in">Giá trị máy trả về</label>

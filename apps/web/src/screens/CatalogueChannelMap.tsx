@@ -7,6 +7,7 @@ import {
   type ChannelMapView,
   type DeviceSummary,
 } from '../api.js'
+import { AnalytePicker } from '../components/AnalytePicker.js'
 import {
   CheckCircleIcon,
   PencilIcon,
@@ -711,29 +712,15 @@ export function CatalogueChannelMap({
                       )}
                     </div>
 
-                    <div className="editor-field">
-                      <label htmlFor="channel-analyte">Mã xét nghiệm được gán</label>
-                      <input
-                        id="channel-analyte"
-                        type="text"
-                        value={form.analyteCode}
-                        onChange={(e) => setFormField('analyteCode', e.target.value)}
-                        onBlur={() => setFormErrors(validateForm(form))}
-                        aria-invalid={formErrors.analyteCode ? true : undefined}
-                        aria-describedby={
-                          formErrors.analyteCode ? 'channel-analyte-error' : 'channel-analyte-hint'
-                        }
-                      />
-                      <p className="field-hint" id="channel-analyte-hint">
-                        Tra mã ở màn hình “Danh mục xét nghiệm”. Mã không có trong danh mục sẽ bị từ
-                        chối.
-                      </p>
-                      {formErrors.analyteCode && (
-                        <p className="editor-error" id="channel-analyte-error">
-                          {formErrors.analyteCode}
-                        </p>
-                      )}
-                    </div>
+                    <AnalytePicker
+                      id="channel-analyte"
+                      label="Mã xét nghiệm được gán"
+                      value={form.analyteCode}
+                      onChange={(code) => setFormField('analyteCode', code)}
+                      onBlur={() => setFormErrors(validateForm(form))}
+                      error={formErrors.analyteCode}
+                      hint="Gõ mã hoặc tên để tìm. Mã không có trong danh mục sẽ bị máy chủ từ chối."
+                    />
 
                     <div className="editor-field">
                       <label htmlFor="channel-round">Số chữ số thập phân</label>
