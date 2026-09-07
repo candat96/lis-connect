@@ -372,6 +372,64 @@ describe('writeLegacyCatalogue', () => {
     expect(outcome.skipped.some((s) => /mã cha không phải thành viên/.test(s.reason))).toBe(true)
   })
 
+  it('dựng lại nhóm cha–con từ thụt lề tên, ghi source=legacy-inferred và confirmed=false', async () => {
+    write('TestCode.json', [
+      { TestCode: '002HD', TestName: 'Tổng phân tích tế bào máu ngoại vi', TestHead: true, GetComment: false },
+      { TestCode: '002WBC', TestName: ' + Số lượng bạch cầu (WBC) ', TestHead: false, GetComment: false },
+      { TestCode: '004LYM#', TestName: ' + LYM#', TestHead: false, GetComment: false },
+      // Dòng không thụt lề — kết thúc nhóm 002HD, không phải con của nó.
+      { TestCode: '999KHAC', TestName: 'Xét nghiệm độc lập khác', TestHead: false, GetComment: false },
+    ])
+    tenantId = await freshTenant('migprofh')
+    const outcome = await runMigration(tenantId)
+
+    const db = await registry.forTenant(tenantId)
+    const profile = await db
+      .selectFrom('profiles')
+      .selectAll()
+      .where('code', '=', '002HD')
+      .executeTakeFirstOrThrow()
+    // Quan hệ suy diễn là ĐỀ XUẤT, không phải sự thật — confirmed PHẢI là false, và
+    // phải phân biệt được với nhóm khai báo thật qua `source`.
+    expect(profile.source).toBe('legacy-inferred')
+    expect(profile.confirmed).toBe(false)
+
+    const members = await db
+      .selectFrom('profile_members')
+      .select(['analyte_code', 'display_order'])
+      .where('profile_code', '=', '002HD')
+      .orderBy('display_order')
+      .execute()
+    expect(members).toEqual([
+      { analyte_code: '002WBC', display_order: 1 },
+      { analyte_code: '004LYM#', display_order: 2 },
+    ])
+    // Dòng không thụt lề không được lọt vào nhóm.
+    expect(members.map((m) => m.analyte_code)).not.toContain('999KHAC')
+    expect(outcome.counts.profiles).toMatchObject({ written: 1 })
+    expect(outcome.counts.profile_members).toMatchObject({ written: 2 })
+  })
+
+  it('nhóm khai báo thật (Profile.json) được ghi confirmed=true, khác hẳn nhóm suy diễn', async () => {
+    write('TestCode.json', [
+      { TestCode: '400TPTNT', TestName: 'Tổng phân tích nước tiểu', GetComment: false, Profile: true },
+      { TestCode: '141ULeu', TestName: 'Bạch cầu niệu', GetComment: false },
+    ])
+    write('Profile.json', [{ ProfileID: 'TPTNT', ProfileName: 'Tổng phân tích nước tiểu' }])
+    write('ProfileTest.json', [{ ProfileID: 'TPTNT', TestCode: '141ULeu' }])
+    tenantId = await freshTenant('migprofd')
+    await runMigration(tenantId)
+
+    const db = await registry.forTenant(tenantId)
+    const declared = await db
+      .selectFrom('profiles')
+      .selectAll()
+      .where('code', '=', 'TPTNT')
+      .executeTakeFirstOrThrow()
+    expect(declared.source).toBe('legacy-declared')
+    expect(declared.confirmed).toBe(true)
+  })
+
   it('không để lại gì khi giao dịch hỏng giữa chừng', async () => {
     write('TestCode.json', [{ TestCode: '123AST', TestName: 'AST', GetComment: false }])
     // Mã HIS dài hơn varchar(64) làm Postgres huỷ giao dịch ở bước ghi cuối cùng —
@@ -625,6 +683,8 @@ describe('formatReport', () => {
         channelConflicts: [{ insId: 1, channelCode: '19', candidates: ['128LDL', '244ACo'] }],
         orphans: [],
         profilesWithoutMembers: [],
+        emptyProfileHeads: [],
+        inferredProfiles: [],
         wildcardCodes: ['034NEU%'],
         duplicateAnalyteCodes: [],
         droppedSourceRows: [],
@@ -643,6 +703,8 @@ describe('formatReport', () => {
         channelConflicts: [],
         orphans: [],
         profilesWithoutMembers: [],
+        emptyProfileHeads: [],
+        inferredProfiles: [],
         wildcardCodes: [],
         duplicateAnalyteCodes: [],
         droppedSourceRows: [],
@@ -667,6 +729,8 @@ describe('formatReport', () => {
         channelConflicts: [],
         orphans: [],
         profilesWithoutMembers: [],
+        emptyProfileHeads: [],
+        inferredProfiles: [],
         wildcardCodes: [],
         duplicateAnalyteCodes: [],
         droppedSourceRows: [
@@ -691,6 +755,8 @@ describe('formatReport', () => {
         channelConflicts: [],
         orphans: [],
         profilesWithoutMembers: [],
+        emptyProfileHeads: [],
+        inferredProfiles: [],
         wildcardCodes: [],
         duplicateAnalyteCodes: [],
         droppedSourceRows: [],

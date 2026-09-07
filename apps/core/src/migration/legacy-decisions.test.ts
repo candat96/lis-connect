@@ -20,6 +20,8 @@ function report(): ValidationReport {
     ],
     orphans: [],
     profilesWithoutMembers: [],
+    emptyProfileHeads: [],
+    inferredProfiles: [],
     wildcardCodes: [],
     duplicateAnalyteCodes: [],
     droppedSourceRows: [],
@@ -65,11 +67,13 @@ describe('buildDecisionTemplate', () => {
       channelConflicts: [{ insId: 1, channelCode: '19', candidates: ['128LDL', '244ACo'] }],
       orphans: [],
       profilesWithoutMembers: [],
+      emptyProfileHeads: [],
+      inferredProfiles: [],
       wildcardCodes: [],
       duplicateAnalyteCodes: [],
-    droppedSourceRows: [],
-    shadowedAliases: [],
-    ambiguousAliases: [],
+      droppedSourceRows: [],
+      shadowedAliases: [],
+      ambiguousAliases: [],
     }
     const merged = buildDecisionTemplate(rep, existing)
     // Nếu khoá gộp không có dấu phân cách, "11"+"9" === "1"+"19" và sẽ bị lẫn lộn `chosen`.

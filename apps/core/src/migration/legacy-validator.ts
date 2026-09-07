@@ -1,5 +1,5 @@
 import { buildAliasIndex, resolveAnalyteCode, type AliasIndex } from './legacy-alias.js'
-import type { LegacyDroppedRow, LegacySource } from './legacy-source.js'
+import type { LegacyDroppedRow, LegacyInferredProfileMember, LegacySource } from './legacy-source.js'
 
 export interface ChannelConflict {
   insId: number
@@ -54,10 +54,28 @@ export interface AmbiguousAlias {
   autoResolvable: false
 }
 
+/**
+ * Một mã cha thật sự KHÔNG có thành viên nào — không khai báo ở `ProfileTest.json`,
+ * cũng không suy ra được con nào từ thụt lề tên.
+ *
+ * Kèm tên để đọc được (trước đây báo cáo chỉ in mã trần, dồn hết vào MỘT dòng dài
+ * hơn 3000 ký tự — không kỹ thuật viên nào đọc nổi). `inferredMembers` gần như luôn
+ * rỗng vì đúng nghĩa "không có thành viên", nhưng vẫn giữ lại: nếu thuật toán suy
+ * diễn sau này thay đổi và tìm ra được vài con cho một mã ở đây, báo cáo phải in
+ * ra được ngay, không được âm thầm nuốt mất.
+ */
+export interface EmptyProfileHead {
+  code: string
+  name: string
+  inferredMembers: string[]
+}
+
 export interface ValidationReport {
   channelConflicts: ChannelConflict[]
   orphans: OrphanRef[]
   profilesWithoutMembers: string[]
+  /** Chi tiết đọc được của `profilesWithoutMembers` — mỗi mã kèm tên, để in mỗi dòng một mã. */
+  emptyProfileHeads: EmptyProfileHead[]
   wildcardCodes: string[]
   duplicateAnalyteCodes: string[]
   /** Mọi dòng bị bộ đọc loại bỏ, kèm tệp nguồn, khoá dòng và lý do tiếng Việt. */
@@ -66,6 +84,15 @@ export interface ValidationReport {
   shadowedAliases: ShadowedAlias[]
   /** Bí danh trỏ tới nhiều mã chính — không tự phân giải được. */
   ambiguousAliases: AmbiguousAlias[]
+  /** Nhóm suy ra từ thụt lề tên, CẦN kỹ thuật viên xác nhận trước khi dùng thật. */
+  inferredProfiles: InferredProfileSummary[]
+}
+
+/** Một nhóm suy diễn, kèm tên và danh sách thành viên đề xuất — để kỹ thuật viên xác nhận. */
+export interface InferredProfileSummary {
+  code: string
+  name: string
+  members: { code: string; name: string }[]
 }
 
 /**
@@ -148,20 +175,49 @@ export function validateLegacySource(src: LegacySource): ValidationReport {
     addOrphan('profile-member', `nhóm ${p.profileCode}`, p.analyteCode)
   }
 
-  // Nhóm xét nghiệm của hệ cũ nằm ở HAI chỗ: bảng `Profile` (chỉ 2 dòng) và cờ
-  // `isProfileHead` trên chính danh mục xét nghiệm (319 mã). Chỉ soi `Profile.json` thì
-  // kiểm tra này vĩnh viễn trả rỗng trong khi 319 nhóm thật sự không có thành viên nào.
+  // Nhóm xét nghiệm của hệ cũ nằm ở BA chỗ: bảng `Profile`/`ProfileTest` (khai báo
+  // thật, chỉ 2 nhóm), cờ `isProfileHead` trên chính danh mục xét nghiệm (319 mã),
+  // và quan hệ SUY RA từ thụt lề tên (`inferredProfileMembers` — xem `legacy-source.ts`).
+  // Trước khi có vế thứ ba, kiểm tra này báo tới 319 mã cha rỗng — trong đó có 52 mã
+  // (002HD, 400TPTNT, 920IONDO...) thật ra có con, chỉ là quan hệ chưa được dựng lại.
+  const inferredMembersByHead = new Map<string, LegacyInferredProfileMember[]>()
+  for (const m of src.inferredProfileMembers ?? []) {
+    const list = inferredMembersByHead.get(m.profileCode) ?? []
+    list.push(m)
+    inferredMembersByHead.set(m.profileCode, list)
+  }
   const profilesWithMembers = new Set(src.profileTests.map((p) => p.profileCode))
+  const profileNames = new Map<string, string>()
+  for (const p of src.profiles) profileNames.set(p.code, p.name)
+  for (const p of src.inferredProfiles ?? []) profileNames.set(p.code, p.name)
+  for (const a of src.analytes) if (a.isProfileHead) profileNames.set(a.code, a.name)
+
   const profilesWithoutMembers: string[] = []
+  const emptyProfileHeads: EmptyProfileHead[] = []
   const emptySeen = new Set<string>()
   for (const code of [
     ...src.profiles.map((p) => p.code),
     ...src.analytes.filter((a) => a.isProfileHead).map((a) => a.code),
   ]) {
-    if (profilesWithMembers.has(code) || emptySeen.has(code)) continue
+    if (profilesWithMembers.has(code) || inferredMembersByHead.has(code) || emptySeen.has(code)) continue
     emptySeen.add(code)
     profilesWithoutMembers.push(code)
+    emptyProfileHeads.push({
+      code,
+      name: profileNames.get(code) ?? '(không có tên)',
+      // Gần như luôn rỗng theo đúng nghĩa "mã cha rỗng" — xem ghi chú ở kiểu `EmptyProfileHead`.
+      inferredMembers: (inferredMembersByHead.get(code) ?? []).map((m) => m.analyteCode),
+    })
   }
+
+  const inferredProfiles: InferredProfileSummary[] = (src.inferredProfiles ?? []).map((p) => ({
+    code: p.code,
+    name: p.name,
+    members: (inferredMembersByHead.get(p.code) ?? []).map((m) => ({
+      code: m.analyteCode,
+      name: analyteNames.get(m.analyteCode) ?? '(không có tên)',
+    })),
+  }))
 
   // Ký tự `%` và `_` là một phần của mã, không phải ký tự đại diện. Liệt kê để cảnh báo
   // người viết truy vấn sau này không dùng LIKE.
@@ -178,11 +234,13 @@ export function validateLegacySource(src: LegacySource): ValidationReport {
     channelConflicts,
     orphans,
     profilesWithoutMembers,
+    emptyProfileHeads,
     wildcardCodes,
     duplicateAnalyteCodes,
     droppedSourceRows: src.droppedRows ?? [],
     shadowedAliases: collectShadowedAliases(aliases, analyteCodes, analyteNames),
     ambiguousAliases: collectAmbiguousAliases(aliases, analyteCodes, analyteNames),
+    inferredProfiles,
   }
 }
 

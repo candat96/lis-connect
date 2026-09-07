@@ -75,11 +75,56 @@ describe('dữ liệu thật của bệnh viện', () => {
     expect(report.duplicateAnalyteCodes).toEqual([])
   })
 
-  it('báo đủ 319 mã có isProfileHead nhưng không có thành viên nào', () => {
+  it('báo đủ 319 mã có isProfileHead, còn 267 mã cha rỗng sau khi tính cả nhóm suy diễn', () => {
     expect(src.analytes.filter((a) => a.isProfileHead)).toHaveLength(319)
-    expect(report.profilesWithoutMembers).toHaveLength(319)
+    // 319 mã cha - 52 mã cha nhận được con qua suy diễn thụt lề = 267 mã cha rỗng thật sự.
+    expect(report.profilesWithoutMembers).toHaveLength(267)
     // Hai nhóm trong Profile.json đều CÓ thành viên nên không được lọt vào danh sách.
     expect(report.profilesWithoutMembers).not.toContain(src.profiles[0]!.code)
+  })
+
+  it('suy ra đúng 52 nhóm cha–con từ thụt lề tên, 242 quan hệ, trên 292 mã có TestHead=true', () => {
+    // Đo độc lập bằng script Python trên cùng dữ liệu thật — nếu số này đổi thì đi
+    // truy nguồn (dữ liệu trích lại, hoặc thuật toán suy diễn đổi hành vi), đừng sửa
+    // số cho khớp code.
+    const inferredProfiles = src.inferredProfiles ?? []
+    const inferredProfileMembers = src.inferredProfileMembers ?? []
+    expect(inferredProfiles).toHaveLength(52)
+    expect(inferredProfileMembers).toHaveLength(242)
+
+    // Hai mã cha phổ biến nhất phòng xét nghiệm nào cũng làm phải có mặt và có con thật.
+    // (920IONDO — Điện giải đồ — KHÔNG được suy ra con nào: ngay dòng sau nó trong
+    // nguồn là "920SK — Số Khúm:", tên không thụt lề, nên chuỗi bị đóng trước khi tới
+    // các dòng thật sự thụt lề "921Na"/"922K". Đây là hạn chế thật của thuật toán suy
+    // theo đúng mô tả spec — không phải lỗi đọc dữ liệu — và là đúng lý do cả nhóm này
+    // vẫn cần kỹ thuật viên xác nhận/bổ sung tay chứ không phải phần mềm tự đoán thêm.)
+    for (const parent of ['002HD', '400TPTNT']) {
+      const profile = inferredProfiles.find((p) => p.code === parent)
+      expect(profile, `thiếu nhóm suy diễn cho ${parent}`).toBeDefined()
+      const members = inferredProfileMembers.filter((m) => m.profileCode === parent)
+      expect(members.length, `${parent} không có con nào`).toBeGreaterThan(0)
+    }
+    expect(inferredProfiles.find((p) => p.code === '920IONDO')).toBeUndefined()
+
+    // 780FSH, 781LH, 782E2: TOÀN BỘ con (780FSH-1..3, v.v.) có TestName=null ở nguồn
+    // nên bị loại; không dòng thụt lề nào còn lại để suy ra — đúng nghĩa rỗng.
+    for (const emptyParent of ['780FSH', '781LH', '782E2']) {
+      expect(inferredProfiles.find((p) => p.code === emptyParent)).toBeUndefined()
+      expect(inferredProfileMembers.filter((m) => m.profileCode === emptyParent)).toHaveLength(0)
+    }
+
+    // 783PROGES và 766HE3: mất đúng những con có TestName=null (783PROGES-1..3), nhưng
+    // KHÔNG rỗng hoàn toàn — các dòng thụt lề còn lại ngay sau đó (784PROLAC, 786TESTOS,
+    // 787SHBG, 766HE4) vẫn được suy ra. Đây chính là "cụt con" mà docstring
+    // `LegacyDroppedRow` mô tả, khác với 780FSH/781LH/782E2 rỗng hoàn toàn ở trên.
+    expect(inferredProfileMembers.filter((m) => m.profileCode === '783PROGES').map((m) => m.analyteCode)).toEqual([
+      '784PROLAC',
+      '786TESTOS',
+      '787SHBG',
+    ])
+    expect(inferredProfileMembers.filter((m) => m.profileCode === '766HE3').map((m) => m.analyteCode)).toEqual([
+      '766HE4',
+    ])
   })
 
   it('đọc cột Active: 17 xét nghiệm của TestCodeNew đã ngừng dùng', () => {

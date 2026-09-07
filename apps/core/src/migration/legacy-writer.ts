@@ -486,14 +486,49 @@ async function writePendingChannels(
   }
 }
 
+/**
+ * Ghi cả hai nhóm cha–con: nhóm KHAI BÁO thật (`Profile.json`/`ProfileTest.json`,
+ * `source='legacy-declared'`, `confirmed=true` — đây là sự thật đã ghi ở hệ cũ,
+ * không có gì cần ai xác nhận thêm) và nhóm SUY RA từ thụt lề tên
+ * (`inferredProfiles`/`inferredProfileMembers`, `source='legacy-inferred'`,
+ * `confirmed=false` — đây là ĐỀ XUẤT của phần mềm, spec §4.2 và §7 yêu cầu kỹ
+ * thuật viên xác nhận trước khi dùng thật).
+ *
+ * `confirmed` được ghi TƯỜNG MINH theo `source` ở đây, không dựa vào giá trị mặc
+ * định của cột: nếu chỉ dựa mặc định (đang là `false` cho mọi dòng), hai loại nhóm
+ * không thể phân biệt được bằng dữ liệu — `confirmed` sẽ lại thành một cột chết như
+ * trước khi sửa việc này.
+ */
 async function writeProfiles(
   trx: Transaction<TenantDatabase>,
   src: LegacySource,
   ctx: RefContext,
 ): Promise<void> {
-  ctx.bump('profiles', 'read', src.profiles.length)
+  const headCodes = new Set(src.analytes.filter((a) => a.isProfileHead).map((a) => a.code))
+  await writeProfileGroup(trx, src.profiles, src.profileTests, 'legacy-declared', headCodes, ctx)
+  await writeProfileGroup(
+    trx,
+    src.inferredProfiles ?? [],
+    src.inferredProfileMembers ?? [],
+    'legacy-inferred',
+    headCodes,
+    ctx,
+  )
+}
+
+async function writeProfileGroup(
+  trx: Transaction<TenantDatabase>,
+  profiles: { code: string; name: string }[],
+  profileTests: { profileCode: string; analyteCode: string }[],
+  source: 'legacy-declared' | 'legacy-inferred',
+  headCodes: Set<string>,
+  ctx: RefContext,
+): Promise<void> {
+  const confirmed = source === 'legacy-declared'
+
+  ctx.bump('profiles', 'read', profiles.length)
   const profileCodes = new Set<string>()
-  for (const p of src.profiles) {
+  for (const p of profiles) {
     if (profileCodes.has(p.code)) {
       ctx.skip('profiles', p.code, 'mã nhóm bị lặp trong nguồn')
       continue
@@ -502,7 +537,7 @@ async function writeProfiles(
 
     const inserted = await trx
       .insertInto('profiles')
-      .values({ code: p.code, name: p.name, source: 'legacy-declared' })
+      .values({ code: p.code, name: p.name, source, confirmed })
       .onConflict((oc) => oc.doNothing())
       .returning('code')
       .executeTakeFirst()
@@ -511,14 +546,13 @@ async function writeProfiles(
   }
 
   const table = 'profile_members'
-  const headCodes = new Set(src.analytes.filter((a) => a.isProfileHead).map((a) => a.code))
-  ctx.bump(table, 'read', src.profileTests.length)
+  ctx.bump(table, 'read', profileTests.length)
   const seen = new Set<string>()
   // Thứ tự hiển thị đếm RIÊNG cho từng nhóm: một bộ đếm chung làm nhóm thứ hai bắt đầu
   // từ 23, không sai về thứ tự nhưng vô nghĩa với người đọc màn hình quản lý.
   const orderByProfile = new Map<string, number>()
 
-  for (const m of src.profileTests) {
+  for (const m of profileTests) {
     const ref = `nhóm ${m.profileCode} → ${m.analyteCode}`
     if (!profileCodes.has(m.profileCode)) {
       ctx.skip(table, ref, 'nhóm không tồn tại')

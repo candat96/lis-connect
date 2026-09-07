@@ -17,11 +17,10 @@ export function formatReport(
   for (const o of validation.orphans) {
     lines.push(`  [${o.kind}] ${o.ref} → ${o.analyteCode}`)
   }
+  pushEmptyProfileHeads(lines, validation)
+  pushInferredProfiles(lines, validation)
   lines.push(
     '',
-    `Nhóm không có thành viên: ${validation.profilesWithoutMembers.join(', ') || 'không có'}`,
-  )
-  lines.push(
     `Mã chứa ký tự đại diện (${validation.wildcardCodes.length}): ${validation.wildcardCodes.join(', ') || 'không có'}`,
   )
   lines.push(
@@ -91,6 +90,43 @@ function pushDroppedSourceRows(lines: string[], validation: ValidationReport): v
   lines.push('  Chi tiết:')
   for (const d of dropped) {
     lines.push(`    [${d.file}] ${d.key}${d.code ? ` (mã ${d.code})` : ''} — ${d.reason}`)
+  }
+}
+
+/**
+ * Mã cha thật sự không có thành viên nào — mỗi mã MỘT DÒNG, kèm tên xét nghiệm.
+ *
+ * Trước đây in bằng `profilesWithoutMembers.join(', ')`: trên dữ liệu thật ra một
+ * dòng dài hơn 3000 ký tự, chỉ toàn mã trần, không tên — không kỹ thuật viên nào
+ * đọc nổi để đối chiếu. Đây là danh sách họ phải cầm đi xác nhận, nên phải đọc được.
+ */
+function pushEmptyProfileHeads(lines: string[], validation: ValidationReport): void {
+  const empty = validation.emptyProfileHeads
+  lines.push('', `Mã cha không có thành viên nào: ${empty.length}`)
+  if (empty.length === 0) return
+  for (const h of empty) {
+    const suffix = h.inferredMembers.length > 0 ? ` — đề xuất: ${h.inferredMembers.join(', ')}` : ''
+    lines.push(`  ${h.code} "${h.name}"${suffix}`)
+  }
+}
+
+/**
+ * Nhóm cha–con SUY RA từ thụt lề tên — đề xuất, không phải sự thật đã khai báo.
+ *
+ * `source='legacy-inferred'` và `confirmed=false` đã được ghi vào database; ở đây in
+ * ra để kỹ thuật viên xác nhận trước khi dùng thật, đúng yêu cầu của mục 3.1/4.2 spec.
+ */
+function pushInferredProfiles(lines: string[], validation: ValidationReport): void {
+  const inferred = validation.inferredProfiles
+  lines.push(
+    '',
+    `Nhóm cha–con suy ra từ thụt lề tên (CẦN kỹ thuật viên xác nhận): ${inferred.length}`,
+  )
+  for (const p of inferred) {
+    lines.push(`  ${p.code} "${p.name}" — ${p.members.length} thành viên đề xuất:`)
+    for (const m of p.members) {
+      lines.push(`      ${m.code} "${m.name}"`)
+    }
   }
 }
 

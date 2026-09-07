@@ -114,6 +114,22 @@ export interface LegacyProfileTest {
   analyteCode: string
 }
 
+/**
+ * Quan hệ cha–con SUY RA từ thụt lề tên trong `TestCode.json` / `TestCodeNew.json`.
+ *
+ * Hệ cũ không khai báo hầu hết các nhóm ở `Profile.json`/`ProfileTest.json` (chỉ có
+ * đúng 2 nhóm thật ở đó). Quan hệ còn lại — 002HD (Tổng phân tích tế bào máu ngoại
+ * vi), 400TPTNT, 920IONDO... — chỉ tồn tại qua cách trình bày: một dòng có
+ * `TestHead = true` là mã cha, các dòng NGAY SAU nó có `TestName` bắt đầu bằng
+ * khoảng trắng là con của nó, cho tới khi gặp một mã cha khác hoặc một dòng tên
+ * không thụt lề. Đây là ĐỀ XUẤT do suy luận cách trình bày, không phải khai báo
+ * thật — bộ ghi đánh dấu `source='legacy-inferred'`, `confirmed=false`.
+ */
+export interface LegacyInferredProfileMember {
+  profileCode: string
+  analyteCode: string
+}
+
 export interface LegacyHisMap {
   hisCode: string
   analyteCode: string
@@ -158,6 +174,14 @@ export interface LegacySource {
    * để `?` chỉ vì các bộ nguồn dựng tay trong test không khai trường này.
    */
   droppedRows?: LegacyDroppedRow[]
+  /**
+   * Các "nhóm" cha–con suy ra từ thụt lề — mỗi mã cha có ít nhất một con, kèm tên
+   * (lấy từ tên xét nghiệm của chính mã cha đó trong `analytes`). Để `?` vì cùng lý
+   * do với `droppedRows`; `loadLegacySource` luôn điền.
+   */
+  inferredProfiles?: LegacyProfile[]
+  /** Quan hệ cha–con suy ra, xem `LegacyInferredProfileMember`. `loadLegacySource` luôn điền. */
+  inferredProfileMembers?: LegacyInferredProfileMember[]
 }
 
 /**
@@ -225,6 +249,44 @@ function missingReason(missing: string[]): string {
   return `thiếu ${missing.join(' và ')}`
 }
 
+/**
+ * Theo dõi mã cha "đang mở" khi đọc TUẦN TỰ một tệp danh mục, để suy ra quan hệ
+ * cha–con từ thụt lề tên. Trạng thái được RESET riêng cho mỗi tệp (`TestCode.json`
+ * và `TestCodeNew.json` là hai danh sách độc lập; dòng cuối của tệp này không phải
+ * cha của dòng đầu tệp kia).
+ *
+ * Quy tắc, áp cho từng dòng theo đúng thứ tự xuất hiện trong tệp:
+ *   - `TestHead = true`: dòng này MỞ một mã cha mới — mọi dòng thụt lề sau đó, cho
+ *     tới khi chuỗi bị đóng, là con của nó.
+ *   - Dòng có mã và tên, tên bắt đầu bằng khoảng trắng, VÀ đang có mã cha mở: đây
+ *     là một con — ghi nhận quan hệ.
+ *   - Dòng có mã và tên nhưng tên KHÔNG thụt lề: đóng chuỗi (mã cha đang mở, nếu
+ *     có, không còn nhận thêm con nữa).
+ *   - Dòng thiếu mã hoặc thiếu tên (đã bị loại ở khâu đọc, xem `droppedRows`): BỎ
+ *     QUA, không đóng chuỗi. Dữ liệu thật có đúng trường hợp này — `780FSH-1..3`
+ *     là con thật của `780FSH` nhưng `TestName = null` ở nguồn nên bị loại; coi
+ *     dòng đó là "đóng chuỗi" sẽ xoá luôn quan hệ của những con thụt lề còn lại
+ *     nằm SAU nó trong cùng nhóm.
+ */
+class ProfileChainTracker {
+  private currentHead: string | null = null
+  readonly relations: LegacyInferredProfileMember[] = []
+
+  observe(row: Record<string, unknown>, code: string | null, rawName: unknown, name: string | null): void {
+    if (row.TestHead === true) {
+      this.currentHead = code
+      return
+    }
+    if (!code || !name) return // dòng bị loại — không đóng chuỗi, xem ghi chú ở trên
+    const indented = typeof rawName === 'string' && /^\s/.test(rawName)
+    if (indented && this.currentHead) {
+      this.relations.push({ profileCode: this.currentHead, analyteCode: code })
+      return
+    }
+    if (!indented) this.currentHead = null
+  }
+}
+
 export function loadLegacySource(dir: string): LegacySource {
   const droppedRows: LegacyDroppedRow[] = []
   const drop = (
@@ -239,6 +301,7 @@ export function loadLegacySource(dir: string): LegacySource {
 
   const analytes: LegacyAnalyte[] = []
   const analyteCodesSeen = new Set<string>()
+  const profileChain = new ProfileChainTracker()
 
   // Đọc TestCode.json (danh mục cũ đang dùng) — ưu tiên cao
   {
@@ -248,6 +311,7 @@ export function loadLegacySource(dir: string): LegacySource {
       index += 1
       const code = cleanString(r.TestCode)
       const name = cleanString(r.TestName)
+      profileChain.observe(r, code, r.TestName, name)
       // Dòng không có mã hoặc không có tên thì không dựng được bản ghi — nhưng KHÔNG
       // được bỏ trong im lặng: ghi lại để người vận hành đối chiếu với hệ cũ.
       if (!code || !name) {
@@ -290,6 +354,9 @@ export function loadLegacySource(dir: string): LegacySource {
   // mà không có ở TestCode, ví dụ: 131TPHA (giang mai), 141ULeu (bạch cầu niệu).
   // Cột TestCodeNew chứa mã đổi tên — ánh xạ từ mã này sang mã chính ở cột TestCode.
   const analyteAliases: LegacyAnalyteAlias[] = []
+  // Tracker riêng: `TestCode.json` và `TestCodeNew.json` là hai danh sách độc lập,
+  // dòng cuối tệp này không phải mã cha của dòng đầu tệp kia.
+  const profileChainNew = new ProfileChainTracker()
   {
     const file = 'TestCodeNew.json'
     let index = -1
@@ -297,6 +364,7 @@ export function loadLegacySource(dir: string): LegacySource {
       index += 1
       const code = cleanString(r.TestCode)
       const name = cleanString(r.TestName)
+      profileChainNew.observe(r, code, r.TestName, name)
       if (!code || !name) {
         const missing: string[] = []
         if (!code) missing.push('mã xét nghiệm (cột TestCode)')
@@ -510,6 +578,18 @@ export function loadLegacySource(dir: string): LegacySource {
     }
   }
 
+  // Gộp quan hệ suy diễn của cả hai tệp, rồi dựng danh sách "nhóm" (mã cha + tên).
+  // Tên nhóm lấy từ chính tên xét nghiệm của mã cha trong `analytes` — mã cha luôn
+  // là một xét nghiệm hợp lệ (có tên) trong dữ liệu thật, vì chính nó đã qua được
+  // kiểm tra "đủ mã và tên" ở vòng lặp đọc phía trên.
+  const inferredProfileMembers = [...profileChain.relations, ...profileChainNew.relations]
+  const analyteNameByCode = new Map(analytes.map((a) => [a.code, a.name]))
+  const inferredHeadCodes = [...new Set(inferredProfileMembers.map((m) => m.profileCode))]
+  const inferredProfiles: LegacyProfile[] = inferredHeadCodes.map((code) => ({
+    code,
+    name: analyteNameByCode.get(code) ?? code,
+  }))
+
   return {
     analytes,
     instruments,
@@ -518,6 +598,8 @@ export function loadLegacySource(dir: string): LegacySource {
     resultMappings,
     profiles,
     profileTests,
+    inferredProfiles,
+    inferredProfileMembers,
     hisMaps,
     analyteAliases,
     droppedRows,
