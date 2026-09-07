@@ -450,21 +450,58 @@ describe('PATCH /api/catalogue/analytes/:code', () => {
       .expect(404)
   })
 
-  it('đánh dấu nguồn thành manual sau khi người dùng sửa', async () => {
+  it('đánh dấu đã sửa tay nhưng GIỮ NGUYÊN nguồn gốc', async () => {
+    // `source` là quá khứ không đổi được (dòng này đến từ bảng nào của hệ cũ);
+    // `manuallyEdited` là việc đã làm. Ghi đè `source` thành 'manual' mỗi lần
+    // sửa sẽ làm mòn dần chính bộ lọc dùng để thu hẹp danh mục 2619 dòng.
     const fromLegacy = await request(app.getHttpServer())
       .patch('/api/catalogue/analytes/123AST')
       .set(authA())
       .send({ normalRangeText: '5 - 40 U/L' })
       .expect(200)
-    expect(fromLegacy.body.source).toBe('manual')
+    expect(fromLegacy.body.source).toBe('legacy')
+    expect(fromLegacy.body.manuallyEdited).toBe(true)
 
-    // Nguồn 'legacy-new' (bảng danh mục thứ hai của hệ cũ) cũng phải đổi.
+    // Nguồn 'legacy-new' (bảng danh mục thứ hai của hệ cũ) cũng phải giữ nguyên.
     const fromLegacyNew = await request(app.getHttpServer())
       .patch('/api/catalogue/analytes/XNNT21A01')
       .set(authA())
       .send({ name: 'Nước tiểu mẫu chữ A (đã sửa)' })
       .expect(200)
-    expect(fromLegacyNew.body.source).toBe('manual')
+    expect(fromLegacyNew.body.source).toBe('legacy-new')
+    expect(fromLegacyNew.body.manuallyEdited).toBe(true)
+
+    // Và lọc theo dòng đã sửa tay phải tìm được đúng hai dòng vừa sửa.
+    const edited = await request(app.getHttpServer())
+      .get('/api/catalogue/analytes?manuallyEdited=true')
+      .set(authA())
+      .expect(200)
+    const codes = edited.body.items.map((i: { code: string }) => i.code)
+    expect(codes).toContain('123AST')
+    expect(codes).toContain('XNNT21A01')
+  })
+
+  it('lọc theo nguồn gốc và theo tình trạng còn dùng', async () => {
+    const legacyOnly = await request(app.getHttpServer())
+      .get('/api/catalogue/analytes?source=legacy')
+      .set(authA())
+      .expect(200)
+    expect(legacyOnly.body.total).toBeGreaterThan(0)
+    for (const item of legacyOnly.body.items) expect(item.source).toBe('legacy')
+
+    // Giá trị lạ KHÔNG được coi là bộ lọc: trả về danh mục rỗng sẽ làm người
+    // dùng tưởng danh mục trống thật.
+    const rac = await request(app.getHttpServer())
+      .get('/api/catalogue/analytes?source=khong-co-that')
+      .set(authA())
+      .expect(200)
+    expect(rac.body.total).toBe(SEED_ANALYTES.length)
+
+    const dangDung = await request(app.getHttpServer())
+      .get('/api/catalogue/analytes?active=true')
+      .set(authA())
+      .expect(200)
+    for (const item of dangDung.body.items) expect(item.active).toBe(true)
   })
 
   it('từ chối khi không có token', async () => {
@@ -830,8 +867,10 @@ describe('nhật ký sửa đổi danh mục', () => {
     expect(new Date(log!.changed_at).getTime()).toBeGreaterThanOrEqual(truocKhiSua - 1000)
     expect(log!.before_value.unit).toBe(unitTruoc)
     expect(log!.after_value.unit).toBe('don-vi-moi-de-truy-vet')
-    // Cả việc đổi nguồn sang 'manual' cũng phải nằm trong vết.
-    expect(log!.after_value.source).toBe('manual')
+    // Việc đánh dấu đã sửa tay cũng phải nằm trong vết, còn nguồn gốc thì giữ
+    // nguyên — nhật ký ghi lại đúng những gì thật sự đổi.
+    expect(log!.after_value.manually_edited).toBe(true)
+    expect(log!.after_value.source).toBe(log!.before_value.source)
   })
 
   it('ghi vết cho mã chứa ký tự đại diện đúng dòng của nó', async () => {

@@ -16,6 +16,7 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { JwtTenantGuard, withTenant } from '../auth/jwt-tenant.guard.js'
+import type { AnalyteSource } from '../tenant/tenant-schema.js'
 import { type CatalogueActor, CatalogueService } from './catalogue.service.js'
 
 interface TenantRequest {
@@ -57,6 +58,31 @@ function parseOffset(raw: string | undefined): number {
   return Math.floor(value)
 }
 
+const ANALYTE_SOURCES = ['legacy', 'legacy-new', 'manual'] as const
+
+/**
+ * Đọc bộ lọc nguồn gốc, chỉ chấp nhận đúng ba giá trị hợp lệ.
+ *
+ * Giá trị lạ cho ra `undefined` nghĩa là KHÔNG LỌC, thay vì lọc theo một chuỗi
+ * không khớp gì rồi trả về danh mục rỗng — người dùng sẽ tưởng danh mục trống.
+ */
+function parseSourceFilter(raw: string | undefined): AnalyteSource | undefined {
+  return ANALYTE_SOURCES.find((s) => s === raw)
+}
+
+/**
+ * Đọc một tham số lọc kiểu đúng/sai từ query string.
+ *
+ * Thiếu tham số, hoặc giá trị không hiểu được, đều cho ra `undefined` nghĩa là
+ * KHÔNG LỌC. Cố tình không đoán: coi một giá trị lạ thành `false` sẽ âm thầm
+ * giấu bớt dòng khỏi danh mục mà người dùng không hề yêu cầu.
+ */
+function parseBoolFilter(raw: string | undefined): boolean | undefined {
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  return undefined
+}
+
 @Controller('api/catalogue')
 @UseGuards(JwtTenantGuard)
 export class CatalogueController {
@@ -70,6 +96,9 @@ export class CatalogueController {
     @Req() req: TenantRequest,
     @Query('q') q?: string,
     @Query('category') category?: string,
+    @Query('source') source?: string,
+    @Query('active') active?: string,
+    @Query('manuallyEdited') manuallyEdited?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
@@ -77,6 +106,9 @@ export class CatalogueController {
       this.catalogue.searchAnalytes(req.tenantId, {
         q: typeof q === 'string' ? q : undefined,
         category: typeof category === 'string' && category !== '' ? category : undefined,
+        source: parseSourceFilter(source),
+        active: parseBoolFilter(active),
+        manuallyEdited: parseBoolFilter(manuallyEdited),
         limit: parseLimit(limit),
         offset: parseOffset(offset),
       }),

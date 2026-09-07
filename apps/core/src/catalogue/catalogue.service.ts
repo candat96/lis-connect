@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common'
 import type { Kysely, Transaction } from 'kysely'
 import { TenantRegistryService } from '../tenant/tenant-registry.service.js'
-import type { TenantDatabase } from '../tenant/tenant-schema.js'
+import type { AnalyteSource, TenantDatabase } from '../tenant/tenant-schema.js'
 
 /** Người thực hiện thay đổi, lấy từ JWT đã được JwtTenantGuard xác thực. */
 export interface CatalogueActor {
@@ -36,6 +36,15 @@ export interface AnalyteView {
   /** 'legacy' | 'legacy-new' | 'manual' — xem AnalyteSource. */
   source: string
   active: boolean
+  /**
+   * Dòng này đã bị sửa tay so với bản di trú hay chưa.
+   *
+   * Tách khỏi `source`: `source` giữ nguồn gốc (dòng đến từ bảng nào của hệ cũ)
+   * và không đổi khi người dùng sửa, còn cờ này giữ vết đã can thiệp. Trước đây
+   * mỗi lần sửa là `source` bị ép về 'manual', xoá vĩnh viễn thông tin nguồn gốc
+   * — mà nguồn gốc lại chính là thứ dùng để lọc bớt 2619 dòng.
+   */
+  manuallyEdited: boolean
 }
 
 export interface AnalyteSearchResult {
@@ -94,6 +103,25 @@ export interface ResultRuleView {
 export interface AnalyteSearchQuery {
   q?: string | undefined
   category?: string | undefined
+  /**
+   * Lọc theo nguồn gốc dòng danh mục.
+   *
+   * Đây là lý do duy nhất khiến việc di trú cả hai bảng danh mục của hệ cũ
+   * (390 + 2229 mã) là chấp nhận được: kỹ thuật viên phải thu hẹp được về đúng
+   * bảng mình quan tâm. Không có bộ lọc này thì 2619 dòng là một đống không
+   * dùng nổi.
+   */
+  source?: AnalyteSource | undefined
+  /**
+   * Lọc theo tình trạng còn dùng.
+   *
+   * `undefined` = không lọc (mặc định, để không giấu dữ liệu sau lưng người
+   * dùng). Hệ cũ có 17 xét nghiệm đã ngừng; chúng phải xem được và phân biệt
+   * được, chứ không phải biến mất.
+   */
+  active?: boolean | undefined
+  /** Lọc riêng những dòng đã bị sửa tay so với bản di trú. */
+  manuallyEdited?: boolean | undefined
   limit: number
   offset: number
 }
@@ -217,6 +245,15 @@ export class CatalogueService {
     if (query.category) {
       base = base.where('category', '=', query.category)
     }
+    if (query.source) {
+      base = base.where('source', '=', query.source)
+    }
+    if (query.active !== undefined) {
+      base = base.where('active', '=', query.active)
+    }
+    if (query.manuallyEdited !== undefined) {
+      base = base.where('manually_edited', '=', query.manuallyEdited)
+    }
 
     // Phân trang và lọc chạy phía máy chủ: danh mục thật có hơn 2600 dòng nên
     // không endpoint nào được trả toàn bộ.
@@ -281,9 +318,14 @@ export class CatalogueService {
       throw new BadRequestException('không có trường nào hợp lệ để cập nhật')
     }
 
-    // Giữ vết dòng nào đã bị sửa tay so với bản di trú: mọi bản ghi người dùng
-    // đụng vào đều chuyển sang 'manual', kể cả khi nguồn là 'legacy-new'.
-    patch.source = 'manual'
+    // Giữ vết dòng đã bị sửa tay bằng một cột RIÊNG, không ghi đè `source`.
+    //
+    // Trước đây chỗ này đặt `source = 'manual'`, làm mất vĩnh viễn thông tin
+    // dòng đó đến từ bảng nào của hệ cũ. Mà `source` lại chính là bộ lọc được
+    // hứa dùng để thu hẹp danh mục 2619 dòng — dùng càng lâu thì bộ lọc càng
+    // mòn, cho tới lúc mọi dòng đều là 'manual' và nó vô dụng. Hai thông tin
+    // này độc lập: nguồn gốc là quá khứ không đổi được, sửa tay là việc đã làm.
+    patch.manually_edited = true
 
     const db = await this.registry.forTenant(tenantId)
     return db.transaction().execute(async (trx) => {
@@ -780,6 +822,7 @@ function toAnalyteView(row: {
   is_profile_head: boolean
   source: string
   active: boolean
+  manually_edited: boolean
 }): AnalyteView {
   return {
     code: row.code,
@@ -800,5 +843,6 @@ function toAnalyteView(row: {
     isProfileHead: row.is_profile_head,
     source: row.source,
     active: row.active,
+    manuallyEdited: row.manually_edited,
   }
 }
