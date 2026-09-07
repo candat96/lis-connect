@@ -250,7 +250,7 @@ export function CatalogueResultRules({
       const list = await catalogueApi.resultRules(selectedId)
       setRules(list)
       setNotice(
-        `Đã lưu luật: ${payload.analyteCode} — máy trả về “${payload.resultIn}” sẽ hiển thị “${payload.resultOut ?? '(giữ nguyên)'}”.`,
+        `Đã lưu cách dịch: ${payload.analyteCode} — máy trả về “${payload.resultIn}” sẽ hiển thị “${payload.resultOut ?? '(giữ nguyên)'}”.`,
       )
       closeEditor()
     } catch (err: unknown) {
@@ -273,7 +273,7 @@ export function CatalogueResultRules({
       setRules(list)
       setPendingDelete(null)
       setNotice(
-        `Đã xoá luật ${target.analyteCode} / “${target.resultIn}”. Từ giờ giá trị này được giữ nguyên như máy trả về.`,
+        `Đã xoá cách dịch ${target.analyteCode} / “${target.resultIn}”. Từ giờ giá trị này được giữ nguyên như máy trả về.`,
       )
     } catch (err: unknown) {
       setPendingDelete(null)
@@ -289,11 +289,11 @@ export function CatalogueResultRules({
 
   return (
     <section className="panel">
-      <h2>Luật ghi đè kết quả</h2>
+      <h2>Dịch kết quả máy</h2>
 
       <p className="field-hint">
-        Luật ghi đè biến giá trị thô máy trả về thành kết quả hiển thị cho bác sĩ. Ví dụ: máy trả về{' '}
-        <code>neg</code> → hiển thị <code>Âm tính</code>.
+        Máy trả về <code>neg</code>, phiếu cần hiện <code>Âm tính</code>. Bảng này quy định cách
+        dịch đó — dịch chữ máy gửi sang chữ bác sĩ đọc, chứ không sửa gì trong dữ liệu gốc.
       </p>
 
       <div className="toolbar">
@@ -329,7 +329,7 @@ export function CatalogueResultRules({
             </span>
             <button type="button" className="btn" onClick={startCreate} disabled={form !== null}>
               <PlusIcon />
-              Thêm luật mới
+              Thêm cách dịch
             </button>
           </div>
         )}
@@ -354,7 +354,7 @@ export function CatalogueResultRules({
           <WarningTriangleIcon className="notice-icon" />
           <div>
             <p>
-              <strong>Không tải được danh sách luật.</strong> {loadError}
+              <strong>Không tải được danh sách cách dịch.</strong> {loadError}
             </p>
             <button type="button" className="btn btn-sm" onClick={() => load(selectedId)}>
               Thử lại
@@ -364,15 +364,16 @@ export function CatalogueResultRules({
       )}
 
       {selectedId === '' && (
-        <p className="empty">Chọn một máy để xem các luật ghi đè đang áp dụng cho máy đó.</p>
+        <p className="empty">Chọn một máy để xem các cách dịch đang áp dụng cho máy đó.</p>
       )}
 
       {selectedId !== '' && commonCount > 0 && (
         <div className="notice notice-warn" role="status">
           <GlobeIcon className="notice-icon" />
           <p>
-            Trong bảng dưới có <strong>{commonCount} luật chung</strong> — chúng áp cho MỌI máy chứ
-            không riêng {selectedDevice?.name ?? 'máy này'}. Sửa hay xoá một luật chung sẽ đổi cách
+            Trong bảng dưới có <strong>{commonCount} cách dịch dùng chung</strong> — chúng áp cho
+            MỌI máy chứ không riêng {selectedDevice?.name ?? 'máy này'}. Sửa hay xoá một dòng dùng
+            chung sẽ đổi cách
             diễn giải kết quả của tất cả các máy trong bệnh viện.
           </p>
         </div>
@@ -381,7 +382,7 @@ export function CatalogueResultRules({
       {form && (
         <div className="editor">
           <h3 className="editor-title">
-            {creating ? 'Thêm luật ghi đè mới' : 'Sửa luật ghi đè'}
+            {creating ? 'Thêm một cách dịch mới' : 'Sửa cách dịch'}
           </h3>
 
           {saveError && (
@@ -395,7 +396,7 @@ export function CatalogueResultRules({
             <div className="notice notice-warn" role="status">
               <GlobeIcon className="notice-icon" />
               <p>
-                <strong>Đây là luật CHUNG.</strong> Nó áp cho mọi máy trong bệnh viện, không chỉ{' '}
+                <strong>Dòng này DÙNG CHUNG.</strong> Nó áp cho mọi máy trong bệnh viện, không chỉ{' '}
                 {selectedDevice?.name ?? 'máy đang chọn'}. Bạn sẽ được hỏi xác nhận một lần nữa
                 trước khi lưu.
               </p>
@@ -413,7 +414,7 @@ export function CatalogueResultRules({
                 <option value="device">
                   Chỉ máy {selectedDevice?.name ?? 'đang chọn'}
                 </option>
-                <option value="common">Luật chung — áp cho mọi máy</option>
+                <option value="common">Dùng chung — áp cho mọi máy</option>
               </select>
             </div>
 
@@ -495,7 +496,7 @@ export function CatalogueResultRules({
               disabled={saving}
             >
               {saving && <span className="spinner" />}
-              {saving ? 'Đang lưu...' : 'Lưu luật'}
+              {saving ? 'Đang lưu...' : 'Lưu cách dịch'}
             </button>
             <button type="button" className="btn" onClick={closeEditor} disabled={saving}>
               Huỷ
@@ -506,7 +507,7 @@ export function CatalogueResultRules({
 
       {selectedId !== '' && !loadError && (
         <>
-          {loading && <p className="loading-text">Đang tải danh sách luật...</p>}
+          {loading && <p className="loading-text">Đang tải danh sách cách dịch...</p>}
           {!loading && (
             <div className="table-wrap">
               <table className="table">
@@ -569,14 +570,14 @@ export function CatalogueResultRules({
                       <td colSpan={7} className="empty-cell">
                         <p>
                           <strong>
-                            Máy {selectedDevice?.name ?? 'này'} chưa có luật ghi đè nào, và cũng
-                            chưa có luật chung nào áp lên nó.
+                            Máy {selectedDevice?.name ?? 'này'} chưa có cách dịch nào, và cũng
+                            chưa có cách dịch dùng chung nào áp lên nó.
                           </strong>{' '}
                           Kết quả sẽ được hiển thị đúng như máy trả về.
                         </p>
                         <p>
-                          Ví dụ một luật thường dùng: xét nghiệm HPV, máy trả về <code>neg</code> →
-                          hiển thị <code>Âm tính</code>, màu “Bình thường”. Bấm “Thêm luật mới” để
+                          Ví dụ thường gặp: xét nghiệm HPV, máy trả về <code>neg</code> → hiển thị{' '}
+                          <code>Âm tính</code>, màu “Bình thường”. Bấm “Thêm cách dịch” để
                           tạo.
                         </p>
                       </td>
@@ -592,9 +593,9 @@ export function CatalogueResultRules({
       {pendingSave && (
         <div className="dialog-backdrop" role="presentation">
           <div className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="common-save-title">
-            <h3 id="common-save-title">Xác nhận: đây là luật áp cho MỌI máy</h3>
+            <h3 id="common-save-title">Xác nhận: dòng này áp cho MỌI máy</h3>
             <p>
-              Luật <span className="code-inline">{pendingSave.payload.analyteCode}</span> — máy trả
+              Cách dịch <span className="code-inline">{pendingSave.payload.analyteCode}</span> — máy trả
               về <span className="code-inline">{pendingSave.payload.resultIn}</span> sẽ được áp dụng
               cho <strong>tất cả các máy xét nghiệm trong bệnh viện</strong>, không chỉ{' '}
               {selectedDevice?.name ?? 'máy đang chọn'}.
@@ -619,7 +620,7 @@ export function CatalogueResultRules({
                 disabled={saving}
               >
                 {saving && <span className="spinner" />}
-                Tôi hiểu — lưu luật chung
+                Tôi hiểu — lưu dòng dùng chung
               </button>
             </div>
           </div>
@@ -629,7 +630,7 @@ export function CatalogueResultRules({
       {pendingDelete && (
         <div className="dialog-backdrop" role="presentation">
           <div className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="rule-delete-title">
-            <h3 id="rule-delete-title">Xoá luật ghi đè?</h3>
+            <h3 id="rule-delete-title">Xoá cách dịch này?</h3>
             <p>
               Xét nghiệm <span className="code-inline">{pendingDelete.analyteCode}</span>, máy trả
               về <span className="code-inline">{pendingDelete.resultIn}</span> →{' '}
@@ -639,7 +640,7 @@ export function CatalogueResultRules({
               <div className="notice notice-warn" role="status">
                 <GlobeIcon className="notice-icon" />
                 <p>
-                  <strong>Đây là luật CHUNG.</strong> Xoá nó sẽ đổi cách diễn giải kết quả của MỌI
+                  <strong>Dòng này DÙNG CHUNG.</strong> Xoá nó sẽ đổi cách diễn giải kết quả của MỌI
                   máy trong bệnh viện, không chỉ {selectedDevice?.name ?? 'máy đang chọn'}.
                 </p>
               </div>
@@ -664,7 +665,7 @@ export function CatalogueResultRules({
                 disabled={saving}
               >
                 {saving && <span className="spinner" />}
-                Xoá luật
+                Xoá cách dịch
               </button>
             </div>
           </div>

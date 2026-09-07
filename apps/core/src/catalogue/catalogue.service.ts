@@ -266,8 +266,8 @@ const PG_UNIQUE_VIOLATION = '23505'
 const PG_FOREIGN_KEY_VIOLATION = '23503'
 
 const SCOPE_LABEL = {
-  device: 'Luật riêng của máy này',
-  common: 'Luật chung (áp dụng cho mọi máy)',
+  device: 'Chỉ áp cho máy này',
+  common: 'Dùng chung — áp cho mọi máy',
 } as const
 
 const CHANNEL_STATE_LABEL = {

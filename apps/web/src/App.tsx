@@ -26,12 +26,23 @@ const REFRESH_MS = 5000
  */
 type View = 'devices' | 'analytes' | 'channels' | 'rules' | 'his-map' | 'profiles'
 
+/**
+ * Tên màn hình đặt theo VIỆC người dùng cần làm, không theo tên bảng dữ liệu.
+ *
+ * Bộ tên cũ ("Ánh xạ mã kênh", "Ánh xạ mã HIS", "Luật ghi đè kết quả") là từ
+ * ngữ trong đầu người viết code. Chủ dự án — chính là kỹ thuật viên xét
+ * nghiệm, đúng đối tượng phần mềm phục vụ — đọc xong nói "làm giao diện tôi
+ * chả hiểu gì". Người dùng không hiểu thì tên sai, không phải người dùng sai.
+ *
+ * Hai màn hình nối hai thứ với nhau dùng chung lối đặt tên "A ↔ B" và đứng
+ * cạnh nhau, để đối chiếu được: một bên là máy, một bên là phần mềm bệnh viện.
+ */
 const VIEW_TABS: Array<{ id: View; label: string }> = [
   { id: 'devices', label: 'Theo dõi máy' },
   { id: 'analytes', label: 'Danh mục xét nghiệm' },
-  { id: 'channels', label: 'Ánh xạ mã kênh' },
-  { id: 'rules', label: 'Luật ghi đè kết quả' },
-  { id: 'his-map', label: 'Ánh xạ mã HIS' },
+  { id: 'channels', label: 'Máy ↔ Xét nghiệm' },
+  { id: 'his-map', label: 'Bệnh viện ↔ Xét nghiệm' },
+  { id: 'rules', label: 'Dịch kết quả máy' },
   { id: 'profiles', label: 'Nhóm xét nghiệm' },
 ]
 

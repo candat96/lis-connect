@@ -331,7 +331,7 @@ export function CatalogueChannelMap({
     try {
       await catalogueApi.putChannel(selectedId, channelCode, payload)
       await reloadSelected(selectedId)
-      setNotice(`Đã lưu ánh xạ: mã kênh ${channelCode} → xét nghiệm ${payload.analyteCode}.`)
+      setNotice(`Đã lưu: kênh ${channelCode} của máy này từ nay là xét nghiệm ${payload.analyteCode}.`)
       closeEditor()
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 409) {
@@ -366,13 +366,13 @@ export function CatalogueChannelMap({
       await catalogueApi.putChannel(selectedId, conflict.channelCode, conflict.payload)
       await reloadSelected(selectedId)
       setNotice(
-        `Đã xoá ánh xạ cũ của mã kênh ${conflict.channelCode} và gán lại cho xét nghiệm ${conflict.targetAnalyteCode}.`,
+        `Đã bỏ liên kết cũ của kênh ${conflict.channelCode} và gán lại cho xét nghiệm ${conflict.targetAnalyteCode}.`,
       )
       setConflict(null)
       closeEditor()
     } catch (err: unknown) {
       setSaveError(
-        `CHƯA LƯU — không đổi được ánh xạ: ${errorMessageOf(err)} Hãy kiểm tra lại danh sách kênh bên dưới trước khi thử tiếp.`,
+        `CHƯA LƯU — không đổi được liên kết: ${errorMessageOf(err)} Hãy kiểm tra lại danh sách kênh bên dưới trước khi thử tiếp.`,
       )
       setConflict(null)
       if (selectedId) await reloadSelected(selectedId).catch(() => undefined)
@@ -391,7 +391,7 @@ export function CatalogueChannelMap({
       setPendingDelete(null)
       setUndoable({ channel: target })
       setNotice(
-        `Đã xoá ánh xạ mã kênh ${target.channelCode}. Từ giờ kết quả máy gửi ở kênh này sẽ không vào xét nghiệm nào.`,
+        `Đã bỏ liên kết của kênh ${target.channelCode}. Từ giờ kết quả máy gửi ở kênh này sẽ không vào xét nghiệm nào.`,
       )
     } catch (err: unknown) {
       setPendingDelete(null)
@@ -417,7 +417,7 @@ export function CatalogueChannelMap({
       })
       await reloadSelected(selectedId)
       setUndoable(null)
-      setNotice(`Đã khôi phục ánh xạ mã kênh ${channel.channelCode} → ${channel.analyteCode}.`)
+      setNotice(`Đã nối lại kênh ${channel.channelCode} với xét nghiệm ${channel.analyteCode}.`)
     } catch (err: unknown) {
       setSaveError(`KHÔNG HOÀN TÁC ĐƯỢC — ${errorMessageOf(err)}`)
     } finally {
@@ -431,12 +431,13 @@ export function CatalogueChannelMap({
 
   return (
     <section className="panel">
-      <h2>Ánh xạ mã kênh máy → xét nghiệm</h2>
+      <h2>Máy ↔ Xét nghiệm</h2>
 
       <p className="field-hint">
-        Máy xét nghiệm gửi kết quả kèm một mã kênh (ví dụ <code>01</code>, <code>GLU</code>). Nếu mã
-        kênh chưa được gán cho xét nghiệm nào thì kết quả về tới hệ thống nhưng KHÔNG hiện lên ở đâu
-        cả — đó là nguyên nhân thường gặp nhất.
+        Máy xét nghiệm không biết mã dịch vụ của bệnh viện. Khi trả kết quả về, nó chỉ gửi mã kênh
+        riêng của nó — ví dụ máy AU640 gửi <code>19</code>. Bảng này cho phần mềm biết kênh{' '}
+        <code>19</code> của máy AU640 chính là xét nghiệm LDL-C. Thiếu dòng này thì kết quả máy gửi
+        về sẽ không hiện lên phiếu của bệnh nhân.
       </p>
 
       {overviewError && (
@@ -533,7 +534,7 @@ export function CatalogueChannelMap({
         <div className="split-main">
           {!selectedDevice && (
             <p className="empty">
-              Chọn một máy ở cột bên trái để xem và sửa bảng ánh xạ mã kênh của máy đó.
+              Chọn một máy ở cột bên trái để xem và sửa bảng kênh của máy đó.
             </p>
           )}
 
@@ -675,8 +676,8 @@ export function CatalogueChannelMap({
                 <div className="editor" style={{ borderTop: 'none' }}>
                   <h4 className="editor-title">
                     {editing.channelCode === null
-                      ? 'Thêm ánh xạ mã kênh mới'
-                      : `Sửa ánh xạ mã kênh ${editing.channelCode}`}
+                      ? 'Thêm một kênh mới của máy này'
+                      : `Sửa kênh ${editing.channelCode}`}
                   </h4>
 
                   {saveError && (
@@ -786,7 +787,7 @@ export function CatalogueChannelMap({
                       disabled={saving}
                     >
                       {saving && <span className="spinner" />}
-                      {saving ? 'Đang lưu...' : 'Lưu ánh xạ'}
+                      {saving ? 'Đang lưu...' : 'Lưu'}
                     </button>
                     <button type="button" className="btn" onClick={closeEditor} disabled={saving}>
                       Huỷ
@@ -889,8 +890,8 @@ export function CatalogueChannelMap({
                             <>
                               <p>
                                 <strong>
-                                  Máy này chưa có mã kênh nào được ánh xạ. Mọi kết quả máy gửi lên
-                                  sẽ không vào xét nghiệm nào.
+                                  Máy này chưa khai kênh nào. Mọi kết quả máy gửi lên sẽ không
+                                  vào xét nghiệm nào.
                                 </strong>
                               </p>
                               <p>
@@ -918,7 +919,7 @@ export function CatalogueChannelMap({
       {conflict && (
         <div className="dialog-backdrop" role="presentation">
           <div className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="conflict-title">
-            <h3 id="conflict-title">Không gán được — mã kênh này đã có ánh xạ</h3>
+            <h3 id="conflict-title">Không gán được — kênh này đã gán cho xét nghiệm khác</h3>
             {conflict.currentAnalyteCode !== null ? (
               <p>
                 Mã kênh <span className="code-inline">{conflict.channelCode}</span> của máy này{' '}
@@ -929,18 +930,18 @@ export function CatalogueChannelMap({
             ) : (
               <p>
                 Mã kênh <span className="code-inline">{conflict.channelCode}</span> của máy này đã
-                có sẵn một dòng ánh xạ và máy chủ không cho ghi đè trực tiếp lên dòng đó.
+                đã gán cho một xét nghiệm và máy chủ không cho ghi chồng lên dòng đó.
               </p>
             )}
             <p>
-              Hệ thống <strong>cố tình không cho ghi đè trong im lặng</strong>: phần mềm LIS cũ cho
+              Hệ thống <strong>cố tình không cho ghi chồng trong im lặng</strong>: phần mềm LIS cũ cho
               phép hai xét nghiệm dùng chung một mã kênh rồi tự chọn bừa một cái, và chính chỗ đó
               làm kết quả về nhầm ô — dữ liệu thật của bệnh viện có 7 cặp như vậy phải nhờ người gỡ
               tay.
             </p>
             <p>
               Muốn chuyển mã kênh này sang xét nghiệm{' '}
-              <span className="code-inline">{conflict.targetAnalyteCode}</span>, phải xoá ánh xạ cũ
+              <span className="code-inline">{conflict.targetAnalyteCode}</span>, phải bỏ liên kết cũ
               trước — đây là một hành động có chủ ý và được ghi vào nhật ký sửa đổi.
             </p>
             <p className="field-hint">Máy chủ trả về: {conflict.serverMessage}</p>
@@ -951,7 +952,7 @@ export function CatalogueChannelMap({
                 onClick={() => setConflict(null)}
                 disabled={saving}
               >
-                Giữ nguyên ánh xạ cũ
+                Giữ nguyên như cũ
               </button>
               <button
                 type="button"
@@ -960,7 +961,7 @@ export function CatalogueChannelMap({
                 disabled={saving}
               >
                 {saving && <span className="spinner" />}
-                Xoá ánh xạ cũ rồi gán {conflict.targetAnalyteCode}
+                Bỏ liên kết cũ rồi gán {conflict.targetAnalyteCode}
               </button>
             </div>
           </div>
@@ -970,7 +971,7 @@ export function CatalogueChannelMap({
       {pendingDelete && (
         <div className="dialog-backdrop" role="presentation">
           <div className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title">
-            <h3 id="delete-title">Xoá ánh xạ mã kênh?</h3>
+            <h3 id="delete-title">Bỏ liên kết của kênh này?</h3>
             <p>
               Mã kênh <span className="code-inline">{pendingDelete.channelCode}</span>
               {pendingDelete.analyteCode !== null && (
@@ -1003,7 +1004,7 @@ export function CatalogueChannelMap({
                 disabled={saving}
               >
                 {saving && <span className="spinner" />}
-                Xoá ánh xạ
+                Bỏ liên kết
               </button>
             </div>
           </div>

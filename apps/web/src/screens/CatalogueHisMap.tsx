@@ -256,7 +256,7 @@ export function CatalogueHisMap(): JSX.Element {
       closeEditor()
       await refreshAll()
     } catch (err: unknown) {
-      setSaveError(`CHƯA LƯU — không sửa được dòng ánh xạ: ${errorMessageOf(err)}`)
+      setSaveError(`CHƯA LƯU — không sửa được dòng này: ${errorMessageOf(err)}`)
       setConflict(null)
     } finally {
       setSaving(false)
@@ -271,7 +271,7 @@ export function CatalogueHisMap(): JSX.Element {
       await catalogueApi.deleteHisMap(target.hisServiceCode)
       setPendingDelete(null)
       setNotice(
-        `Đã xoá ánh xạ mã HIS ${target.hisServiceCode}. Từ giờ chỉ định gửi sang bằng mã này sẽ không vào xét nghiệm nào.`,
+        `Đã xoá dòng cho mã dịch vụ ${target.hisServiceCode}. Từ giờ chỉ định gửi sang bằng mã này sẽ không vào xét nghiệm nào.`,
       )
       await refreshAll()
     } catch (err: unknown) {
@@ -296,13 +296,13 @@ export function CatalogueHisMap(): JSX.Element {
 
   return (
     <section className="panel">
-      <h2>Ánh xạ mã HIS ↔ dịch vụ xét nghiệm</h2>
+      <h2>Bệnh viện ↔ Xét nghiệm</h2>
 
       <p className="field-hint">
-        Phần mềm của bệnh viện (HIS) gửi chỉ định sang bằng MÃ DỊCH VỤ của nó (ví dụ{' '}
-        <code>A/01</code>, <code>GLU01</code>). Bảng dưới đây dịch mã đó sang mã xét nghiệm của
-        LIS. Một dòng sai ở đây làm chỉ định của bác sĩ chạy sang xét nghiệm khác; một xét nghiệm
-        thiếu dòng ở đây thì HIS không gọi được.
+        Khi bác sĩ chỉ định xét nghiệm trên phần mềm bệnh viện, hệ thống gửi sang mã dịch vụ của
+        nó — ví dụ <code>A/01</code>. Bảng này cho biết mã đó ứng với xét nghiệm nào trong phòng
+        xét nghiệm. Một dòng sai làm chỉ định của bác sĩ chạy sang xét nghiệm khác; một xét nghiệm
+        thiếu dòng thì phần mềm bệnh viện không gọi được.
       </p>
 
       {summaryError && (
@@ -321,16 +321,16 @@ export function CatalogueHisMap(): JSX.Element {
           <div>
             <p>
               <strong>
-                {summary.unmappedAnalyteCount}/{summary.analyteCount} xét nghiệm CHƯA CÓ MÃ HIS
-                NÀO TRỎ TỚI.
+                {summary.unmappedAnalyteCount}/{summary.analyteCount} xét nghiệm CHƯA CÓ MÃ DỊCH
+                VỤ NÀO TRỎ TỚI.
               </strong>{' '}
-              Bác sĩ chỉ định được các xét nghiệm này ở HIS, nhưng chỉ định đó không sang tới LIS.
-              Hiện có {summary.mappingCount} dòng ánh xạ, trỏ tới {summary.mappedAnalyteCount} xét
+              Bác sĩ chỉ định được các xét nghiệm này trên phần mềm bệnh viện, nhưng chỉ định đó không sang tới phòng xét nghiệm.
+              Hiện có {summary.mappingCount} dòng đã nối, tới {summary.mappedAnalyteCount} xét
               nghiệm.
             </p>
             {tab === 'map' && (
               <button type="button" className="btn btn-sm" onClick={() => switchTab('unmapped')}>
-                Xem danh sách xét nghiệm chưa có mã HIS
+                Xem các xét nghiệm bệnh viện chưa gọi được
               </button>
             )}
           </div>
@@ -341,8 +341,8 @@ export function CatalogueHisMap(): JSX.Element {
         <div className="notice notice-ok" role="status">
           <CheckCircleIcon className="notice-icon" />
           <p>
-            Cả {summary.analyteCount} xét nghiệm trong danh mục đều có ít nhất một mã HIS trỏ tới
-            ({summary.mappingCount} dòng ánh xạ).
+            Cả {summary.analyteCount} xét nghiệm trong danh mục đều có ít nhất một mã dịch vụ trỏ tới
+            ({summary.mappingCount} dòng).
           </p>
         </div>
       )}
@@ -354,7 +354,7 @@ export function CatalogueHisMap(): JSX.Element {
           aria-pressed={tab === 'map'}
           onClick={() => switchTab('map')}
         >
-          Bảng ánh xạ mã HIS
+          Bảng mã dịch vụ của bệnh viện
           {summary ? ` (${summary.mappingCount} dòng)` : ''}
         </button>
         <button
@@ -363,7 +363,7 @@ export function CatalogueHisMap(): JSX.Element {
           aria-pressed={tab === 'unmapped'}
           onClick={() => switchTab('unmapped')}
         >
-          Xét nghiệm chưa có mã HIS
+          Xét nghiệm bệnh viện chưa gọi được
           {summary ? ` (${summary.unmappedAnalyteCount} xét nghiệm)` : ''}
         </button>
       </div>
@@ -372,7 +372,7 @@ export function CatalogueHisMap(): JSX.Element {
         <div className="toolbar-field toolbar-grow">
           <label htmlFor="his-search">
             {tab === 'map'
-              ? 'Tìm theo mã HIS, hoặc theo mã/tên xét nghiệm đích'
+              ? 'Tìm theo mã dịch vụ của bệnh viện, hoặc theo mã/tên xét nghiệm'
               : 'Tìm theo mã hoặc tên xét nghiệm'}
           </label>
           <div className="search-box">
@@ -396,7 +396,7 @@ export function CatalogueHisMap(): JSX.Element {
               disabled={editor !== null}
             >
               <PlusIcon />
-              Thêm ánh xạ
+              Thêm một mã dịch vụ
             </button>
           </div>
         )}
@@ -434,8 +434,8 @@ export function CatalogueHisMap(): JSX.Element {
         <div className="editor">
           <h4 className="editor-title">
             {editor.editingCode === null
-              ? 'Thêm ánh xạ mã HIS mới'
-              : `Sửa ánh xạ mã HIS ${editor.editingCode}`}
+              ? 'Thêm một mã dịch vụ của bệnh viện'
+              : `Sửa mã dịch vụ ${editor.editingCode}`}
           </h4>
 
           {saveError && (
@@ -447,7 +447,7 @@ export function CatalogueHisMap(): JSX.Element {
 
           <div className="editor-grid">
             <div className="editor-field">
-              <label htmlFor="his-code">Mã dịch vụ của HIS</label>
+              <label htmlFor="his-code">Mã dịch vụ của bệnh viện</label>
               <input
                 id="his-code"
                 type="text"
@@ -461,7 +461,7 @@ export function CatalogueHisMap(): JSX.Element {
                 aria-describedby={formErrors.hisServiceCode ? 'his-code-error' : 'his-code-hint'}
               />
               <p className="field-hint" id="his-code-hint">
-                Đúng như HIS gửi sang. Mã này là khoá chính: không sửa được sau khi tạo — muốn đổi
+                Đúng như phần mềm bệnh viện gửi sang. Mã này là khoá chính: không sửa được sau khi tạo — muốn đổi
                 thì xoá rồi tạo lại.
               </p>
               {formErrors.hisServiceCode && (
@@ -473,7 +473,7 @@ export function CatalogueHisMap(): JSX.Element {
 
             <AnalytePicker
               id="his-analyte"
-              label="Xét nghiệm của LIS được trỏ tới"
+              label="Xét nghiệm tương ứng trong phòng xét nghiệm"
               value={editor.analyteCode}
               onChange={(code) =>
                 setEditor((prev) => (prev ? { ...prev, analyteCode: code } : prev))
@@ -492,7 +492,7 @@ export function CatalogueHisMap(): JSX.Element {
               disabled={saving}
             >
               {saving && <span className="spinner" />}
-              {saving ? 'Đang lưu...' : 'Lưu ánh xạ'}
+              {saving ? 'Đang lưu...' : 'Lưu'}
             </button>
             <button type="button" className="btn" onClick={closeEditor} disabled={saving}>
               Huỷ
@@ -508,8 +508,8 @@ export function CatalogueHisMap(): JSX.Element {
           <table className="table">
             <thead>
               <tr>
-                <th scope="col">Mã dịch vụ HIS</th>
-                <th scope="col">Xét nghiệm của LIS</th>
+                <th scope="col">Mã dịch vụ của bệnh viện</th>
+                <th scope="col">Xét nghiệm trong phòng xét nghiệm</th>
                 <th scope="col">Thao tác</th>
               </tr>
             </thead>
@@ -551,19 +551,19 @@ export function CatalogueHisMap(): JSX.Element {
                       <>
                         <p>
                           <strong>
-                            Không có dòng ánh xạ nào khớp “{appliedQuery.trim()}”.
+                            Không có dòng nào khớp “{appliedQuery.trim()}”.
                           </strong>
                         </p>
                         <p>
                           Mã HIS và mã xét nghiệm chỉ khớp từ ĐẦU chuỗi; tên xét nghiệm khớp ở
                           giữa. Thử rút ngắn từ khoá, hoặc xem chế độ “Xét nghiệm chưa có mã HIS”
-                          nếu đang tìm một xét nghiệm chưa được ánh xạ.
+                          nếu đang tìm một xét nghiệm chưa được nối.
                         </p>
                       </>
                     ) : (
                       <p>
-                        Bảng dịch mã HIS đang trống. Chừng nào chưa có dòng nào, mọi chỉ định từ HIS
-                        gửi sang đều không vào được xét nghiệm nào.
+                        Bảng này đang trống. Chừng nào chưa có dòng nào, mọi chỉ định từ phần mềm
+                        bệnh viện gửi sang đều không vào được xét nghiệm nào.
                       </p>
                     )}
                   </td>
@@ -594,7 +594,7 @@ export function CatalogueHisMap(): JSX.Element {
                   </td>
                   <td className="cell-wrap">
                     {row.name}
-                    <span className="cell-sub">HIS chưa gọi được xét nghiệm này</span>
+                    <span className="cell-sub">Phần mềm bệnh viện chưa gọi được xét nghiệm này</span>
                   </td>
                   <td>{row.category ?? '—'}</td>
                   <td>
@@ -622,7 +622,7 @@ export function CatalogueHisMap(): JSX.Element {
                       }}
                     >
                       <PlusIcon />
-                      Thêm mã HIS cho xét nghiệm này
+                      Thêm mã dịch vụ cho xét nghiệm này
                     </button>
                   </td>
                 </tr>
@@ -633,13 +633,13 @@ export function CatalogueHisMap(): JSX.Element {
                   <td colSpan={5} className="empty-cell">
                     {appliedQuery.trim() !== '' ? (
                       <p>
-                        Không có xét nghiệm chưa ánh xạ nào khớp “{appliedQuery.trim()}”. Nếu xét
-                        nghiệm đó tồn tại thì nó ĐÃ có mã HIS trỏ tới — tìm nó ở chế độ “Bảng ánh
-                        xạ mã HIS”.
+                        Không có xét nghiệm chưa nối nào khớp “{appliedQuery.trim()}”. Nếu xét
+                        nghiệm đó tồn tại thì nó ĐÃ có mã dịch vụ trỏ tới — tìm nó ở chế độ
+                        “Bảng mã dịch vụ của bệnh viện”.
                       </p>
                     ) : (
                       <p>
-                        Mọi xét nghiệm trong danh mục đều đã có ít nhất một mã HIS trỏ tới.
+                        Mọi xét nghiệm trong danh mục đều đã có ít nhất một mã dịch vụ trỏ tới.
                       </p>
                     )}
                   </td>
@@ -656,7 +656,7 @@ export function CatalogueHisMap(): JSX.Element {
             {total === 0
               ? 'Không có dòng nào khớp bộ lọc hiện tại.'
               : tab === 'map'
-                ? `Đang hiện ${from}–${to} trong ${total} dòng ánh xạ khớp bộ lọc.`
+                ? `Đang hiện ${from}–${to} trong ${total} dòng khớp bộ lọc.`
                 : `Đang hiện ${from}–${to} trong ${total} xét nghiệm chưa có mã HIS.`}
           </p>
           <div className="btn-row">
@@ -694,10 +694,10 @@ export function CatalogueHisMap(): JSX.Element {
             aria-modal="true"
             aria-labelledby="his-conflict-title"
           >
-            <h3 id="his-conflict-title">Không thêm được — mã HIS này đã có ánh xạ</h3>
+            <h3 id="his-conflict-title">Không thêm được — mã dịch vụ này đã nối với xét nghiệm khác</h3>
             <p>
-              Mã dịch vụ <span className="code-inline">{conflict.hisServiceCode}</span> là khoá
-              chính của bảng dịch: mỗi mã HIS chỉ được trỏ tới đúng một xét nghiệm.
+              Mỗi mã dịch vụ của bệnh viện chỉ được trỏ tới đúng MỘT xét nghiệm, và{' '}
+              <span className="code-inline">{conflict.hisServiceCode}</span> thì đã có rồi.
             </p>
             <p className="field-hint">Máy chủ trả về: {conflict.serverMessage}</p>
             <p>
@@ -712,7 +712,7 @@ export function CatalogueHisMap(): JSX.Element {
                 onClick={() => setConflict(null)}
                 disabled={saving}
               >
-                Giữ nguyên ánh xạ cũ
+                Giữ nguyên như cũ
               </button>
               <button
                 type="button"
@@ -736,7 +736,7 @@ export function CatalogueHisMap(): JSX.Element {
             aria-modal="true"
             aria-labelledby="his-delete-title"
           >
-            <h3 id="his-delete-title">Xoá ánh xạ mã HIS?</h3>
+            <h3 id="his-delete-title">Xoá mã dịch vụ này khỏi bảng?</h3>
             <p>
               Mã dịch vụ <span className="code-inline">{pendingDelete.hisServiceCode}</span> đang
               trỏ tới xét nghiệm{' '}
@@ -745,7 +745,7 @@ export function CatalogueHisMap(): JSX.Element {
             </p>
             <p>
               Sau khi xoá, chỉ định mà HIS gửi sang bằng mã này sẽ{' '}
-              <strong>không vào xét nghiệm nào</strong> cho tới khi được ánh xạ lại.
+              <strong>không vào xét nghiệm nào</strong> cho tới khi được nối lại.
             </p>
             <div className="dialog-actions">
               <button
@@ -763,7 +763,7 @@ export function CatalogueHisMap(): JSX.Element {
                 disabled={saving}
               >
                 {saving && <span className="spinner" />}
-                Xoá ánh xạ
+                Xoá dòng này
               </button>
             </div>
           </div>

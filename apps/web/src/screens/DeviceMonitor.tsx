@@ -28,6 +28,11 @@ export function DeviceMonitor({
     <section className="panel panel-wide">
       <h2>Danh sách máy xét nghiệm</h2>
 
+      <p className="field-hint">
+        Các máy trong phòng xét nghiệm và tình trạng kết nối của từng máy ngay lúc này. Máy mất kết
+        nối là máy đang chạy mẫu mà kết quả không về được hệ thống.
+      </p>
+
       {loading && <p className="loading-text">Đang tải danh sách máy...</p>}
 
       {!loading && (

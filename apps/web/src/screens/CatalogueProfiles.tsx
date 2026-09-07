@@ -293,9 +293,9 @@ export function CatalogueProfiles(): JSX.Element {
       <h2>Nhóm xét nghiệm và chỉ số con</h2>
 
       <p className="field-hint">
-        Một nhóm là mã cha gom nhiều chỉ số con — ví dụ <code>002HD</code> (Tổng phân tích tế bào
-        máu ngoại vi) có 20 chỉ số con. Thứ tự các chỉ số con ở đây là thứ tự in trên phiếu kết
-        quả.
+        Một xét nghiệm như Tổng phân tích tế bào máu ngoại vi (<code>002HD</code>) gồm 20 chỉ số
+        con. Chỉ định nhóm là chỉ định cả các chỉ số bên trong, và thứ tự ở đây là thứ tự in trên
+        phiếu kết quả.
       </p>
 
       {summaryError && (

@@ -404,6 +404,12 @@ export function CatalogueAnalytes(): JSX.Element {
     <section className="panel">
       <h2>Danh mục xét nghiệm</h2>
 
+      <p className="field-hint">
+        Toàn bộ xét nghiệm phòng xét nghiệm này làm được, kèm đơn vị và ngưỡng bình thường — ví dụ{' '}
+        <code>123AST</code> (AST/GOT, 5–40 U/L). Đây là danh sách gốc mà các màn hình khác đều nối
+        về.
+      </p>
+
       <div className="toolbar">
         <div className="toolbar-field toolbar-grow">
           <label htmlFor="analyte-search">Tìm xét nghiệm</label>
