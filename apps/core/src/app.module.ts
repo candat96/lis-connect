@@ -6,6 +6,7 @@ import { CatalogueModule } from './catalogue/catalogue.module.js'
 import { DevicesModule } from './devices/devices.module.js'
 import { HealthModule } from './health/health.module.js'
 import { IngestModule } from './ingest/ingest.module.js'
+import { ReceptionModule } from './reception/reception.module.js'
 import { TenantModule } from './tenant/tenant.module.js'
 
 @Module({
@@ -17,6 +18,7 @@ import { TenantModule } from './tenant/tenant.module.js'
     AgentGatewayModule,
     DevicesModule,
     CatalogueModule,
+    ReceptionModule,
     HealthModule,
   ],
 })
