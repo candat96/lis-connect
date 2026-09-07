@@ -45,6 +45,13 @@ export function AnalytePicker({
 }): JSX.Element {
   const [suggestions, setSuggestions] = useState<AnalyteView[]>([])
   const [queriedFor, setQueriedFor] = useState<string | null>(null)
+  /**
+   * Tổng số dòng khớp ở phía máy chủ, không phải số dòng đang hiện.
+   *
+   * Cần để biết danh sách gợi ý đã là TOÀN BỘ kết quả hay mới là phần đầu:
+   * chỉ khi đã thấy hết mới dám khẳng định một mã là không có trong danh mục.
+   */
+  const [totalFound, setTotalFound] = useState(0)
   const [loading, setLoading] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
@@ -60,6 +67,7 @@ export function AnalytePicker({
       requestIdRef.current += 1
       setSuggestions([])
       setQueriedFor('')
+      setTotalFound(0)
       setLoading(false)
       setSearchError(null)
       return
@@ -72,12 +80,14 @@ export function AnalytePicker({
         .then((result) => {
           if (requestIdRef.current !== requestId) return
           setSuggestions(result.items)
+          setTotalFound(result.total)
           setQueriedFor(trimmed)
           setSearchError(null)
         })
         .catch((err: unknown) => {
           if (requestIdRef.current !== requestId) return
           setSuggestions([])
+          setTotalFound(0)
           setQueriedFor(trimmed)
           setSearchError(errorMessageOf(err))
         })
@@ -93,8 +103,21 @@ export function AnalytePicker({
       ? (suggestions.find((s) => s.code.toLowerCase() === trimmed.toLowerCase()) ?? null)
       : null
 
+  /**
+   * Chỉ cảnh báo "không có mã này" khi ĐÃ NHÌN THẤY TOÀN BỘ kết quả khớp.
+   *
+   * Danh sách gợi ý bị chặn ở SUGGESTION_LIMIT dòng. Nếu máy chủ báo còn nhiều
+   * hơn thế, mã đúng có thể đang nằm ngoài phần đang hiện — khẳng định nó không
+   * tồn tại là nói sai. Một cảnh báo sai ở đây tệ hơn không cảnh báo: nó dạy
+   * người dùng bỏ qua đúng cái cảnh báo dùng để chặn gõ nhầm mã.
+   */
   const notFound =
-    trimmed !== '' && !loading && searchError === null && queriedFor === trimmed && matched === null
+    trimmed !== '' &&
+    !loading &&
+    searchError === null &&
+    queriedFor === trimmed &&
+    matched === null &&
+    totalFound <= SUGGESTION_LIMIT
 
   const select = (analyte: AnalyteView): void => {
     onChange(analyte.code)
