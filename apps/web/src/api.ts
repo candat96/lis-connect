@@ -211,6 +211,13 @@ export interface AnalyteView {
    */
   source: string
   active: boolean
+  /**
+   * Độc lập với `source`, KHÔNG loại trừ nhau: một dòng có thể vừa đến từ
+   * `legacy` vừa `manuallyEdited: true` (đến từ hệ cũ rồi được sửa tay ở giao
+   * diện này). `source` ghi nhớ NƠI dòng dữ liệu bắt đầu; cờ này ghi nhớ việc
+   * nó đã bị sửa tay chưa, không đổi `source` khi sửa.
+   */
+  manuallyEdited: boolean
 }
 
 export interface AnalyteSearchResult {
@@ -350,12 +357,23 @@ export const catalogueApi = {
   searchAnalytes: (params: {
     q: string
     category: string
+    /** '' = không lọc theo nguồn. Giá trị hợp lệ: legacy / legacy-new / manual. */
+    source?: string
+    /** '' = không lọc theo tình trạng dùng. 'true' | 'false'. */
+    active?: string
+    /** '' = không lọc theo đã sửa tay hay chưa. 'true' | 'false'. */
+    manuallyEdited?: string
     limit: number
     offset: number
   }): Promise<AnalyteSearchResult> => {
     const search = new URLSearchParams()
     if (params.q.trim() !== '') search.set('q', params.q.trim())
     if (params.category !== '') search.set('category', params.category)
+    if (params.source && params.source !== '') search.set('source', params.source)
+    if (params.active && params.active !== '') search.set('active', params.active)
+    if (params.manuallyEdited && params.manuallyEdited !== '') {
+      search.set('manuallyEdited', params.manuallyEdited)
+    }
     search.set('limit', String(params.limit))
     search.set('offset', String(params.offset))
     return request<AnalyteSearchResult>('GET', `/api/catalogue/analytes?${search.toString()}`)

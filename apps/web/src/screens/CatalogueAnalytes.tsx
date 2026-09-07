@@ -10,6 +10,7 @@ import {
   PencilIcon,
   SearchIcon,
   UnknownDashedIcon,
+  UnpluggedIcon,
   WarningTriangleIcon,
 } from '../statusMeta.js'
 
@@ -32,12 +33,37 @@ import {
 const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
 
-/** Ba nguồn dữ liệu, KHÔNG phải hai. Giá trị lạ vẫn hiển thị được. */
+/**
+ * Ba nguồn dữ liệu, KHÔNG phải hai. Giá trị lạ vẫn hiển thị được.
+ *
+ * `manual` ở đây nghĩa là "dòng do người dùng TỰ THÊM mới", khác hẳn với cờ
+ * `manuallyEdited` (một dòng `legacy` hay `legacy-new` đã bị SỬA vẫn giữ
+ * nguyên `source` cũ — hai thứ độc lập, xem `ManuallyEditedBadge` bên dưới).
+ */
 const SOURCE_META: Record<string, { label: string; toneClass: string }> = {
-  legacy: { label: 'Từ hệ cũ (bảng 1)', toneClass: 'tone-neutral' },
-  'legacy-new': { label: 'Từ hệ cũ (bảng 2)', toneClass: 'tone-neutral' },
-  manual: { label: 'Đã sửa tay', toneClass: 'tone-accent' },
+  legacy: { label: 'Danh mục cũ', toneClass: 'tone-neutral' },
+  'legacy-new': { label: 'Danh mục mới', toneClass: 'tone-neutral' },
+  manual: { label: 'Tự thêm', toneClass: 'tone-accent' },
 }
+
+const SOURCE_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Tất cả nguồn gốc' },
+  { value: 'legacy', label: 'Danh mục cũ' },
+  { value: 'legacy-new', label: 'Danh mục mới' },
+  { value: 'manual', label: 'Tự thêm' },
+]
+
+const ACTIVE_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Tất cả tình trạng' },
+  { value: 'true', label: 'Đang dùng' },
+  { value: 'false', label: 'Đã ngưng dùng' },
+]
+
+const MANUALLY_EDITED_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Đã sửa tay hay chưa — tất cả' },
+  { value: 'true', label: 'Chỉ dòng đã sửa tay' },
+  { value: 'false', label: 'Chỉ dòng chưa sửa tay' },
+]
 
 function SourceBadge({ source }: { source: string }): JSX.Element {
   const meta = SOURCE_META[source]
@@ -54,6 +80,39 @@ function SourceBadge({ source }: { source: string }): JSX.Element {
   return (
     <span className={`status-badge status-badge-sm ${meta.toneClass}`}>
       <span className="status-badge-label">{meta.label}</span>
+    </span>
+  )
+}
+
+/** Xét nghiệm đang dùng hay đã ngừng — luôn hiện cả hai trạng thái bằng nhãn chữ. */
+function ActiveBadge({ active }: { active: boolean }): JSX.Element {
+  if (active) {
+    return (
+      <span className="status-badge status-badge-sm tone-ok">
+        <CheckCircleIcon className="status-badge-icon" />
+        <span className="status-badge-label">Đang dùng</span>
+      </span>
+    )
+  }
+  return (
+    <span className="status-badge status-badge-sm tone-neutral">
+      <UnpluggedIcon className="status-badge-icon" />
+      <span className="status-badge-label">Đã ngưng dùng</span>
+    </span>
+  )
+}
+
+/**
+ * Chỉ hiện khi TRUE — "chưa sửa tay" là trạng thái mặc định của phần lớn 2619
+ * dòng, gắn thêm huy hiệu cho nó sẽ chỉ làm rối bảng. Độc lập với nguồn gốc:
+ * huy hiệu này đứng CẠNH `SourceBadge`, không thay thế nó.
+ */
+function ManuallyEditedBadge({ manuallyEdited }: { manuallyEdited: boolean }): JSX.Element | null {
+  if (!manuallyEdited) return null
+  return (
+    <span className="status-badge status-badge-sm tone-accent">
+      <PencilIcon className="status-badge-icon" />
+      <span className="status-badge-label">Đã sửa tay</span>
     </span>
   )
 }
@@ -184,6 +243,9 @@ export function CatalogueAnalytes(): JSX.Element {
   const [queryText, setQueryText] = useState('')
   const [appliedQuery, setAppliedQuery] = useState('')
   const [category, setCategory] = useState('')
+  const [sourceFilter, setSourceFilter] = useState('')
+  const [activeFilter, setActiveFilter] = useState('')
+  const [manuallyEditedFilter, setManuallyEditedFilter] = useState('')
   const [offset, setOffset] = useState(0)
 
   const [categories, setCategories] = useState<string[]>([])
@@ -235,7 +297,15 @@ export function CatalogueAnalytes(): JSX.Element {
     let cancelled = false
     setLoading(true)
     catalogueApi
-      .searchAnalytes({ q: appliedQuery, category, limit: PAGE_SIZE, offset })
+      .searchAnalytes({
+        q: appliedQuery,
+        category,
+        source: sourceFilter,
+        active: activeFilter,
+        manuallyEdited: manuallyEditedFilter,
+        limit: PAGE_SIZE,
+        offset,
+      })
       .then((result) => {
         if (cancelled) return
         setItems(result.items)
@@ -255,7 +325,7 @@ export function CatalogueAnalytes(): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [appliedQuery, category, offset])
+  }, [appliedQuery, category, sourceFilter, activeFilter, manuallyEditedFilter, offset])
 
   useEffect(() => reload(), [reload])
 
@@ -377,6 +447,60 @@ export function CatalogueAnalytes(): JSX.Element {
             <p className="editor-error">Không tải được danh sách nhóm: {categoriesError}</p>
           )}
         </div>
+
+        <div className="toolbar-field">
+          <label htmlFor="analyte-source">Nguồn gốc</label>
+          <select
+            id="analyte-source"
+            value={sourceFilter}
+            onChange={(e) => {
+              setSourceFilter(e.target.value)
+              setOffset(0)
+            }}
+          >
+            {SOURCE_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="toolbar-field">
+          <label htmlFor="analyte-active">Tình trạng còn dùng</label>
+          <select
+            id="analyte-active"
+            value={activeFilter}
+            onChange={(e) => {
+              setActiveFilter(e.target.value)
+              setOffset(0)
+            }}
+          >
+            {ACTIVE_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="toolbar-field">
+          <label htmlFor="analyte-manually-edited">Đã sửa tay</label>
+          <select
+            id="analyte-manually-edited"
+            value={manuallyEditedFilter}
+            onChange={(e) => {
+              setManuallyEditedFilter(e.target.value)
+              setOffset(0)
+            }}
+          >
+            {MANUALLY_EDITED_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {savedNotice && (
@@ -428,6 +552,7 @@ export function CatalogueAnalytes(): JSX.Element {
                     Thứ tự in
                   </th>
                   <th scope="col">Nguồn dữ liệu</th>
+                  <th scope="col">Tình trạng</th>
                   <th scope="col">Thao tác</th>
                 </tr>
               </thead>
@@ -451,7 +576,13 @@ export function CatalogueAnalytes(): JSX.Element {
                         <td className="cell-num">{formatNumber(analyte.higherLimit)}</td>
                         <td className="cell-num">{formatNumber(analyte.printOrder)}</td>
                         <td>
-                          <SourceBadge source={analyte.source} />
+                          <span className="badge-list">
+                            <SourceBadge source={analyte.source} />
+                            <ManuallyEditedBadge manuallyEdited={analyte.manuallyEdited} />
+                          </span>
+                        </td>
+                        <td>
+                          <ActiveBadge active={analyte.active} />
                         </td>
                         <td>
                           <button
@@ -468,7 +599,7 @@ export function CatalogueAnalytes(): JSX.Element {
 
                       {isEditing && draft && (
                         <tr>
-                          <td className="editor-cell" colSpan={10}>
+                          <td className="editor-cell" colSpan={11}>
                             <div className="editor">
                               <h3 className="editor-title">
                                 Sửa xét nghiệm <code>{analyte.code}</code> — {analyte.name}
@@ -571,8 +702,9 @@ export function CatalogueAnalytes(): JSX.Element {
                                   Huỷ
                                 </button>
                                 <span className="field-hint">
-                                  Sau khi lưu, dòng này được đánh dấu nguồn “Đã sửa tay” và thay đổi
-                                  được ghi vào nhật ký sửa đổi.
+                                  Sau khi lưu, dòng này được đánh dấu “Đã sửa tay” (nguồn gốc dữ
+                                  liệu ban đầu vẫn giữ nguyên) và thay đổi được ghi vào nhật ký sửa
+                                  đổi.
                                 </span>
                               </div>
                             </div>
@@ -585,14 +717,22 @@ export function CatalogueAnalytes(): JSX.Element {
 
                 {items.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="empty-cell">
-                      {appliedQuery.trim() !== '' || category !== '' ? (
+                    <td colSpan={11} className="empty-cell">
+                      {appliedQuery.trim() !== '' ||
+                      category !== '' ||
+                      sourceFilter !== '' ||
+                      activeFilter !== '' ||
+                      manuallyEditedFilter !== '' ? (
                         <>
                           <p>
                             <strong>
                               Không tìm thấy xét nghiệm nào khớp
                               {appliedQuery.trim() !== '' && <> “{appliedQuery.trim()}”</>}
-                              {category !== '' && <> trong nhóm “{category}”</>}.
+                              {category !== '' && <> trong nhóm “{category}”</>}
+                              {(sourceFilter !== '' ||
+                                activeFilter !== '' ||
+                                manuallyEditedFilter !== '') && <> với bộ lọc nguồn/tình trạng đang chọn</>}
+                              .
                             </strong>
                           </p>
                           <p>Thử một trong các cách sau:</p>
@@ -603,6 +743,11 @@ export function CatalogueAnalytes(): JSX.Element {
                             </li>
                             <li>Nếu đang tìm theo tên: rút ngắn còn một từ khoá đặc trưng.</li>
                             {category !== '' && <li>Bỏ bộ lọc nhóm về “Tất cả các nhóm”.</li>}
+                            {(sourceFilter !== '' ||
+                              activeFilter !== '' ||
+                              manuallyEditedFilter !== '') && (
+                              <li>Đưa các bộ lọc “Nguồn gốc”, “Tình trạng còn dùng”, “Đã sửa tay” về giá trị “Tất cả”.</li>
+                            )}
                           </ul>
                         </>
                       ) : (
