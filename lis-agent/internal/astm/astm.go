@@ -43,11 +43,11 @@ type Event struct {
 
 // Receiver — máy trạng thái phía nhận (Agent là receiver).
 type Receiver struct {
-	buf      []byte
-	inSess   bool
-	partial  bytes.Buffer // dữ liệu khung ETB đang ghép dở
-	records  []string
-	raw      bytes.Buffer
+	buf     []byte
+	inSess  bool
+	partial bytes.Buffer // dữ liệu khung ETB đang ghép dở
+	records []string
+	raw     bytes.Buffer
 }
 
 func (r *Receiver) Reset() {

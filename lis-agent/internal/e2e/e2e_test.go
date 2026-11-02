@@ -5,12 +5,14 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -42,10 +44,7 @@ type env struct {
 }
 
 func setup(t *testing.T, devices []store.Device) *env {
-	st, err := store.Open(filepath.Join(t.TempDir(), "a.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openTestStore(t)
 	e := &env{st: st, hisHook: make(chan []byte, 10), sigs: make(chan string, 10)}
 	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -53,17 +52,50 @@ func setup(t *testing.T, devices []store.Device) *env {
 		e.hisHook <- b
 		w.WriteHeader(200)
 	}))
-	cfg := store.Config{Listen: ":0", His: store.HisConfig{APIKey: "khoa-api-thu-nghiem-123", WebhookURL: hook.URL, Secret: "bi-mat"}, Devices: devices}
-	_ = st.SaveConfig(cfg)
+	if err := st.SaveHis(store.HisConfig{APIKey: "khoa-api-thu-nghiem-123", WebhookURL: hook.URL, Secret: "bi-mat"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveDevices(devices); err != nil {
+		t.Fatal(err)
+	}
+	spool := store.NewSpool(t.TempDir() + "/spool.jsonl")
 	sender := his.NewSender(st)
 	mgr := device.NewManager(st)
 	mgr.OnResult = sender.Wake
+	mgr.Spool = spool
 	mgr.Reload(devices)
 	ctx, cancel := context.WithCancel(context.Background())
 	go sender.Run(ctx)
-	e.api = httptest.NewServer(web.New(st, mgr, sender, "test").Handler())
+	e.api = httptest.NewServer(web.New(st, mgr, sender, spool, "test").Handler())
 	e.stop = func() { cancel(); mgr.Stop(); e.api.Close(); hook.Close(); st.Close() }
 	return e
+}
+
+// openTestStore — mỗi phép thử một schema riêng trên CSDL thử (LIS_TEST_DSN, vd
+// postgres://lis:...@localhost:5441/lis?sslmode=disable); không khai báo thì bỏ qua.
+func openTestStore(t *testing.T) *store.Store {
+	dsn := os.Getenv("LIS_TEST_DSN")
+	if dsn == "" {
+		t.Skip("chưa đặt LIS_TEST_DSN")
+	}
+	schema := fmt.Sprintf("e2e_%d", time.Now().UnixNano())
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("CREATE SCHEMA " + schema); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec("DROP SCHEMA " + schema + " CASCADE"); db.Close() })
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	st, err := store.Open(dsn+sep+"search_path="+schema, "AGENT-THU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
 }
 
 func (e *env) post(t *testing.T, path, key string, body any) *http.Response {

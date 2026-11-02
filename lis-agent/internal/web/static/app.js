@@ -6,7 +6,6 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const STATUS = { cho: 'Chờ máy', 'dang-chay': 'Đang chạy', 'co-ket-qua': 'Có kết quả', 'da-gui': 'Đã trả HIS', huy: 'Đã hủy' };
 const pad = (n) => String(n).padStart(2, '0');
-const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const time = (iso) => { if (!iso) return ''; const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const dt = (iso) => { if (!iso) return ''; const d = new Date(iso); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
 const dob = (v) => (v ? v.split('-').reverse().join('/') : '');
@@ -19,7 +18,7 @@ async function api(path, opts = {}) {
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && path !== 'login') { showGate(); throw new Error('Cần đăng nhập'); }
+  if (res.status === 401 && path !== 'login' && path !== 'password') { showGate(); throw new Error('Cần đăng nhập'); }
   if (!res.ok) throw new Error(data.message || ('Lỗi ' + res.status));
   return data;
 }
@@ -30,33 +29,140 @@ function toast(msg, bad) {
   clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), bad ? 5000 : 2500);
 }
 
-// ============================================================ đăng nhập
-let needSetup = false;
+// ============================================================ cài đặt, đăng nhập
+let me = null;
+const ROLE = { 'quan-tri': 'Quản trị LIS', ktv: 'Kỹ thuật viên' };
+const isAdmin = () => me && me.role === 'quan-tri';
+
 async function boot() {
-  const me = await fetch('/ui/api/me').then((r) => r.json());
-  needSetup = me.needSetup;
-  $('#site').textContent = me.siteName || '';
-  if (!me.loggedIn) return showGate();
-  $('#gate').hidden = true; $('#app').hidden = false;
+  const info = await fetch('/ui/api/me').then((r) => r.json()).catch(() => ({}));
+  $('#setup').hidden = $('#gate').hidden = $('#app').hidden = true;
+  if (info.setup) return showSetup(info);
+  $('#site').textContent = info.siteName || '';
+  $('#gateAgent').textContent = [info.siteName, info.agent].filter(Boolean).join(' · ');
+  boot.info = info;
+  if (!info.loggedIn) return showGate();
+  me = info.user;
+  $('#app').hidden = false;
+  $('#userName').textContent = me.fullName || me.username;
+  $('#userRole').textContent = ROLE[me.role] || me.role;
+  $('#userRole').className = 'tag ' + (isAdmin() ? 't-co-ket-qua' : 't-cho');
+  $('#userSrc').textContent = `${me.username} · ${me.source === 'his' ? 'tài khoản ' + (info.hisName || 'HIS') : 'tài khoản LIS'} · Agent ${info.agent}`;
+  $('#pwOpen').hidden = me.source !== 'local';
+  $$('#tabs .adm').forEach((b) => (b.hidden = !isAdmin()));
   start();
 }
-function showGate() {
-  $('#app').hidden = true; $('#gate').hidden = false;
-  $('#gateHint').textContent = needSetup ? 'Lần đầu sử dụng: đặt mật khẩu quản trị cho Agent (tối thiểu 6 ký tự).' : 'Nhập mật khẩu quản trị để vào.';
-  $('#siteRow').hidden = !needSetup;
-  $('#gateBtn').textContent = needSetup ? 'Đặt mật khẩu và vào' : 'Đăng nhập';
-  setTimeout(() => (needSetup ? $('#gateSite') : $('#gatePw')).focus(), 50);
+
+function showSetup(info) {
+  $('#setup').hidden = false;
+  const db = info.db || {};
+  if (db.host) $('#sHost').value = db.host;
+  if (db.port) $('#sPort').value = db.port;
+  if (db.name) $('#sName').value = db.name;
+  if (db.user) $('#sUser').value = db.user;
+  if (db.sslMode) $('#sSsl').value = db.sslMode;
+  if (!$('#sAgent').value) $('#sAgent').value = info.agent || '';
+  $('#setupRemote').hidden = info.local;
+  $('#setupLastErr').hidden = !info.error;
+  $('#setupLastErr').textContent = info.error ? 'Chưa vào được CSDL đã khai báo (Agent tự thử lại mỗi 15 giây): ' + info.error : '';
+  $$('#setupForm input, #setupForm select, #setupForm button').forEach((el) => (el.disabled = !info.local));
+  setTimeout(() => $('#sHost').focus(), 50);
 }
+const setupBody = () => ({
+  db: { host: $('#sHost').value.trim(), port: +$('#sPort').value || 5432, name: $('#sName').value.trim(), user: $('#sUser').value.trim(), password: $('#sPass').value, sslMode: $('#sSsl').value },
+  agent: $('#sAgent').value.trim(), siteName: $('#sSite').value.trim(),
+  adminUser: $('#sAdmin').value.trim(), adminName: $('#sAdminName').value.trim(), adminPass: $('#sAdminPass').value,
+});
+$('#sTest').onclick = async () => {
+  const m = $('#sTestMsg'); m.className = 'small muted'; m.textContent = 'Đang thử…';
+  try { await api('setup/test', { method: 'POST', body: setupBody() }); m.className = 'small ok'; m.textContent = 'Kết nối được CSDL'; }
+  catch (e) { m.className = 'small err'; m.textContent = e.message; }
+};
+$('#setupForm').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
+  e.preventDefault();
+  const f = $$('#setupForm input');
+  const i = f.indexOf(e.target);
+  if (i < f.length - 1) f[i + 1].focus(); else $('#setupBtn').click();
+});
+$('#setupForm').addEventListener('submit', async (e) => {
+  e.preventDefault(); $('#setupErr').textContent = '';
+  $('#setupBtn').disabled = true; $('#setupBtn').textContent = 'Đang tạo bảng, khởi động…';
+  try {
+    await api('setup', { method: 'POST', body: setupBody() });
+    toast('Đã cài đặt — đăng nhập bằng tài khoản quản trị');
+    setTimeout(boot, 600);
+  } catch (err) { $('#setupErr').textContent = err.message; }
+  finally { $('#setupBtn').disabled = false; $('#setupBtn').textContent = 'Lưu và khởi động Agent'; }
+});
+
+function showGate() {
+  me = null;
+  $('#app').hidden = true; $('#gate').hidden = false;
+  const i = boot.info || {};
+  $('#gateHint').textContent = i.hisLogin
+    ? `Dùng tài khoản ${i.hisName || 'HIS/CIS'} như khi đăng nhập HIS. Khi HIS mất kết nối, dùng tài khoản LIS dự phòng.`
+    : 'Đăng nhập bằng tài khoản LIS.';
+  setTimeout(() => $('#gateUser').focus(), 50);
+}
+$('#gateUser').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#gatePw').focus(); } });
 $('#gateForm').addEventListener('submit', async (e) => {
   e.preventDefault(); $('#gateErr').textContent = '';
+  $('#gateBtn').disabled = true;
   try {
-    if (needSetup) await api('setup', { method: 'POST', body: { password: $('#gatePw').value, siteName: $('#gateSite').value } });
-    else await api('login', { method: 'POST', body: { password: $('#gatePw').value } });
+    await api('login', { method: 'POST', body: { username: $('#gateUser').value, password: $('#gatePw').value } });
     $('#gatePw').value = '';
     boot();
-  } catch (err) { $('#gateErr').textContent = err.message; }
+  } catch (err) { $('#gateErr').textContent = err.message; $('#gatePw').select(); }
+  finally { $('#gateBtn').disabled = false; }
 });
 $('#logout').onclick = async () => { await api('logout', { method: 'POST' }).catch(() => {}); location.reload(); };
+$('#userBtn').onclick = (e) => { e.stopPropagation(); $('#userPop').hidden = !$('#userPop').hidden; };
+document.addEventListener('click', (e) => { if (!e.target.closest('.user-menu')) $('#userPop').hidden = true; });
+$('#pwOpen').onclick = () => { $('#userPop').hidden = true; $('#pwModal').hidden = false; $('#pErr').textContent = ''; $('#pOld').value = $('#pNew').value = ''; $('#pOld').focus(); };
+$('#pClose').onclick = () => ($('#pwModal').hidden = true);
+$('#pwForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try { await api('password', { method: 'POST', body: { old: $('#pOld').value, new: $('#pNew').value } }); $('#pwModal').hidden = true; toast('Đã đổi mật khẩu'); }
+  catch (err) { $('#pErr').textContent = err.message; }
+});
+
+// ============================================================ khoảng ngày (như HIS: chọn nhanh + từ/đến)
+const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+function presetRange(p) {
+  const t = new Date(); const d = (n) => { const x = new Date(t); x.setDate(x.getDate() + n); return ymd(x); };
+  switch (p) {
+    case 'yesterday': return [d(-1), d(-1)];
+    case '7d': return [d(-6), d(0)];
+    case '30d': return [d(-29), d(0)];
+    case 'month': return [ymd(new Date(t.getFullYear(), t.getMonth(), 1)), d(0)];
+    case 'lastMonth': return [ymd(new Date(t.getFullYear(), t.getMonth() - 1, 1)), ymd(new Date(t.getFullYear(), t.getMonth(), 0))];
+    default: return [d(0), d(0)];
+  }
+}
+function dateRange(id, onChange) {
+  const el = $('#' + id), sel = $('[data-r="preset"]', el), from = $('[data-r="from"]', el), to = $('[data-r="to"]', el);
+  const key = 'lis.range.' + id;
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch { /* bỏ qua */ }
+  const apply = (p) => { if (p !== 'custom') [from.value, to.value] = presetRange(p); };
+  sel.value = saved?.preset || 'today';
+  if (sel.value === 'custom' && saved) { from.value = saved.from; to.value = saved.to; } else apply(sel.value);
+  const changed = () => {
+    if (from.value && to.value && from.value > to.value) to.value = from.value;
+    try { sessionStorage.setItem(key, JSON.stringify({ preset: sel.value, from: from.value, to: to.value })); } catch { /* bỏ qua */ }
+    onChange();
+  };
+  sel.onchange = () => { apply(sel.value); changed(); };
+  from.onchange = to.onchange = () => { sel.value = 'custom'; changed(); };
+  return {
+    query: () => `from=${from.value}&to=${to.value}`,
+    oneDay: () => from.value === to.value,
+    // Khoảng "Hôm nay"/"7 ngày"… trượt theo ngày: qua nửa đêm vẫn đúng
+    roll: () => { if (sel.value !== 'custom') { const [f, t] = presetRange(sel.value); if (f !== from.value || t !== to.value) { from.value = f; to.value = t; return true; } } return false; },
+  };
+}
+let oRange, rRange;
 
 // ============================================================ tab
 let tab = 'orders';
@@ -64,23 +170,26 @@ function setTab(t) {
   tab = t;
   $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
   $$('.tab').forEach((s) => (s.hidden = s.id !== 'tab-' + t));
-  ({ orders: loadOrders, results: loadResults, devices: loadDevices, his: loadHis, logs: loadLogs })[t]();
+  ({ orders: loadOrders, results: loadResults, devices: loadDevices, his: loadHis, users: loadUsers, logs: loadLogs })[t]();
 }
 $$('#tabs button').forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
 
 let started = false;
 function start() {
   if (started) return; started = true;
-  $('#oDate').value = today();
+  oRange = dateRange('oRange', () => loadOrders());
+  rRange = dateRange('rRange', () => loadResults());
   api('devices').then((d) => { devCache = d.devices; refreshHealth(); }).catch(() => {});
   setTab('orders');
-  setInterval(() => { refreshHealth(); if (tab === 'orders' && $('#oForm').hidden) loadOrders(true); if (tab === 'results') loadResults(true); }, 5000);
+  setInterval(() => { oRange.roll(); rRange.roll(); refreshHealth(); if (tab === 'orders' && $('#oForm').hidden) loadOrders(true); if (tab === 'results') loadResults(true); }, 5000);
 }
 
 async function refreshHealth() {
   try {
-    const s = await api('stats');
-    $('#health').innerHTML = (s.devices || []).map((d) => {
+    const s = await api('stats?' + oRange.query());
+    $('#health').innerHTML = (s.dbError ? `<span class="pill bad" title="${esc(s.dbError)}">Mất kết nối CSDL</span>` : '')
+      + (s.spooled ? `<span class="pill bad" title="Kết quả máy gửi lúc mất CSDL, đang ghi tạm trên máy này">${s.spooled} kết quả ghi tạm</span>` : '')
+      + (s.devices || []).map((d) => {
       const dev = devCache.find((x) => x.id === d.id);
       const name = dev ? dev.name : d.id;
       const waiting = !d.connected && /^đang chờ|đang tắt/.test(d.lastError || '');
@@ -95,12 +204,11 @@ async function refreshHealth() {
 // ============================================================ chỉ định
 let orders = [], oStatus = '', selSid = null;
 $$('#oStatus button').forEach((b) => (b.onclick = () => { oStatus = b.dataset.v; $$('#oStatus button').forEach((x) => x.classList.toggle('on', x === b)); renderOrders(); }));
-$('#oDate').onchange = () => loadOrders();
 $('#oQ').oninput = () => { clearTimeout(loadOrders.h); loadOrders.h = setTimeout(() => loadOrders(), 250); };
 
 async function loadOrders(silent) {
   try {
-    orders = await api(`orders?date=${encodeURIComponent($('#oDate').value)}&q=${encodeURIComponent($('#oQ').value)}`);
+    orders = await api(`orders?${oRange.query()}&q=${encodeURIComponent($('#oQ').value)}`);
     renderOrders();
     if (selSid && !silent) showOrder(selSid);
   } catch (e) { if (!silent) toast(e.message, true); }
@@ -118,7 +226,7 @@ function renderOrders() {
       <td>${o.tests.map((t) => esc(t.code)).join(', ')}</td>
       <td>${o.source === 'his' ? 'HIS' : 'Nhập tay'}</td>
       <td><span class="tag t-${o.status}">${STATUS[o.status] || o.status}</span></td>
-      <td>${time(o.createdAt)}</td>
+      <td>${oRange.oneDay() ? time(o.createdAt) : dt(o.createdAt).slice(0, 11)}</td>
     </tr>`).join('');
   $('#oEmpty').hidden = rows.length > 0;
   $$('#oTable tbody tr').forEach((tr) => (tr.onclick = () => showOrder(tr.dataset.sid)));
@@ -138,7 +246,7 @@ async function showOrder(sid) {
       <span>Xét nghiệm</span><span>${o.tests.map((t) => `<b>${esc(t.code)}</b>${t.name ? ' ' + esc(t.name) : ''}`).join(', ')}</span>
       <span>Bác sĩ / phòng</span><span>${esc(o.doctor || '—')} · ${esc(o.room || '—')}</span>
       <span>Nguồn</span><span>${o.source === 'his' ? 'HIS/CIS gửi' : 'Nhập tay'}${o.hisOrderId ? ' · mã HIS ' + esc(o.hisOrderId) : ''}</span>
-      <span>Tạo lúc</span><span>${dt(o.createdAt)}</span>
+      <span>Tạo lúc</span><span>${dt(o.createdAt)}${o.createdBy ? ' · ' + esc(o.createdBy) : ''}</span>
       ${o.note ? `<span>Ghi chú</span><span>${esc(o.note)}</span>` : ''}
     </div>
     ${results.length ? results.map(resultBlock).join('') : '<div class="muted">Máy chưa trả kết quả cho SID này.</div>'}
@@ -232,7 +340,7 @@ $$('#rFilter button').forEach((b) => (b.onclick = () => { rUnmatched = b.dataset
 $('#rSid').oninput = () => { clearTimeout(loadResults.h); loadResults.h = setTimeout(() => loadResults(), 250); };
 async function loadResults(silent) {
   try {
-    results = await api(`results?unmatched=${rUnmatched}&sid=${encodeURIComponent($('#rSid').value)}`);
+    results = await api(`results?${rRange.query()}&unmatched=${rUnmatched}&sid=${encodeURIComponent($('#rSid').value)}`);
     $('#rTable tbody').innerHTML = results.map((r) => `
       <tr data-id="${esc(r.id)}" class="${r.id === selResult ? 'sel' : ''}">
         <td>${dt(r.receivedAt)}</td><td class="sid">${esc(r.sid || '—')}</td><td>${esc(r.deviceName)}</td><td>${r.items.length}</td>
@@ -344,19 +452,38 @@ async function loadHis() {
   const d = await api('his');
   $('#hSite').value = d.siteName || ''; $('#hName').value = d.his.name || ''; $('#hKey').value = d.his.apiKey || '';
   $('#hUrl').value = d.his.webhookUrl || ''; $('#hSecret').value = d.his.secret || '';
+  const a = d.auth || {};
+  $('#aMode').value = a.mode || 'local'; $('#aUrl').value = a.url || ''; $('#aKeyHeader').value = a.keyHeader || '';
+  $('#aKey').value = a.key || ''; $('#aAdminRoles').value = a.adminRoles || ''; $('#aBody').value = a.body || '';
+  $('#aNameField').value = a.nameField || ''; $('#aRolesField').value = a.rolesField || '';
+  authDefaults = a; syncAuth();
   renderDoc(location.host);
 }
+let authDefaults = {};
+const syncAuth = () => ($('#aBox').hidden = $('#aMode').value !== 'his');
+$('#aMode').onchange = syncAuth;
+const authBody = () => ({
+  ...authDefaults, mode: $('#aMode').value, url: $('#aUrl').value.trim(), keyHeader: $('#aKeyHeader').value.trim(), key: $('#aKey').value.trim(),
+  adminRoles: $('#aAdminRoles').value.trim(), body: $('#aBody').value.trim(), nameField: $('#aNameField').value.trim(), rolesField: $('#aRolesField').value.trim(),
+  defaultRole: 'ktv',
+});
+$('#aTest').onclick = async () => {
+  const m = $('#aTestMsg'); m.className = 'small muted'; m.textContent = 'Đang hỏi HIS…';
+  try {
+    const r = await api('auth/test', { method: 'POST', body: { auth: authBody(), username: $('#aTestUser').value, password: $('#aTestPw').value } });
+    m.className = 'small ok';
+    m.textContent = `Đúng: ${r.fullName || r.username} · vai trò HIS ${(r.roles || []).join(', ') || '—'} → ${ROLE[r.role] || r.role} trên LIS`;
+  } catch (e) { m.className = 'small err'; m.textContent = e.message; }
+  $('#aTestPw').value = '';
+};
 const hisBody = () => ({ name: $('#hName').value.trim(), apiKey: $('#hKey').value.trim(), webhookUrl: $('#hUrl').value.trim(), secret: $('#hSecret').value.trim() });
 $('#hisForm').addEventListener('submit', async (e) => {
   e.preventDefault(); $('#hErr').textContent = '';
-  try { await api('his', { method: 'PUT', body: { his: hisBody(), siteName: $('#hSite').value.trim() } }); toast('Đã lưu kết nối HIS/CIS'); $('#site').textContent = $('#hSite').value.trim(); } catch (err) { $('#hErr').textContent = err.message; }
+  try { await api('his', { method: 'PUT', body: { his: hisBody(), auth: authBody(), siteName: $('#hSite').value.trim() } }); toast('Đã lưu kết nối HIS/CIS'); $('#site').textContent = $('#hSite').value.trim(); } catch (err) { $('#hErr').textContent = err.message; }
 });
 $('#hTest').onclick = async () => {
   $('#hErr').textContent = '';
   try { await api('his/test', { method: 'POST', body: hisBody() }); toast('HIS đã nhận bản tin thử'); } catch (err) { $('#hErr').textContent = 'Không gửi được: ' + err.message; }
-};
-$('#pSave').onclick = async () => {
-  try { await api('password', { method: 'POST', body: { old: $('#pOld').value, new: $('#pNew').value } }); $('#pOld').value = $('#pNew').value = ''; toast('Đã đổi mật khẩu'); } catch (e) { toast(e.message, true); }
 };
 function renderDoc(host) {
   const base = `http://${host}/api/v1`;
@@ -388,14 +515,57 @@ function renderDoc(host) {
   <p class="muted">Kết quả là số liệu máy gửi, chưa qua duyệt: HIS/CIS đưa vào trạng thái chờ duyệt, bác sĩ xét nghiệm duyệt mới trả cho người bệnh.</p>`;
 }
 
+// ============================================================ người dùng
+let users = [], editUser = null;
+async function loadUsers() {
+  users = await api('users');
+  $('#uTable tbody').innerHTML = users.map((u) => `
+    <tr data-u="${esc(u.username)}" class="${u.username === editUser ? 'sel' : ''}">
+      <td><b>${esc(u.username)}</b></td><td>${esc(u.fullName)}</td>
+      <td>${u.source === 'his' ? 'HIS/CIS' : 'LIS'}</td>
+      <td><span class="tag ${u.role === 'quan-tri' ? 't-co-ket-qua' : 't-cho'}">${ROLE[u.role] || u.role}</span></td>
+      <td>${u.active ? 'Hoạt động' : '<span class="tag t-bad">Đã khóa</span>'}</td>
+      <td>${u.lastLogin ? dt(u.lastLogin) : '—'}</td>
+    </tr>`).join('');
+  $$('#uTable tbody tr').forEach((tr) => (tr.onclick = () => editUserForm(tr.dataset.u)));
+}
+function editUserForm(name) {
+  const u = users.find((x) => x.username === name);
+  editUser = u ? u.username : null;
+  $$('#uTable tbody tr').forEach((tr) => tr.classList.toggle('sel', tr.dataset.u === editUser));
+  $('#uErr').textContent = '';
+  $('#uTitle').textContent = u ? (u.source === 'his' ? 'Tài khoản HIS/CIS' : 'Tài khoản LIS') : 'Tài khoản LIS mới';
+  $('#uUser').value = u ? u.username : ''; $('#uUser').disabled = !!u;
+  $('#uName').value = u ? u.fullName : ''; $('#uName').disabled = u && u.source === 'his';
+  $('#uRole').value = u ? u.role : 'ktv';
+  $('#uActive').checked = u ? u.active : true;
+  $('#uPw').value = '';
+  $('#uPwRow').hidden = u && u.source === 'his';
+  $('#uPwHint').textContent = u ? '(trống = giữ mật khẩu cũ)' : '(≥ 8 ký tự)';
+  (u ? $('#uRole') : $('#uUser')).focus();
+}
+$('#uNew').onclick = () => editUserForm(null);
+$('#uReset').onclick = () => editUserForm(editUser);
+$('#uForm').addEventListener('submit', async (e) => {
+  e.preventDefault(); $('#uErr').textContent = '';
+  const u = users.find((x) => x.username === editUser);
+  try {
+    if (u && u.source === 'his') await api('users/' + encodeURIComponent(u.username), { method: 'PUT', body: { role: $('#uRole').value, active: $('#uActive').checked } });
+    else await api('users', { method: 'POST', body: { username: $('#uUser').value.trim(), fullName: $('#uName').value.trim(), role: $('#uRole').value, password: $('#uPw').value, active: $('#uActive').checked } });
+    toast('Đã lưu tài khoản');
+    editUser = u ? u.username : $('#uUser').value.trim();
+    await loadUsers(); editUserForm(editUser);
+  } catch (err) { $('#uErr').textContent = err.message; }
+});
+
 // ============================================================ nhật ký
 async function loadLogs() {
   const logs = await api('logs?source=' + encodeURIComponent($('#lSource').value));
-  const srcs = new Set(['his', 'ui', ...devCache.map((d) => 'may:' + d.id)]);
+  const srcs = new Set(['his', 'ui', 'dang-nhap', 'agent', ...devCache.map((d) => 'may:' + d.id)]);
   const cur = $('#lSource').value;
   $('#lSource').innerHTML = '<option value="">Tất cả nguồn</option>' + [...srcs].map((s) => {
     const d = devCache.find((x) => 'may:' + x.id === s);
-    return `<option value="${esc(s)}" ${s === cur ? 'selected' : ''}>${esc(d ? 'Máy ' + d.name : s === 'his' ? 'HIS/CIS' : s === 'ui' ? 'Giao diện' : s)}</option>`;
+    return `<option value="${esc(s)}" ${s === cur ? 'selected' : ''}>${esc(d ? 'Máy ' + d.name : s === 'his' ? 'HIS/CIS' : s === 'ui' ? 'Giao diện' : s === 'dang-nhap' ? 'Đăng nhập' : s === 'agent' ? 'Agent' : s)}</option>`;
   }).join('');
   $('#lTable tbody').innerHTML = logs.map((l) => `<tr><td>${dt(l.at)}</td><td class="lv-${l.level}">${l.level === 'error' ? 'Lỗi' : l.level === 'warn' ? 'Cảnh báo' : 'Thông tin'}</td><td>${esc(l.source)}</td>
     <td>${esc(l.message)}${l.raw ? `<details><summary class="small muted">Bản tin</summary><div class="raw">${esc(l.raw)}</div></details>` : ''}</td></tr>`).join('');
@@ -409,6 +579,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'F1') { e.preventDefault(); setTab('orders'); }
     else if (e.key === 'F2') { e.preventDefault(); openForm(); }
     else if (e.key === 'F9' && !$('#oForm').hidden) { e.preventDefault(); saveOrder(); }
+    else if (e.key === 'Escape' && !$('#pwModal').hidden) $('#pwModal').hidden = true;
     else if (e.key === 'Escape' && !$('#oForm').hidden) closeForm();
     else if (e.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); setTab('orders'); $('#oQ').focus(); }
   }

@@ -7,12 +7,59 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="setup" class="gate" hidden>
+  <form id="setupForm" class="gate-card wide" autocomplete="off">
+    <div class="brand"><span class="logo">LIS</span> Agent — cài đặt</div>
+    <p class="muted">Khai báo CSDL PostgreSQL dùng chung của LIS (cloud hoặc máy chủ tại viện). Các Agent ở các phòng xét nghiệm dùng chung một CSDL; mỗi Agent một tên riêng.</p>
+    <div id="setupRemote" class="note bad" hidden>Trang cài đặt chỉ thao tác được trên chính máy cài Agent. Mở <b>http://localhost:8090</b> tại máy đó.</div>
+    <div id="setupLastErr" class="note bad" hidden></div>
+    <fieldset>
+      <legend>Cơ sở dữ liệu</legend>
+      <div class="row-host">
+        <label>Máy chủ CSDL *<input id="sHost" required placeholder="vd 10.0.0.5 hoặc lis-db.benhvien.vn"></label>
+        <label>Cổng<input id="sPort" type="number" value="5432"></label>
+      </div>
+      <div class="row2">
+        <label>Tên CSDL *<input id="sName" required value="lis"></label>
+        <label>Mã hóa kết nối
+          <select id="sSsl"><option value="disable">Không (mạng nội bộ)</option><option value="require">Bắt buộc (CSDL cloud)</option><option value="verify-full">Bắt buộc + kiểm chứng chỉ</option></select>
+        </label>
+      </div>
+      <div class="row2">
+        <label>Tài khoản CSDL *<input id="sUser" required autocomplete="off"></label>
+        <label>Mật khẩu CSDL<input id="sPass" type="password" autocomplete="new-password"></label>
+      </div>
+      <div class="actions left"><button type="button" id="sTest">Thử kết nối</button><span id="sTestMsg" class="small"></span></div>
+    </fieldset>
+    <fieldset>
+      <legend>Agent này</legend>
+      <div class="row2">
+        <label>Tên Agent *<input id="sAgent" required placeholder="vd XN-SINH-HOA"></label>
+        <label>Tên cơ sở<input id="sSite" placeholder="Khoa Xét nghiệm …"></label>
+      </div>
+      <p class="small muted">Tên Agent phân biệt máy tính này với các phòng xét nghiệm khác: máy xét nghiệm và nhật ký gắn theo tên Agent.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Tài khoản quản trị LIS</legend>
+      <p class="small muted">Bắt buộc khi CSDL mới. Dùng để cấu hình và đăng nhập khi HIS mất kết nối. CSDL đã có quản trị thì bỏ trống.</p>
+      <div class="row3">
+        <label>Tên đăng nhập<input id="sAdmin" autocomplete="off" placeholder="vd quantri.lis"></label>
+        <label>Họ tên<input id="sAdminName"></label>
+        <label>Mật khẩu (≥ 8 ký tự)<input id="sAdminPass" type="password" autocomplete="new-password"></label>
+      </div>
+    </fieldset>
+    <div id="setupErr" class="err"></div>
+    <div class="actions"><button class="primary" type="submit" id="setupBtn">Lưu và khởi động Agent</button></div>
+  </form>
+</div>
+
 <div id="gate" class="gate" hidden>
   <form id="gateForm" class="gate-card" autocomplete="off">
     <div class="brand"><span class="logo">LIS</span> Agent</div>
+    <div id="gateAgent" class="site"></div>
     <p id="gateHint" class="muted"></p>
-    <label id="siteRow" hidden>Tên cơ sở<input id="gateSite" placeholder="Phòng xét nghiệm …"></label>
-    <label>Mật khẩu quản trị<input id="gatePw" type="password" required></label>
+    <label>Tên đăng nhập<input id="gateUser" required autocomplete="username"></label>
+    <label>Mật khẩu<input id="gatePw" type="password" required autocomplete="current-password"></label>
     <div id="gateErr" class="err"></div>
     <button class="primary" type="submit" id="gateBtn">Đăng nhập</button>
   </form>
@@ -24,18 +71,32 @@
     <nav id="tabs">
       <button data-tab="orders" class="on">Chỉ định <kbd>F1</kbd></button>
       <button data-tab="results">Kết quả <span id="unmatchedBadge" class="badge" hidden></span></button>
-      <button data-tab="devices">Máy xét nghiệm</button>
-      <button data-tab="his">Kết nối HIS/CIS</button>
+      <button data-tab="devices" class="adm">Máy xét nghiệm</button>
+      <button data-tab="his" class="adm">Kết nối HIS/CIS</button>
+      <button data-tab="users" class="adm">Người dùng</button>
       <button data-tab="logs">Nhật ký</button>
     </nav>
     <div id="health" class="health"></div>
-    <button id="logout" class="ghost">Đăng xuất</button>
+    <div class="user-menu">
+      <button id="userBtn" class="ghost" aria-haspopup="true"><span id="userName"></span> <span id="userRole" class="tag"></span></button>
+      <div id="userPop" class="pop" hidden>
+        <div class="small muted" id="userSrc"></div>
+        <button id="pwOpen" class="ghost">Đổi mật khẩu</button>
+        <button id="logout" class="ghost">Đăng xuất</button>
+      </div>
+    </div>
   </header>
 
   <!-- ============================ Chỉ định -->
   <section id="tab-orders" class="tab">
     <div class="bar">
-      <input type="date" id="oDate" aria-label="Ngày">
+      <div class="range" id="oRange">
+        <select data-r="preset" aria-label="Khoảng thời gian">
+          <option value="today">Hôm nay</option><option value="yesterday">Hôm qua</option><option value="7d">7 ngày</option>
+          <option value="30d">30 ngày</option><option value="month">Tháng này</option><option value="lastMonth">Tháng trước</option><option value="custom">Tùy chọn</option>
+        </select>
+        <input type="date" data-r="from" aria-label="Từ ngày"><span class="muted">→</span><input type="date" data-r="to" aria-label="Đến ngày">
+      </div>
       <div class="seg" id="oStatus">
         <button data-v="" class="on">Tất cả <b id="cAll">0</b></button>
         <button data-v="cho">Chờ máy <b id="c-cho">0</b></button>
@@ -51,10 +112,10 @@
     <div class="split">
       <div class="pane">
         <table class="grid" id="oTable">
-          <thead><tr><th>SID</th><th>Người bệnh</th><th>Xét nghiệm</th><th>Nguồn</th><th>Trạng thái</th><th>Giờ</th></tr></thead>
+          <thead><tr><th>SID</th><th>Người bệnh</th><th>Xét nghiệm</th><th>Nguồn</th><th>Trạng thái</th><th>Thời gian</th></tr></thead>
           <tbody></tbody>
         </table>
-        <div id="oEmpty" class="empty" hidden>Chưa có chỉ định. HIS/CIS gửi qua API hoặc bấm <b>Nhập chỉ định (F2)</b>.</div>
+        <div id="oEmpty" class="empty" hidden>Không có chỉ định trong khoảng ngày này. HIS/CIS gửi qua API hoặc bấm <b>Nhập chỉ định (F2)</b>.</div>
       </div>
       <aside class="side" id="oSide">
         <div id="oDetail" class="muted pad">Chọn một chỉ định để xem chi tiết và kết quả máy trả.</div>
@@ -94,11 +155,18 @@
   <!-- ============================ Kết quả -->
   <section id="tab-results" class="tab" hidden>
     <div class="bar">
+<div class="range" id="rRange">
+        <select data-r="preset" aria-label="Khoảng thời gian">
+          <option value="today">Hôm nay</option><option value="yesterday">Hôm qua</option><option value="7d">7 ngày</option>
+          <option value="30d">30 ngày</option><option value="month">Tháng này</option><option value="lastMonth">Tháng trước</option><option value="custom">Tùy chọn</option>
+        </select>
+        <input type="date" data-r="from" aria-label="Từ ngày"><span class="muted">→</span><input type="date" data-r="to" aria-label="Đến ngày">
+      </div>
       <div class="seg" id="rFilter">
         <button data-v="" class="on">Tất cả</button>
         <button data-v="1">Chưa khớp chỉ định</button>
       </div>
-      <input id="rSid" placeholder="Lọc theo SID" aria-label="SID">
+      <input id="rSid" placeholder="Tìm theo SID (mọi ngày)" aria-label="SID">
       <span class="grow"></span>
       <span class="muted" id="outboxInfo"></span>
     </div>
@@ -108,7 +176,7 @@
           <thead><tr><th>Thời gian</th><th>SID</th><th>Máy</th><th>Chỉ số</th><th>Khớp</th><th>Trả HIS</th></tr></thead>
           <tbody></tbody>
         </table>
-        <div id="rEmpty" class="empty" hidden>Chưa có kết quả từ máy.</div>
+        <div id="rEmpty" class="empty" hidden>Không có kết quả máy trả trong khoảng ngày này.</div>
       </div>
       <aside class="side"><div id="rDetail" class="muted pad">Chọn một kết quả.</div></aside>
     </div>
@@ -141,19 +209,69 @@
         <label><span>Khóa ký <span class="muted">(HMAC-SHA256, header <code>X-Signature</code>)</span></span>
           <div class="inline"><input id="hSecret"><button type="button" id="genSecret">Tạo khóa</button></div>
         </label>
+        <div class="actions left"><button type="button" id="hTest">Thử gửi kết quả tới HIS</button></div>
+        <h3 class="sep">Đăng nhập dùng chung tài khoản HIS/CIS</h3>
+        <label>Cách đăng nhập
+          <select id="aMode"><option value="local">Chỉ tài khoản LIS</option><option value="his">Tài khoản HIS/CIS (tài khoản LIS dự phòng)</option></select>
+        </label>
+        <div id="aBox">
+          <label><span>API đăng nhập của HIS <span class="muted">— Agent gửi tên đăng nhập + mật khẩu, HIS trả đúng/sai</span></span>
+            <input id="aUrl" placeholder="https://his.benhvien.vn/api/v1/integration/auth/verify">
+          </label>
+          <div class="row2">
+            <label>Header khóa<input id="aKeyHeader"></label>
+            <label>Khóa tích hợp <span class="muted">(lấy ở HIS)</span><input id="aKey" type="password" autocomplete="new-password"></label>
+          </div>
+          <label><span>Vai trò HIS được quản trị LIS <span class="muted">— cách nhau dấu phẩy; người khác là kỹ thuật viên</span></span>
+            <input id="aAdminRoles" placeholder="vd ADMIN, TRUONG_KHOA_XN">
+          </label>
+          <details>
+            <summary class="small">HIS khác (không phải HIS-PROMAX): mẫu nội dung, trường trả về</summary>
+            <label>Mẫu nội dung gửi <span class="muted">{{username}} {{password}}</span><input id="aBody"></label>
+            <div class="row2">
+              <label>Trường họ tên<input id="aNameField"></label>
+              <label>Trường vai trò (mảng)<input id="aRolesField"></label>
+            </div>
+          </details>
+          <div class="test-login">
+            <div class="small"><b>Thử đăng nhập qua HIS</b> <span class="muted">(không lưu, không tạo phiên)</span></div>
+            <div class="inline"><input id="aTestUser" placeholder="Tên đăng nhập HIS" autocomplete="off"><input id="aTestPw" type="password" placeholder="Mật khẩu" autocomplete="new-password"><button type="button" id="aTest">Thử</button></div>
+            <div id="aTestMsg" class="small"></div>
+          </div>
+        </div>
         <div id="hErr" class="err"></div>
-        <div class="actions">
-          <button type="button" id="hTest">Thử gửi tới HIS</button>
-          <button type="submit" class="primary">Lưu</button>
-        </div>
-        <h3>Đổi mật khẩu quản trị</h3>
-        <div class="row2">
-          <label>Mật khẩu cũ<input id="pOld" type="password"></label>
-          <label>Mật khẩu mới<input id="pNew" type="password"></label>
-        </div>
-        <div class="actions"><button type="button" id="pSave">Đổi mật khẩu</button></div>
+        <div class="actions"><button type="submit" class="primary">Lưu kết nối và đăng nhập</button></div>
       </form>
       <div class="card doc" id="apiDoc"></div>
+    </div>
+  </section>
+
+  <!-- ============================ Người dùng -->
+  <section id="tab-users" class="tab" hidden>
+    <div class="bar">
+      <span class="muted">Tài khoản HIS tự có trong danh sách sau lần đăng nhập đầu; quản trị đổi vai trò hoặc khóa tại đây. Tài khoản LIS dùng khi không có HIS hoặc HIS mất kết nối.</span>
+      <span class="grow"></span>
+      <button id="uNew" class="primary">+ Tài khoản LIS</button>
+    </div>
+    <div class="split">
+      <div class="pane">
+        <table class="grid" id="uTable">
+          <thead><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Loại</th><th>Vai trò</th><th>Trạng thái</th><th>Đăng nhập gần nhất</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <aside class="side">
+        <form id="uForm" class="form" autocomplete="off">
+          <h3 id="uTitle">Tài khoản LIS mới</h3>
+          <label>Tên đăng nhập *<input id="uUser" required></label>
+          <label>Họ tên<input id="uName"></label>
+          <label>Vai trò<select id="uRole"><option value="ktv">Kỹ thuật viên</option><option value="quan-tri">Quản trị LIS</option></select></label>
+          <label id="uPwRow"><span>Mật khẩu <span class="muted small" id="uPwHint">(≥ 8 ký tự)</span></span><input id="uPw" type="password" autocomplete="new-password"></label>
+          <label class="check"><input id="uActive" type="checkbox" checked> Đang hoạt động</label>
+          <div id="uErr" class="err"></div>
+          <div class="actions"><button type="button" id="uReset" class="ghost">Làm mới</button><button type="submit" class="primary">Lưu</button></div>
+        </form>
+      </aside>
     </div>
   </section>
 
@@ -170,6 +288,15 @@
       </table>
     </div>
   </section>
+</div>
+<div id="pwModal" class="modal" hidden>
+  <form id="pwForm" class="gate-card" autocomplete="off">
+    <h3>Đổi mật khẩu tài khoản LIS</h3>
+    <label>Mật khẩu hiện tại<input id="pOld" type="password" autocomplete="current-password"></label>
+    <label>Mật khẩu mới (≥ 8 ký tự)<input id="pNew" type="password" autocomplete="new-password"></label>
+    <div id="pErr" class="err"></div>
+    <div class="actions"><button type="button" id="pClose" class="ghost">Đóng (Esc)</button><button class="primary" type="submit">Đổi mật khẩu</button></div>
+  </form>
 </div>
 <div id="toast" class="toast" hidden></div>
 <script src="app.js"></script>

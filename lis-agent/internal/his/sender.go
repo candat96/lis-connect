@@ -82,7 +82,7 @@ func (s *Sender) flush(ctx context.Context) {
 	if err != nil || cfg.His.WebhookURL == "" {
 		return // HIS tự kéo kết quả
 	}
-	items, _ := s.st.DueOutbox(time.Now(), 50)
+	items, _ := s.st.ClaimOutbox(50)
 	for _, it := range items {
 		if ctx.Err() != nil {
 			return

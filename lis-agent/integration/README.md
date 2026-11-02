@@ -45,3 +45,22 @@ lis-sim -addr 127.0.0.1:5000 -sid 2611020055 -query -results "GLU-P=5.6,UREA=9.8
 ```
 
 Máy HL7: `lis-sim -addr 127.0.0.1:5001 -proto hl7 -sid 2611020055 -results "WBC=12.3:H,RBC=4.5"`.
+
+## Đăng nhập dùng chung tài khoản HIS/CIS
+
+Người dùng LIS đăng nhập bằng tài khoản HIS: Agent gửi tên đăng nhập + mật khẩu tới API đăng nhập của HIS, HIS trả
+đúng/sai. Agent không lưu mật khẩu HIS.
+
+HIS-PROMAX có sẵn: `POST /api/v1/integration/auth/verify`, header `X-Integration-Key` (bật ở Cài đặt kết nối →
+`SSO_TICH_HOP`). HIS khác chỉ cần một API tương tự:
+
+```
+POST <địa chỉ>            header <tên header khóa>: <khóa>
+{"username":"...","password":"..."}          ← mẫu nội dung đổi được trên Agent
+
+200 {"ok":true,"username":"...","fullName":"...","roles":["..."]}   → đúng
+401 {"ok":false,"message":"..."}                                    → sai / khóa tài khoản
+```
+
+Tên trường họ tên và vai trò khai báo được (vd `data.user.fullName`). Vai trò HIS nằm trong danh sách "Vai trò HIS
+được quản trị LIS" thì làm quản trị LIS, còn lại là kỹ thuật viên; quản trị LIS đổi được vai trò hoặc khóa trên Agent.

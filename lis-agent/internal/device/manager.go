@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,8 @@ type Manager struct {
 	devices []store.Device
 	// OnResult — gọi sau khi lưu kết quả (đánh thức bộ gửi HIS)
 	OnResult func()
+	// Spool — ghi tạm kết quả ra đĩa khi CSDL mất kết nối
+	Spool *store.Spool
 }
 
 func NewManager(st *store.Store) *Manager {
@@ -396,10 +399,17 @@ func (m *Manager) saveResult(d store.Device, sid string, items []store.ResultIte
 			items[i].TestCode = items[i].DeviceCode
 		}
 	}
-	r, err := m.st.AddResult(store.Result{Sid: sid, DeviceID: d.ID, DeviceName: d.Name, Items: items, Raw: raw})
+	in := store.Result{ID: store.NewID(), Sid: sid, DeviceID: d.ID, DeviceName: d.Name, Items: items, Raw: raw, ReceivedAt: time.Now()}
+	r, err := m.st.AddResult(in)
 	src := "may:" + d.ID
 	if err != nil {
-		m.st.Log("error", src, d.Name+": không lưu được kết quả SID "+sid+" — "+err.Error(), "")
+		// CSDL mất kết nối: ghi tạm ra đĩa, có kết nối lại thì đẩy lên (không mất kết quả)
+		if m.Spool != nil && m.Spool.Add(in) == nil {
+			log.Printf("CSDL lỗi (%v) — đã ghi tạm kết quả SID %s ra đĩa", err, sid)
+			m.update(d.ID, func(s *Status) { s.Results++ })
+			return
+		}
+		log.Printf("Không lưu được kết quả SID %s: %v", sid, err)
 		return
 	}
 	m.update(d.ID, func(s *Status) { s.Results++ })

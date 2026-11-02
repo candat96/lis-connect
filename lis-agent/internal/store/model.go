@@ -1,5 +1,6 @@
-// Package store: dữ liệu cục bộ của Agent (một file bbolt): chỉ định, kết quả từ máy, hàng đợi gửi HIS/CIS,
-// cấu hình, nhật ký. Agent không phụ thuộc mạng ngoài: mất kết nối HIS vẫn nhận chỉ định đã có và kết quả máy.
+// Package store: dữ liệu LIS trên PostgreSQL (cloud hoặc máy chủ tại viện, khai báo khi cài): chỉ định, kết quả,
+// hàng đợi gửi HIS/CIS, cài đặt chung, máy xét nghiệm theo từng Agent, người dùng, phiên đăng nhập, nhật ký.
+// Nhiều Agent (mỗi phòng xét nghiệm một máy tính) dùng chung một CSDL.
 package store
 
 import "time"
@@ -36,6 +37,7 @@ type Order struct {
 	Room       string    `json:"room,omitempty"`
 	Note       string    `json:"note,omitempty"`
 	Status     string    `json:"status"`
+	CreatedBy  string    `json:"createdBy,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`
 }
@@ -62,6 +64,7 @@ type Result struct {
 	SentAt     *time.Time   `json:"sentAt,omitempty"`
 	SendError  string       `json:"sendError,omitempty"`
 	Raw        string       `json:"raw,omitempty"`
+	Agent      string       `json:"agent,omitempty"`
 }
 
 // OutboxItem — bản tin chờ gửi HIS (kết quả). Gửi lại theo lịch lùi dần đến khi HIS nhận.
@@ -82,11 +85,11 @@ type Mapping struct {
 
 // Device — một máy xét nghiệm.
 type Device struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	Enabled  bool      `json:"enabled"`
-	Protocol string    `json:"protocol"`  // astm | hl7
-	Transport string   `json:"transport"` // serial | tcp-server | tcp-client
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Enabled   bool   `json:"enabled"`
+	Protocol  string `json:"protocol"`  // astm | hl7
+	Transport string `json:"transport"` // serial | tcp-server | tcp-client
 	// serial
 	Port     string `json:"port,omitempty"`
 	Baud     int    `json:"baud,omitempty"`
@@ -107,16 +110,40 @@ type HisConfig struct {
 	Name       string `json:"name,omitempty"`       // tên hệ thống HIS/CIS (hiển thị)
 }
 
+// AuthConfig — đăng nhập dùng chung tài khoản HIS/CIS: Agent gửi tài khoản + mật khẩu tới API đăng nhập của HIS.
+type AuthConfig struct {
+	Mode        string `json:"mode"`        // local (chỉ tài khoản LIS) | his (tài khoản HIS, tài khoản LIS dự phòng)
+	URL         string `json:"url"`         // vd http://his.benhvien.vn/api/v1/integration/auth/verify
+	KeyHeader   string `json:"keyHeader"`   // vd X-Integration-Key
+	Key         string `json:"key"`         // khóa hệ thống tích hợp
+	Body        string `json:"body"`        // mẫu nội dung gửi, có {{username}} {{password}}
+	NameField   string `json:"nameField"`   // trường họ tên trong JSON trả về, vd fullName
+	RolesField  string `json:"rolesField"`  // trường vai trò (mảng), vd roles
+	AdminRoles  string `json:"adminRoles"`  // vai trò HIS được làm quản trị LIS, cách nhau dấu phẩy
+	DefaultRole string `json:"defaultRole"` // vai trò LIS mặc định cho người đăng nhập bằng HIS: ktv
+}
+
+// Config — cài đặt dùng chung (lưu CSDL) + máy xét nghiệm của Agent này.
 type Config struct {
-	Listen        string    `json:"listen"`        // địa chỉ HTTP, vd :8090
-	AdminPassword string    `json:"adminPassword"` // băm SHA-256 (hex) mật khẩu giao diện
-	SiteName      string    `json:"siteName"`
-	His           HisConfig `json:"his"`
-	Devices       []Device  `json:"devices"`
+	SiteName string     `json:"siteName"`
+	His      HisConfig  `json:"his"`
+	Auth     AuthConfig `json:"auth"`
+	Devices  []Device   `json:"devices"`
+}
+
+// User — người dùng LIS: tài khoản riêng (local) hoặc tài khoản HIS đã đăng nhập (his).
+type User struct {
+	Username  string     `json:"username"`
+	FullName  string     `json:"fullName"`
+	Role      string     `json:"role"`   // quan-tri | ktv
+	Source    string     `json:"source"` // local | his
+	Active    bool       `json:"active"`
+	LastLogin *time.Time `json:"lastLogin,omitempty"`
 }
 
 // LogEntry — nhật ký kết nối/bản tin để tra khi có sai lệch.
 type LogEntry struct {
+	Agent   string    `json:"agent,omitempty"`
 	At      time.Time `json:"at"`
 	Level   string    `json:"level"` // info | warn | error
 	Source  string    `json:"source"`
