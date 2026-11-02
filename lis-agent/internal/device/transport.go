@@ -78,6 +78,13 @@ func open(ctx context.Context, d store.Device) (io.ReadWriteCloser, error) {
 	return nil, fmt.Errorf("kiểu kết nối không hỗ trợ: %s", d.Transport)
 }
 
+func listen(d store.Device) (net.Listener, error) {
+	if d.TCPPort == 0 {
+		return nil, errors.New("chưa nhập cổng lắng nghe")
+	}
+	return net.Listen("tcp", net.JoinHostPort(d.Host, fmt.Sprint(d.TCPPort)))
+}
+
 // tcpConn — đọc có hạn chờ để vòng đọc kiểm tra được lệnh dừng.
 type tcpConn struct{ net.Conn }
 

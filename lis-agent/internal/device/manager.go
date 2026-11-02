@@ -107,6 +107,10 @@ func (m *Manager) touch(id string) {
 // run — mở kết nối, chạy giao thức đến khi rớt, chờ rồi nối lại.
 func (m *Manager) run(ctx context.Context, d store.Device) {
 	src := "may:" + d.ID
+	if d.Transport == "tcp-server" {
+		m.runServer(ctx, d)
+		return
+	}
 	for ctx.Err() == nil {
 		conn, err := open(ctx, d)
 		if err != nil {
@@ -132,6 +136,64 @@ func (m *Manager) run(ctx context.Context, d store.Device) {
 		m.setErr(d.ID, msg)
 		m.st.Log("warn", src, d.Name+": "+msg, "")
 		sleep(ctx, 3*time.Second)
+	}
+}
+
+// runServer — chế độ Agent chờ máy nối vào: giữ cổng nghe suốt thời gian chạy; máy nối lại (kể cả khi kết nối
+// cũ chưa báo rớt) thì kết nối mới thay kết nối cũ ngay.
+func (m *Manager) runServer(ctx context.Context, d store.Device) {
+	src := "may:" + d.ID
+	for ctx.Err() == nil {
+		ln, err := listen(d)
+		if err != nil {
+			m.setErr(d.ID, err.Error())
+			m.st.Log("warn", src, d.Name+": không mở được cổng nghe — "+err.Error(), "")
+			sleep(ctx, 5*time.Second)
+			continue
+		}
+		m.setErr(d.ID, "đang chờ máy nối vào cổng "+fmt.Sprint(d.TCPPort))
+		go func() { <-ctx.Done(); ln.Close() }()
+		var cur io.ReadWriteCloser
+		var curMu sync.Mutex
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				break
+			}
+			curMu.Lock()
+			if cur != nil {
+				cur.Close() // máy nối lại: bỏ kết nối cũ
+			}
+			conn := &tcpConn{c}
+			cur = conn
+			curMu.Unlock()
+			m.update(d.ID, func(s *Status) { s.Connected = true; s.LastError = "" })
+			m.st.Log("info", src, d.Name+": máy đã nối vào từ "+c.RemoteAddr().String(), "")
+			go func() {
+				err := m.serve(ctx, d, conn)
+				conn.Close()
+				curMu.Lock()
+				last := cur == conn
+				if last {
+					cur = nil
+				}
+				curMu.Unlock()
+				if ctx.Err() == nil && last {
+					msg := "máy ngắt kết nối"
+					if err != nil {
+						msg += " — " + err.Error()
+					}
+					m.setErr(d.ID, msg+"; đang chờ máy nối lại")
+					m.st.Log("warn", src, d.Name+": "+msg, "")
+				}
+			}()
+		}
+		curMu.Lock()
+		if cur != nil {
+			cur.Close()
+		}
+		curMu.Unlock()
+		ln.Close()
 	}
 }
 

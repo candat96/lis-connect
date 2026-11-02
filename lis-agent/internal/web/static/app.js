@@ -72,9 +72,8 @@ let started = false;
 function start() {
   if (started) return; started = true;
   $('#oDate').value = today();
-  api('devices').then((d) => (devCache = d.devices)).catch(() => {});
+  api('devices').then((d) => { devCache = d.devices; refreshHealth(); }).catch(() => {});
   setTab('orders');
-  refreshHealth();
   setInterval(() => { refreshHealth(); if (tab === 'orders' && $('#oForm').hidden) loadOrders(true); if (tab === 'results') loadResults(true); }, 5000);
 }
 
@@ -84,7 +83,8 @@ async function refreshHealth() {
     $('#health').innerHTML = (s.devices || []).map((d) => {
       const dev = devCache.find((x) => x.id === d.id);
       const name = dev ? dev.name : d.id;
-      const cls = d.connected ? 'ok' : d.lastError === 'đang tắt' ? 'off' : 'bad';
+      const waiting = !d.connected && /^đang chờ|đang tắt/.test(d.lastError || '');
+      const cls = d.connected ? 'ok' : waiting ? 'off' : 'bad';
       return `<span class="pill ${cls}" title="${esc(d.lastError || 'Đã kết nối')}">${esc(name)}</span>`;
     }).join('') + (s.outbox ? `<span class="pill bad" title="Kết quả chờ gửi HIS">${s.outbox} chờ gửi HIS</span>` : '');
     const b = $('#unmatchedBadge'); b.hidden = !s.unmatched; b.textContent = s.unmatched;
