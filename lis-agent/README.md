@@ -44,6 +44,8 @@ Tài liệu API đầy đủ (kèm ví dụ JSON) hiển thị ngay trong tab **
 
 Mọi lời gọi kèm header `X-Api-Key`. Kết quả là số liệu máy gửi, chưa duyệt: HIS/CIS để ở trạng thái chờ duyệt.
 
+Bộ tích hợp cho đơn vị HIS/CIS (OpenAPI, Postman, mẫu nhận kết quả C#/Java/Node/PHP, máy giả `lis-sim`): xem [`integration/`](integration/README.md).
+
 ## Phát triển
 
 ```

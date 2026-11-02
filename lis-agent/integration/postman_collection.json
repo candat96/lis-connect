@@ -1,0 +1,202 @@
+{
+  "info": {
+    "name": "LIS Agent – tích hợp HIS/CIS",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "agent",
+      "value": "http://192.168.1.20:8090"
+    },
+    {
+      "key": "apiKey",
+      "value": "<khóa API>"
+    },
+    {
+      "key": "sid",
+      "value": "2611020001"
+    }
+  ],
+  "item": [
+    {
+      "name": "Kiểm tra Agent",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{apiKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{agent}}/api/v1/health",
+          "host": [
+            "{{agent}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Gửi chỉ định",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{apiKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{agent}}/api/v1/orders",
+          "host": [
+            "{{agent}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sid\": \"{{sid}}\",\n  \"hisOrderId\": \"CD-THU-1\",\n  \"patient\": {\n    \"code\": \"BN000123\",\n    \"name\": \"NGUYEN VAN THU\",\n    \"dob\": \"1985-04-12\",\n    \"gender\": \"male\"\n  },\n  \"tests\": [\n    {\n      \"code\": \"GLU\",\n      \"name\": \"Glucose\"\n    },\n    {\n      \"code\": \"URE\",\n      \"name\": \"Ure\"\n    }\n  ],\n  \"doctor\": \"BS. THU\",\n  \"room\": \"Phòng khám 01\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Xem chỉ định",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{apiKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{agent}}/api/v1/orders/{{sid}}",
+          "host": [
+            "{{agent}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "orders",
+            "{{sid}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Hủy chỉ định",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{apiKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{agent}}/api/v1/orders/{{sid}}/cancel",
+          "host": [
+            "{{agent}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "orders",
+            "{{sid}}",
+            "cancel"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Kéo kết quả",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{apiKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{agent}}/api/v1/results?since=2026-11-02T00:00:00+07:00",
+          "host": [
+            "{{agent}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "results"
+          ],
+          "query": [
+            {
+              "key": "since",
+              "value": "2026-11-02T00:00:00+07:00"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Báo đã nhận kết quả",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{apiKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{agent}}/api/v1/results/ack",
+          "host": [
+            "{{agent}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "results",
+            "ack"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"ids\": [\n    \"<resultId>\"\n  ]\n}"
+        }
+      }
+    }
+  ]
+}

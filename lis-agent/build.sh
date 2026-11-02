@@ -9,5 +9,6 @@ mkdir -p dist
 "$GO" test ./...
 for arch in amd64 386; do
   GOOS=windows GOARCH=$arch "$GO" build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/lis-agent-$arch.exe" ./cmd/lis-agent
+  GOOS=windows GOARCH=$arch "$GO" build -trimpath -ldflags "-s -w" -o "dist/lis-sim-$arch.exe" ./cmd/lis-sim
 done
 ls -la dist
