@@ -6,3 +6,4 @@ out/
 .env.local
 .superpowers/
 .env.demo
+lis-agent/dist/

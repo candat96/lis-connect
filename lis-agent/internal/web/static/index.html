@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIS Agent</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="gate" class="gate" hidden>
+  <form id="gateForm" class="gate-card" autocomplete="off">
+    <div class="brand"><span class="logo">LIS</span> Agent</div>
+    <p id="gateHint" class="muted"></p>
+    <label id="siteRow" hidden>Tên cơ sở<input id="gateSite" placeholder="Phòng xét nghiệm …"></label>
+    <label>Mật khẩu quản trị<input id="gatePw" type="password" required></label>
+    <div id="gateErr" class="err"></div>
+    <button class="primary" type="submit" id="gateBtn">Đăng nhập</button>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header class="top">
+    <div class="brand"><span class="logo">LIS</span> Agent <span id="site" class="site"></span></div>
+    <nav id="tabs">
+      <button data-tab="orders" class="on">Chỉ định <kbd>F1</kbd></button>
+      <button data-tab="results">Kết quả <span id="unmatchedBadge" class="badge" hidden></span></button>
+      <button data-tab="devices">Máy xét nghiệm</button>
+      <button data-tab="his">Kết nối HIS/CIS</button>
+      <button data-tab="logs">Nhật ký</button>
+    </nav>
+    <div id="health" class="health"></div>
+    <button id="logout" class="ghost">Đăng xuất</button>
+  </header>
+
+  <!-- ============================ Chỉ định -->
+  <section id="tab-orders" class="tab">
+    <div class="bar">
+      <input type="date" id="oDate" aria-label="Ngày">
+      <div class="seg" id="oStatus">
+        <button data-v="" class="on">Tất cả <b id="cAll">0</b></button>
+        <button data-v="cho">Chờ máy <b id="c-cho">0</b></button>
+        <button data-v="dang-chay">Đang chạy <b id="c-dang-chay">0</b></button>
+        <button data-v="co-ket-qua">Có kết quả <b id="c-co-ket-qua">0</b></button>
+        <button data-v="da-gui">Đã trả HIS <b id="c-da-gui">0</b></button>
+        <button data-v="huy">Đã hủy <b id="c-huy">0</b></button>
+      </div>
+      <input id="oQ" placeholder="Tìm SID, mã/tên người bệnh  (/)" aria-label="Tìm chỉ định">
+      <span class="grow"></span>
+      <button id="newOrder" class="primary">+ Nhập chỉ định <kbd>F2</kbd></button>
+    </div>
+    <div class="split">
+      <div class="pane">
+        <table class="grid" id="oTable">
+          <thead><tr><th>SID</th><th>Người bệnh</th><th>Xét nghiệm</th><th>Nguồn</th><th>Trạng thái</th><th>Giờ</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div id="oEmpty" class="empty" hidden>Chưa có chỉ định. HIS/CIS gửi qua API hoặc bấm <b>Nhập chỉ định (F2)</b>.</div>
+      </div>
+      <aside class="side" id="oSide">
+        <div id="oDetail" class="muted pad">Chọn một chỉ định để xem chi tiết và kết quả máy trả.</div>
+        <form id="oForm" class="form" hidden autocomplete="off">
+          <h3>Nhập chỉ định</h3>
+          <div class="row2">
+            <label>SID (mã vạch ống) *<input id="fSid" required maxlength="40"></label>
+            <label>Mã người bệnh<input id="fCode" maxlength="40"></label>
+          </div>
+          <label>Họ tên *<input id="fName" required maxlength="150" class="upper"></label>
+          <div class="row2">
+            <label>Ngày sinh<input id="fDob" placeholder="dd/mm/yyyy hoặc năm"></label>
+            <label>Giới tính
+              <select id="fGender"><option value="">—</option><option value="male">Nam</option><option value="female">Nữ</option></select>
+            </label>
+          </div>
+          <label><span>Xét nghiệm * <span class="muted">(gõ mã, Enter để thêm)</span></span>
+            <div class="chips" id="fTests"></div>
+            <input id="fTest" list="testList" placeholder="vd GLU, URE, CBC…">
+            <datalist id="testList"></datalist>
+          </label>
+          <div class="row2">
+            <label>Bác sĩ chỉ định<input id="fDoctor" maxlength="100"></label>
+            <label>Khoa/phòng<input id="fRoom" maxlength="100"></label>
+          </div>
+          <label>Ghi chú<input id="fNote" maxlength="300"></label>
+          <div id="fErr" class="err"></div>
+          <div class="actions">
+            <button type="button" id="fCancel" class="ghost">Hủy (Esc)</button>
+            <button type="submit" class="primary">Lưu chỉ định <kbd>F9</kbd></button>
+          </div>
+        </form>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================ Kết quả -->
+  <section id="tab-results" class="tab" hidden>
+    <div class="bar">
+      <div class="seg" id="rFilter">
+        <button data-v="" class="on">Tất cả</button>
+        <button data-v="1">Chưa khớp chỉ định</button>
+      </div>
+      <input id="rSid" placeholder="Lọc theo SID" aria-label="SID">
+      <span class="grow"></span>
+      <span class="muted" id="outboxInfo"></span>
+    </div>
+    <div class="split">
+      <div class="pane">
+        <table class="grid" id="rTable">
+          <thead><tr><th>Thời gian</th><th>SID</th><th>Máy</th><th>Chỉ số</th><th>Khớp</th><th>Trả HIS</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div id="rEmpty" class="empty" hidden>Chưa có kết quả từ máy.</div>
+      </div>
+      <aside class="side"><div id="rDetail" class="muted pad">Chọn một kết quả.</div></aside>
+    </div>
+  </section>
+
+  <!-- ============================ Máy -->
+  <section id="tab-devices" class="tab" hidden>
+    <div class="bar">
+      <span class="muted">Mỗi máy một kết nối. Lưu là áp dụng ngay, Agent tự nối lại.</span>
+      <span class="grow"></span>
+      <button id="addDevice">+ Thêm máy</button>
+      <button id="saveDevices" class="primary">Lưu cấu hình máy</button>
+    </div>
+    <div id="devList" class="cards"></div>
+  </section>
+
+  <!-- ============================ HIS -->
+  <section id="tab-his" class="tab" hidden>
+    <div class="his-grid">
+      <form id="hisForm" class="card form" autocomplete="off">
+        <h3>Kết nối HIS/CIS</h3>
+        <label>Tên cơ sở<input id="hSite"></label>
+        <label>Tên hệ thống HIS/CIS<input id="hName" placeholder="vd HIS Bệnh viện …"></label>
+        <label><span>Khóa API <span class="muted">(HIS gửi kèm header <code>X-Api-Key</code>)</span></span>
+          <div class="inline"><input id="hKey"><button type="button" id="genKey">Tạo khóa</button></div>
+        </label>
+        <label><span>Địa chỉ nhận kết quả (webhook) <span class="muted">— trống thì HIS tự kéo kết quả</span></span>
+          <input id="hUrl" placeholder="https://his.benhvien.vn/api/lis/results">
+        </label>
+        <label><span>Khóa ký <span class="muted">(HMAC-SHA256, header <code>X-Signature</code>)</span></span>
+          <div class="inline"><input id="hSecret"><button type="button" id="genSecret">Tạo khóa</button></div>
+        </label>
+        <div id="hErr" class="err"></div>
+        <div class="actions">
+          <button type="button" id="hTest">Thử gửi tới HIS</button>
+          <button type="submit" class="primary">Lưu</button>
+        </div>
+        <h3>Đổi mật khẩu quản trị</h3>
+        <div class="row2">
+          <label>Mật khẩu cũ<input id="pOld" type="password"></label>
+          <label>Mật khẩu mới<input id="pNew" type="password"></label>
+        </div>
+        <div class="actions"><button type="button" id="pSave">Đổi mật khẩu</button></div>
+      </form>
+      <div class="card doc" id="apiDoc"></div>
+    </div>
+  </section>
+
+  <!-- ============================ Nhật ký -->
+  <section id="tab-logs" class="tab" hidden>
+    <div class="bar">
+      <select id="lSource"><option value="">Tất cả nguồn</option></select>
+      <button id="lRefresh">Tải lại</button>
+    </div>
+    <div class="pane">
+      <table class="grid" id="lTable">
+        <thead><tr><th>Thời gian</th><th>Mức</th><th>Nguồn</th><th>Nội dung</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
