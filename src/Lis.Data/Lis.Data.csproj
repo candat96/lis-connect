@@ -8,4 +8,8 @@
     <ProjectReference Include="..\Lis.Core\Lis.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+  </ItemGroup>
+
 </Project>
