@@ -3,15 +3,22 @@
 //
 //	lis-sim -addr 127.0.0.1:5000 -sid 2611020001 -query -results "GLU-P=5.6,UREA=9.8:H"
 //	lis-sim -addr 127.0.0.1:5001 -proto hl7 -sid 2611020001 -results "WBC=12.3:H,RBC=4.5"
+//	lis-sim -addr 127.0.0.1:5000 -replay ban-tin.listrace [-session <phiên>] [-realtime]
+//	    phát lại bản tin thô đã ghi ở Agent khác: gửi đúng các byte máy đã gửi, so phần Agent trả lời với bản ghi gốc
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -48,7 +55,16 @@ func main() {
 	sid := flag.String("sid", "", "SID (mã vạch ống)")
 	query := flag.Bool("query", false, "ASTM: hỏi chỉ định trước khi gửi kết quả (in danh sách xét nghiệm Agent trả)")
 	results := flag.String("results", "", "kết quả: MA=giá trị[:cờ],… (mã máy)")
+	replayFile := flag.String("replay", "", "tệp .listrace (tải ở tab Bản tin thô của Agent) để phát lại")
+	replaySession := flag.String("session", "", "phiên cần phát lại (mặc định phiên đầu tiên trong tệp)")
+	realtime := flag.Bool("realtime", false, "giữ đúng khoảng thời gian giữa các khối như lúc ghi")
 	flag.Parse()
+	if *replayFile != "" {
+		if err := replay(*addr, *replayFile, *replaySession, *realtime); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if *sid == "" {
 		log.Fatal("thiếu -sid")
 	}
@@ -176,4 +192,123 @@ func sendHL7(c net.Conn, sid string, items []item) error {
 	}
 	fmt.Printf("Agent trả: %s\n", strings.ReplaceAll(string(buf[:n]), "\r", " | "))
 	return nil
+}
+
+// ------------------------------------------------------------------ phát lại bản tin thô
+
+type traceLine struct {
+	T time.Time `json:"t"`
+	S string    `json:"s"`
+	D string    `json:"d"`
+	B string    `json:"b"`
+}
+
+// replay — đọc tệp .listrace; khối "rx" (máy → Agent lúc ghi) gửi tới Agent đích, khối "tx" (Agent → máy lúc ghi) thì
+// chờ đọc phần trả lời của Agent đích và so với bản ghi.
+func replay(addr, file, session string, realtime bool) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 64<<20)
+	if !sc.Scan() || !bytes.Contains(sc.Bytes(), []byte(`"lis-trace"`)) {
+		return errors.New("không phải tệp .listrace")
+	}
+	var lines []traceLine
+	for sc.Scan() {
+		var l traceLine
+		if json.Unmarshal(sc.Bytes(), &l) != nil {
+			continue
+		}
+		if session == "" {
+			session = l.S
+		}
+		if l.S == session {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) == 0 {
+		return errors.New("không có khối nào của phiên " + session)
+	}
+	c, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("không nối được Agent: %w", err)
+	}
+	defer c.Close()
+	fmt.Printf("Phát lại %d khối của phiên %s tới %s\n", len(lines), session, addr)
+	same, diff := 0, 0
+	var prev time.Time
+	for _, l := range lines {
+		data, _ := base64.StdEncoding.DecodeString(l.B)
+		if realtime && !prev.IsZero() {
+			if gap := l.T.Sub(prev); gap > 0 && gap < 30*time.Second {
+				time.Sleep(gap)
+			}
+		}
+		prev = l.T
+		switch l.D {
+		case "rx":
+			if !realtime {
+				time.Sleep(30 * time.Millisecond)
+			}
+			if _, err := c.Write(data); err != nil {
+				return err
+			}
+			fmt.Printf("  MÁY → AGENT  %s\n", show(data))
+		case "tx":
+			got := readUpTo(c, len(data), 5*time.Second)
+			if bytes.Equal(got, data) {
+				same++
+				fmt.Printf("  AGENT → MÁY  %s  (khớp)\n", show(got))
+			} else {
+				diff++
+				fmt.Printf("  AGENT → MÁY  %s\n      bản ghi: %s  (KHÁC)\n", show(got), show(data))
+			}
+		case "ev":
+			fmt.Printf("  —— %s\n", string(data))
+		}
+	}
+	fmt.Printf("Xong: %d khối trả lời khớp, %d khác (khối có giờ/ID thay đổi theo lần chạy thì khác là bình thường)\n", same, diff)
+	return nil
+}
+
+func readUpTo(c net.Conn, n int, wait time.Duration) []byte {
+	out := make([]byte, 0, n)
+	buf := make([]byte, 4096)
+	deadline := time.Now().Add(wait)
+	for len(out) < n && time.Now().Before(deadline) {
+		_ = c.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+		k, err := c.Read(buf[:min(len(buf), n-len(out))])
+		out = append(out, buf[:k]...)
+		var ne net.Error
+		if err != nil && !(errors.As(err, &ne) && ne.Timeout()) {
+			break
+		}
+	}
+	return out
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+var ctl = map[byte]string{0x02: "STX", 0x03: "ETX", 0x04: "EOT", 0x05: "ENQ", 0x06: "ACK", 0x0a: "LF", 0x0b: "VT", 0x0d: "CR", 0x15: "NAK", 0x17: "ETB", 0x1c: "FS"}
+
+func show(b []byte) string {
+	var sb strings.Builder
+	for _, c := range b {
+		if n, ok := ctl[c]; ok {
+			sb.WriteString("<" + n + ">")
+		} else if c < 0x20 {
+			fmt.Fprintf(&sb, "<x%02X>", c)
+		} else {
+			sb.WriteByte(c)
+		}
+	}
+	return sb.String()
 }

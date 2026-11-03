@@ -37,6 +37,8 @@ type Manager struct {
 	OnResult func()
 	// Spool — ghi tạm kết quả ra đĩa khi CSDL mất kết nối
 	Spool *store.Spool
+	// Tracer — ghi bản tin thô máy ↔ Agent (nil = không ghi)
+	Tracer *Tracer
 }
 
 func NewManager(st *store.Store) *Manager {
@@ -210,10 +212,39 @@ func sleep(ctx context.Context, d time.Duration) {
 }
 
 func (m *Manager) serve(ctx context.Context, d store.Device, conn io.ReadWriteCloser) error {
-	if d.Protocol == "hl7" {
-		return m.serveHL7(ctx, d, conn)
+	var err error
+	if m.Tracer != nil && !d.NoTrace {
+		ts := m.Tracer.begin(d, "Bắt đầu kết nối ("+describe(d)+")")
+		conn = &traceConn{ReadWriteCloser: conn, s: ts}
+		defer func() {
+			msg := "Kết thúc kết nối"
+			if err != nil {
+				msg += ": " + err.Error()
+			}
+			ts.event(msg)
+		}()
 	}
-	return m.serveASTM(ctx, d, conn)
+	if d.Protocol == "hl7" {
+		err = m.serveHL7(ctx, d, conn)
+	} else {
+		err = m.serveASTM(ctx, d, conn)
+	}
+	return err
+}
+
+func describe(d store.Device) string {
+	switch d.Transport {
+	case "serial":
+		parity := "N"
+		if d.Parity != "" {
+			parity = strings.ToUpper(d.Parity[:1])
+		}
+		return fmt.Sprintf("%s, %s %d %d%s%d", d.Protocol, d.Port, d.Baud, d.DataBits, parity, d.StopBits)
+	case "tcp-server":
+		return fmt.Sprintf("%s, Agent nghe cổng %d", d.Protocol, d.TCPPort)
+	default:
+		return fmt.Sprintf("%s, Agent nối tới %s:%d", d.Protocol, d.Host, d.TCPPort)
+	}
 }
 
 // ------------------------------------------------------------------ ASTM

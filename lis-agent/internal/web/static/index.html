@@ -74,6 +74,7 @@
       <button data-tab="devices" class="adm">Máy xét nghiệm</button>
       <button data-tab="his" class="adm">Kết nối HIS/CIS</button>
       <button data-tab="users" class="adm">Người dùng</button>
+      <button data-tab="trace">Bản tin thô</button>
       <button data-tab="logs">Nhật ký</button>
     </nav>
     <div id="health" class="health"></div>
@@ -276,6 +277,49 @@
   </section>
 
   <!-- ============================ Nhật ký -->
+  <!-- ============================ Bản tin thô máy ↔ Agent (gỡ lỗi) -->
+  <section id="tab-trace" class="tab" hidden>
+    <div class="bar">
+      <select id="tSource" aria-label="Nguồn bản tin"></select>
+      <div class="range" id="tRange">
+        <select data-r="preset" aria-label="Khoảng thời gian">
+          <option value="today">Hôm nay</option><option value="yesterday">Hôm qua</option><option value="7d">7 ngày</option>
+          <option value="30d">30 ngày</option><option value="month">Tháng này</option><option value="lastMonth">Tháng trước</option><option value="custom">Tùy chọn</option>
+        </select>
+        <input type="date" data-r="from" aria-label="Từ ngày"><span class="muted">→</span><input type="date" data-r="to" aria-label="Đến ngày">
+      </div>
+      <select id="tDevice" aria-label="Máy xét nghiệm"><option value="">Tất cả máy</option></select>
+      <label class="check small"><input type="checkbox" id="tLive"> Theo dõi trực tiếp</label>
+      <span class="grow"></span>
+      <button id="tExport" title="Tệp .listrace: nạp vào Agent khác hoặc phát lại bằng lis-sim">Tải về (.listrace)</button>
+      <button id="tExportTxt">Tải bản đọc được (.txt)</button>
+      <button id="tDelImport" class="danger" hidden>Xóa tệp đã nạp</button>
+      <button id="tDays" class="ghost adm">Số ngày giữ…</button>
+      <label class="btn-file" id="tImportLbl">Nạp tệp từ Agent khác<input type="file" id="tImport" accept=".listrace,.jsonl,.ndjson" hidden></label>
+    </div>
+    <div class="trace-grid">
+      <div class="pane">
+        <table class="grid" id="tSessions">
+          <thead><tr><th>Bắt đầu</th><th>Máy</th><th>Khối</th><th>Nhận / gửi</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div id="tSessEmpty" class="empty" hidden>Chưa có bản tin trong khoảng này.</div>
+      </div>
+      <div class="pane trace-pane">
+        <div class="bar trace-bar">
+          <b id="tTitle" class="small">Chọn một lần kết nối bên trái</b>
+          <span class="grow"></span>
+          <label class="check small"><input type="checkbox" id="tHex"> Hiện mã hex</label>
+          <label class="check small"><input type="checkbox" id="tNoAck"> Ẩn ACK/ENQ/EOT lẻ</label>
+          <button id="tDecode" disabled>Giải mã thử</button>
+        </div>
+        <div id="tFrames" class="frames"></div>
+        <div id="tDecoded" hidden></div>
+      </div>
+    </div>
+    <p class="small muted" id="tFoot"></p>
+  </section>
+
   <section id="tab-logs" class="tab" hidden>
     <div class="bar">
       <select id="lSource"><option value="">Tất cả nguồn</option></select>

@@ -100,6 +100,8 @@ type Device struct {
 	Host     string    `json:"host,omitempty"`
 	TCPPort  int       `json:"tcpPort,omitempty"`
 	Mappings []Mapping `json:"mappings"`
+	// NoTrace — tắt ghi bản tin thô của máy này (mặc định bật để gỡ lỗi)
+	NoTrace bool `json:"noTrace,omitempty"`
 }
 
 // HisConfig — kết nối HIS/CIS.

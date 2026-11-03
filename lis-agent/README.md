@@ -11,6 +11,8 @@ runtime, chạy được từ **Windows 7 SP1 đến Windows 11** (32 và 64 bit
   kết nối HIS, người dùng, nhật ký.
 - Dữ liệu trên **PostgreSQL** (cloud hoặc máy chủ tại viện), các Agent ở nhiều phòng xét nghiệm dùng chung một CSDL.
   Mất kết nối CSDL thì kết quả máy gửi được ghi tạm ra đĩa, có kết nối lại tự đẩy lên.
+- **Bản tin thô để gỡ lỗi**: ghi nguyên văn mọi byte trao đổi với máy (kể cả ENQ/ACK/STX…), xem theo từng lần kết nối,
+  giải mã thử; tải về tệp `.listrace` để nạp vào Agent khác hoặc phát lại bằng `lis-sim -replay`.
 - **Đăng nhập dùng chung tài khoản HIS/CIS**: Agent gọi API đăng nhập của HIS; tài khoản LIS riêng làm dự phòng.
 
 ## Cài đặt trên Windows
@@ -39,6 +41,21 @@ Lệnh khác: `lis-agent.exe uninstall | start | stop`. Chạy thử không cài
 Tham số: `-listen :8090`, `-data <thư mục dữ liệu>`.
 
 Windows 7: cài bản cập nhật hỗ trợ TLS 1.2 (KB3140245) nếu webhook HIS dùng HTTPS.
+
+## Bản tin thô (gỡ lỗi kết nối máy)
+
+- Mặc định ghi cho mọi máy (bỏ chọn "Ghi bản tin thô" ở thẻ máy để tắt). Ghi ở luồng riêng, không làm chậm giao tiếp với
+  máy; giữ 30 ngày (đổi ở tab **Bản tin thô** → Số ngày giữ).
+- Tab **Bản tin thô**: chọn khoảng ngày, máy → danh sách lần kết nối → từng khối kèm giờ đến mili giây, chiều
+  (MÁY → AGENT / AGENT → MÁY), ký tự điều khiển hiện thành nhãn, bật xem mã hex. **Giải mã thử** chạy lại bộ đọc
+  ASTM/HL7 trên các khối máy gửi để xem Agent hiểu ra kết quả/hỏi chỉ định gì — không lưu, không gửi HIS.
+- **Tải về (.listrace)**: tệp JSON Lines (phần đầu có cấu hình máy, mỗi dòng một khối base64). Mang sang Agent khác:
+  **Nạp tệp từ Agent khác** để xem và giải mã thử bằng bộ đọc của Agent đó; hoặc phát lại thật tới một Agent:
+  ```
+  lis-sim -addr <IP Agent>:<cổng máy> -replay ban-tin.listrace [-session <phiên>] [-realtime]
+  ```
+  lis-sim gửi đúng các byte máy đã gửi và so phần Agent trả lời với bản ghi (khác ở khối có giờ/ID là bình thường).
+- **Tải bản đọc được (.txt)** để gửi kèm khi báo lỗi cho hãng máy.
 
 ## Tích hợp HIS/CIS
 

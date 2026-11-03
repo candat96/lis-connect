@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"lis-agent/internal/astm"
+	"lis-agent/internal/auth"
 	"lis-agent/internal/device"
 	"lis-agent/internal/his"
 	"lis-agent/internal/hl7"
@@ -63,11 +65,20 @@ func setup(t *testing.T, devices []store.Device) *env {
 	mgr := device.NewManager(st)
 	mgr.OnResult = sender.Wake
 	mgr.Spool = spool
+	tracer := device.NewTracer(st)
+	mgr.Tracer = tracer
 	mgr.Reload(devices)
 	ctx, cancel := context.WithCancel(context.Background())
 	go sender.Run(ctx)
 	e.api = httptest.NewServer(web.New(st, mgr, sender, spool, "test").Handler())
-	e.stop = func() { cancel(); mgr.Stop(); e.api.Close(); hook.Close(); st.Close() }
+	e.stop = func() {
+		cancel()
+		mgr.Stop()
+		tracer.Close()
+		e.api.Close()
+		hook.Close()
+		st.Close()
+	}
 	return e
 }
 
@@ -262,5 +273,84 @@ func TestHl7ResultUnmatchedThenAssigned(t *testing.T) {
 		}
 	case <-time.After(8 * time.Second):
 		t.Fatal("HIS không nhận được kết quả sau khi gán")
+	}
+}
+
+// Bản tin thô: máy gửi kết quả → ghi đủ khối hai chiều → tải .listrace → nạp lại (như Agent khác) → giải mã thử ra kết quả.
+func TestTraceRecordExportImportDecode(t *testing.T) {
+	port := freePort(t)
+	e := setup(t, []store.Device{{ID: "au480", Name: "Sinh hóa thử", Enabled: true, Protocol: "astm", Transport: "tcp-server", Host: "127.0.0.1", TCPPort: port}})
+	defer e.stop()
+	hash, _ := auth.HashPassword("matkhau-thu-123")
+	if err := e.st.SaveLocalUser(store.User{Username: "qt", FullName: "Quản trị thử", Role: auth.RoleAdmin, Active: true}, hash); err != nil {
+		t.Fatal(err)
+	}
+	c := dial(t, port)
+	sendSession(t, c, "H|\\^&|||AU480", "P|1", "O|1|2611030001||^^^GLU", "R|1|^^^GLU|6.1|mmol/L||H", "L|1|N")
+	c.Close()
+	// Đợi bộ ghi đẩy lô lên CSDL
+	var frames []store.TraceFrame
+	for i := 0; i < 40; i++ {
+		time.Sleep(150 * time.Millisecond)
+		frames, _ = e.st.Traces(store.TraceFilter{DeviceID: "au480", Limit: 1000})
+		if len(frames) > 0 && frames[len(frames)-1].Dir == store.TraceEvent && len(frames) > 4 {
+			break
+		}
+	}
+	var rx, tx int
+	for _, f := range frames {
+		switch f.Dir {
+		case store.TraceRx:
+			rx++
+		case store.TraceTx:
+			tx++
+		}
+	}
+	if rx == 0 || tx == 0 || frames[0].Dir != store.TraceEvent {
+		t.Fatalf("phải ghi đủ sự kiện + hai chiều: rx=%d tx=%d, %d khối", rx, tx, len(frames))
+	}
+
+	jar, _ := cookiejar.New(nil)
+	cl := &http.Client{Jar: jar}
+	res, err := cl.Post(e.api.URL+"/ui/api/login", "application/json", strings.NewReader(`{"username":"qt","password":"matkhau-thu-123"}`))
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("đăng nhập lỗi: %v %v", err, res.Status)
+	}
+	res, err = cl.Get(e.api.URL + "/ui/api/traces/export?format=listrace&session=" + frames[0].Session)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("tải về lỗi: %v", err)
+	}
+	file, _ := io.ReadAll(res.Body)
+	if !strings.HasPrefix(string(file), `{"format":"lis-trace"`) || strings.Count(string(file), "\n") != len(frames)+1 {
+		t.Fatalf("tệp .listrace sai: %d dòng cho %d khối", strings.Count(string(file), "\n"), len(frames))
+	}
+	res, err = cl.Post(e.api.URL+"/ui/api/traces/import?name=thu.listrace", "application/x-ndjson", bytes.NewReader(file))
+	if err != nil || res.StatusCode != 200 {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("nạp tệp lỗi: %s", b)
+	}
+	var imp store.TraceImport
+	_ = json.NewDecoder(res.Body).Decode(&imp)
+	if imp.Frames != len(frames) {
+		t.Fatalf("nạp %d khối, mong %d", imp.Frames, len(frames))
+	}
+	res, err = cl.Post(e.api.URL+"/ui/api/traces/decode", "application/json", strings.NewReader(`{"importId":"`+imp.ID+`"}`))
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("giải mã lỗi: %v", err)
+	}
+	var dec []struct {
+		Kind    string
+		Results []struct {
+			Sid   string
+			Items []store.ResultItem
+		}
+	}
+	_ = json.NewDecoder(res.Body).Decode(&dec)
+	if len(dec) != 1 || dec[0].Kind != "ket-qua" || dec[0].Results[0].Sid != "2611030001" || dec[0].Results[0].Items[0].Value != "6.1" {
+		t.Fatalf("giải mã thử sai: %+v", dec)
+	}
+	// Giải mã thử không tạo thêm kết quả
+	if list, _ := e.st.ListResults(store.ResultFilter{Sid: "2611030001"}); len(list) != 1 {
+		t.Fatalf("giải mã thử không được lưu kết quả, có %d", len(list))
 	}
 }

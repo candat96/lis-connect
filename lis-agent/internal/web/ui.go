@@ -424,6 +424,8 @@ func (s *Server) ui(w http.ResponseWriter, r *http.Request) {
 		hash, _ := auth.HashPassword(in.New)
 		_ = s.st.SaveLocalUser(me, hash)
 		writeJSON(w, 200, map[string]bool{"ok": true})
+	case len(parts) >= 1 && parts[0] == "traces":
+		s.trace(w, r, parts, me, admin)
 	case route == "logs":
 		writeJSON(w, 200, nonNilLogs(s.st.Logs(500, q.Get("source"))))
 	default:

@@ -49,7 +49,7 @@ async function boot() {
   $('#userRole').className = 'tag ' + (isAdmin() ? 't-co-ket-qua' : 't-cho');
   $('#userSrc').textContent = `${me.username} · ${me.source === 'his' ? 'tài khoản ' + (info.hisName || 'HIS') : 'tài khoản LIS'} · Agent ${info.agent}`;
   $('#pwOpen').hidden = me.source !== 'local';
-  $$('#tabs .adm').forEach((b) => (b.hidden = !isAdmin()));
+  $$('.adm').forEach((b) => (b.hidden = !isAdmin()));
   start();
 }
 
@@ -162,7 +162,7 @@ function dateRange(id, onChange) {
     roll: () => { if (sel.value !== 'custom') { const [f, t] = presetRange(sel.value); if (f !== from.value || t !== to.value) { from.value = f; to.value = t; return true; } } return false; },
   };
 }
-let oRange, rRange;
+let oRange, rRange, tRange;
 
 // ============================================================ tab
 let tab = 'orders';
@@ -170,7 +170,7 @@ function setTab(t) {
   tab = t;
   $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
   $$('.tab').forEach((s) => (s.hidden = s.id !== 'tab-' + t));
-  ({ orders: loadOrders, results: loadResults, devices: loadDevices, his: loadHis, users: loadUsers, logs: loadLogs })[t]();
+  ({ orders: loadOrders, results: loadResults, devices: loadDevices, his: loadHis, users: loadUsers, trace: loadTrace, logs: loadLogs })[t]();
 }
 $$('#tabs button').forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
 
@@ -179,9 +179,10 @@ function start() {
   if (started) return; started = true;
   oRange = dateRange('oRange', () => loadOrders());
   rRange = dateRange('rRange', () => loadResults());
+  tRange = dateRange('tRange', () => loadTrace());
   api('devices').then((d) => { devCache = d.devices; refreshHealth(); }).catch(() => {});
   setTab('orders');
-  setInterval(() => { oRange.roll(); rRange.roll(); refreshHealth(); if (tab === 'orders' && $('#oForm').hidden) loadOrders(true); if (tab === 'results') loadResults(true); }, 5000);
+  setInterval(() => { oRange.roll(); rRange.roll(); refreshHealth(); if (tab === 'orders' && $('#oForm').hidden) loadOrders(true); if (tab === 'results') loadResults(true); if (tab === 'trace' && $('#tLive').checked) loadTrace(true); }, 5000);
 }
 
 async function refreshHealth() {
@@ -385,6 +386,7 @@ function devCard(d, st, i) {
     <div class="dev-head">
       <input data-k="name" value="${esc(d.name)}" placeholder="Tên máy (vd Sinh hóa AU480)">
       <label class="small" style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-k="enabled" ${d.enabled ? 'checked' : ''} style="height:auto"> Bật</label>
+      <label class="small" style="flex-direction:row;align-items:center;gap:4px" title="Ghi nguyên văn byte trao đổi với máy để gỡ lỗi (tab Bản tin thô)"><input type="checkbox" data-trace ${d.noTrace ? '' : 'checked'} style="height:auto"> Ghi bản tin thô</label>
       ${conn}
       <button class="ghost danger" data-del="${i}" title="Xóa máy">Xóa</button>
     </div>
@@ -428,6 +430,7 @@ function renderDevices(status) {
       d[k] = el.type === 'checkbox' ? el.checked : ['baud', 'dataBits', 'stopBits', 'tcpPort'].includes(k) ? +el.value : el.value;
       if (k === 'transport') renderDevices(status);
     }));
+    $$('[data-trace]', card).forEach((el) => (el.onchange = () => { d.noTrace = !el.checked; }));
     $$('[data-m]', card).forEach((el) => (el.oninput = () => (d.mappings[+el.dataset.m][el.dataset.f] = el.value.trim())));
     $$('[data-mdel]', card).forEach((b) => (b.onclick = () => { d.mappings.splice(+b.dataset.mdel, 1); renderDevices(status); }));
     $$('[data-madd]', card).forEach((b) => (b.onclick = () => { d.mappings.push({ deviceCode: '', testCode: '', testName: '' }); renderDevices(status); }));
@@ -557,6 +560,115 @@ $('#uForm').addEventListener('submit', async (e) => {
     await loadUsers(); editUserForm(editUser);
   } catch (err) { $('#uErr').textContent = err.message; }
 });
+
+// ============================================================ bản tin thô máy ↔ Agent
+let tSession = null, tFramesCache = [], tImports = [];
+const tSrc = () => $('#tSource').value; // '' = Agent này, còn lại = id tệp đã nạp
+function tQuery() {
+  const imp = tSrc();
+  return imp ? `import=${encodeURIComponent(imp)}` : `${tRange.query()}&device=${encodeURIComponent($('#tDevice').value)}`;
+}
+const ms = (iso) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
+// Chữ đã thay ký tự điều khiển bằng <ENQ>…: tô thành nhãn nhỏ cho dễ nhìn
+const ctlHtml = (text) => esc(text).replace(/&lt;([A-Z]{2,3}|x[0-9A-F]{2})&gt;/g, (_, n) => `<span class="ctl${n === 'NAK' ? ' bad' : ''}">${n}</span>`);
+async function loadTrace(silent) {
+  try {
+    if (!silent) {
+      tImports = await api('traces/imports').catch(() => []);
+      const cur = tSrc();
+      $('#tSource').innerHTML = `<option value="">Bản tin của Agent này (${esc(boot.info?.agent || '')})</option>`
+        + tImports.map((i) => `<option value="${esc(i.id)}" ${i.id === cur ? 'selected' : ''}>Tệp nạp: ${esc(i.name)} — ${i.frames} khối</option>`).join('');
+      const dsel = $('#tDevice').value;
+      $('#tDevice').innerHTML = '<option value="">Tất cả máy</option>' + devCache.map((d) => `<option value="${esc(d.id)}" ${d.id === dsel ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
+      const st = await api('traces/status').catch(() => null);
+      $('#tFoot').textContent = st ? `Giữ bản tin thô ${st.days} ngày (tự xóa cũ hơn).${st.dropped ? ` ${st.dropped} khối bị bỏ do CSDL chậm.` : ''} Tệp .listrace nạp được vào Agent khác, hoặc phát lại tới một Agent: lis-sim -addr <IP>:<cổng> -replay <tệp>.` : '';
+    }
+    const imp = tSrc();
+    $('#tRange').hidden = !!imp; $('#tDevice').hidden = !!imp;
+    $('#tDelImport').hidden = !imp || !isAdmin();
+    const sessions = await api('traces/sessions?' + tQuery());
+    $('#tSessions tbody').innerHTML = sessions.map((x) => `
+      <tr data-s="${esc(x.session)}" class="${x.session === tSession ? 'sel' : ''}">
+        <td>${dt(x.start)}<div class="small muted">${x.end !== x.start ? 'đến ' + time(x.end) : ''}</div></td>
+        <td>${esc(x.deviceName || x.deviceId)}<div class="small muted">${esc((x.protocol || '').toUpperCase())}</div></td>
+        <td>${x.frames}</td><td class="small">${x.rxBytes} B / ${x.txBytes} B</td>
+      </tr>`).join('');
+    $('#tSessEmpty').hidden = sessions.length > 0;
+    $$('#tSessions tbody tr').forEach((tr) => (tr.onclick = () => openSession(tr.dataset.s)));
+    if (tSession && sessions.some((x) => x.session === tSession)) await openSession(tSession, true);
+  } catch (e) { if (!silent) toast(e.message, true); }
+}
+async function openSession(s, silent) {
+  tSession = s;
+  $$('#tSessions tbody tr').forEach((tr) => tr.classList.toggle('sel', tr.dataset.s === s));
+  const last = silent && tFramesCache.length ? tFramesCache[tFramesCache.length - 1].id : 0;
+  const imp = tSrc();
+  const more = await api(`traces?session=${encodeURIComponent(s)}${imp ? '&import=' + encodeURIComponent(imp) : ''}&limit=20000${last ? '&after=' + last : ''}`);
+  if (!silent || !last) { tFramesCache = more; $('#tDecoded').hidden = true; } else tFramesCache = tFramesCache.concat(more);
+  const f0 = tFramesCache[0];
+  $('#tTitle').textContent = f0 ? `${f0.deviceName || f0.deviceId} — ${dt(f0.at)} — ${tFramesCache.length} khối` : 'Không có khối nào';
+  $('#tDecode').disabled = !f0;
+  renderFrames();
+}
+function renderFrames() {
+  const hex = $('#tHex').checked, noAck = $('#tNoAck').checked;
+  const single = (t) => /^<(ACK|ENQ|EOT|NAK)>$/.test(t);
+  $('#tFrames').innerHTML = tFramesCache.filter((f) => !(noAck && f.dir !== 'ev' && single(f.text))).map((f) => `
+    <div class="fr ${f.dir}"><span class="t">${ms(f.at)}</span>
+      <span class="d">${f.dir === 'rx' ? 'MÁY → AGENT' : f.dir === 'tx' ? 'AGENT → MÁY' : 'SỰ KIỆN'}</span>
+      <span><span class="c">${f.dir === 'ev' ? esc(f.text) : ctlHtml(f.text)}</span>${f.note ? `<div class="note small">${esc(f.note)}</div>` : ''}${hex && f.dir !== 'ev' ? `<div class="h">${esc(f.hex)}</div>` : ''}</span>
+    </div>`).join('') || '<div class="empty">Không có khối nào.</div>';
+}
+$('#tHex').onchange = renderFrames;
+$('#tDelImport').onclick = async () => {
+  if (!confirm('Xóa tệp bản tin đã nạp này? Bản tin của chính Agent không bị ảnh hưởng.')) return;
+  await api('traces/imports/' + encodeURIComponent(tSrc()), { method: 'DELETE' }).catch((e) => toast(e.message, true));
+  $('#tSource').value = ''; tSession = null; loadTrace();
+};
+$('#tDays').onclick = async () => {
+  const v = prompt('Giữ bản tin thô bao nhiêu ngày (1–365)?', '30');
+  if (!v) return;
+  try { await api('traces/settings', { method: 'PUT', body: { days: +v } }); toast('Đã lưu'); loadTrace(); } catch (e) { toast(e.message, true); }
+};
+$('#tNoAck').onchange = renderFrames;
+$('#tSource').onchange = () => { tSession = null; tFramesCache = []; $('#tFrames').innerHTML = ''; $('#tDecoded').hidden = true; loadTrace(); };
+$('#tDevice').onchange = () => loadTrace();
+const download = (fmt) => {
+  const q = tSession ? `session=${encodeURIComponent(tSession)}${tSrc() ? '&import=' + encodeURIComponent(tSrc()) : ''}` : tQuery();
+  location.href = `/ui/api/traces/export?format=${fmt}&${q}`;
+};
+$('#tExport').onclick = () => download('listrace');
+$('#tExportTxt').onclick = () => download('txt');
+$('#tImport').onchange = async (e) => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  try {
+    const res = await fetch('/ui/api/traces/import?name=' + encodeURIComponent(file.name), { method: 'POST', credentials: 'same-origin', body: file });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Lỗi ' + res.status);
+    toast(`Đã nạp ${data.frames} khối từ Agent ${data.fromAgent}`);
+    tSession = null; await loadTrace();
+    $('#tSource').value = data.id; loadTrace();
+  } catch (err) { toast(err.message, true); }
+};
+const KIND = { 'ket-qua': 'Kết quả', 'hoi-chi-dinh': 'Máy hỏi chỉ định', khac: 'Bản tin khác', loi: 'Lỗi khung' };
+$('#tDecode').onclick = async () => {
+  try {
+    const msgs = await api('traces/decode', { method: 'POST', body: { session: tSession, importId: tSrc() } });
+    $('#tDecoded').hidden = false;
+    $('#tDecoded').className = 'decoded';
+    $('#tDecoded').innerHTML = `<div class="small muted">Giải mã thử bằng bộ đọc của Agent này — <b>không lưu, không gửi HIS</b>. ${msgs.length} bản tin.</div>`
+      + (msgs.map((m) => `<div class="dec">
+          <div><span class="tag ${m.kind === 'loi' ? 't-bad' : m.kind === 'ket-qua' ? 't-da-gui' : 't-cho'}">${KIND[m.kind] || m.kind}</span> <span class="small muted">${ms(m.at)}</span>
+            ${m.queries && m.queries.length ? ` SID hỏi: <b>${m.queries.map(esc).join(', ')}</b>` : ''}${m.error ? ` <span class="err">${esc(m.error)}</span>` : ''}</div>
+          ${(m.results || []).map((r) => `<table class="grid items"><thead><tr><th>SID ${esc(r.sid)}</th><th>Giá trị</th><th>Đơn vị</th><th>Cờ</th><th>Tham chiếu</th></tr></thead><tbody>
+            ${r.items.map((i) => `<tr><td>${esc(i.deviceCode)}${i.testName ? ' · ' + esc(i.testName) : ''}</td><td class="flag-${esc(i.flag)}">${esc(i.value)}</td><td>${esc(i.unit)}</td><td>${esc(i.flag)}</td><td>${esc(i.refRange)}</td></tr>`).join('')}</tbody></table>`).join('')}
+          ${m.lines && m.lines.length ? `<details><summary class="small muted">Bản ghi (${m.lines.length})</summary><pre>${esc(m.lines.join('\n'))}</pre></details>` : ''}
+          ${m.raw ? `<pre>${ctlHtml(m.raw)}</pre>` : ''}
+        </div>`).join('') || '<div class="empty">Không giải mã được bản tin nào từ các khối máy gửi.</div>');
+    $('#tDecoded').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) { toast(e.message, true); }
+};
 
 // ============================================================ nhật ký
 async function loadLogs() {

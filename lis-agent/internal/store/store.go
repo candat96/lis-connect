@@ -167,6 +167,33 @@ var migrations = []string{
 		raw     text
 	);
 	CREATE INDEX IF NOT EXISTS ix_lis_log_at ON lis_log (at DESC);`,
+	// 2: bản tin thô máy ↔ Agent (gỡ lỗi), tệp bản tin nạp từ Agent khác
+	`CREATE TABLE IF NOT EXISTS lis_trace_import (
+		id          varchar(60) PRIMARY KEY,
+		name        varchar(255) NOT NULL,
+		from_agent  varchar(100),
+		devices     jsonb NOT NULL DEFAULT '[]',
+		frames      integer NOT NULL DEFAULT 0,
+		imported_at timestamptz NOT NULL DEFAULT now(),
+		imported_by varchar(100),
+		note        varchar(500)
+	);
+	CREATE TABLE IF NOT EXISTS lis_trace (
+		id          bigserial PRIMARY KEY,
+		agent       varchar(100) NOT NULL,
+		device_id   varchar(60) NOT NULL,
+		device_name varchar(150),
+		protocol    varchar(10),
+		session     varchar(140) NOT NULL,
+		at          timestamptz NOT NULL,
+		dir         varchar(2) NOT NULL,
+		data        bytea NOT NULL,
+		note        varchar(300),
+		import_id   varchar(60) REFERENCES lis_trace_import(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS ix_lis_trace_dev ON lis_trace (agent, device_id, at DESC);
+	CREATE INDEX IF NOT EXISTS ix_lis_trace_session ON lis_trace (session, id);
+	CREATE INDEX IF NOT EXISTS ix_lis_trace_import ON lis_trace (import_id, id) WHERE import_id IS NOT NULL;`,
 }
 
 func (s *Store) migrate() error {

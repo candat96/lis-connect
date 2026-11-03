@@ -232,6 +232,9 @@ func run(ctx context.Context, listen, dataDir string) error {
 	sender := his.NewSender(st)
 	devices := device.NewManager(st)
 	devices.Spool = spool
+	tracer := device.NewTracer(st)
+	defer tracer.Close() // chạy sau devices.Stop (defer theo thứ tự ngược): đẩy nốt bản tin thô
+	devices.Tracer = tracer
 	devices.OnResult = sender.Wake
 	devices.Reload(cfg.Devices)
 	defer devices.Stop()
@@ -264,6 +267,7 @@ func housekeeping(ctx context.Context, st *store.Store, spool *store.Spool, send
 		}
 		if time.Since(prune) > 6*time.Hour {
 			st.PruneLogs()
+			st.PruneTraces(st.TraceDays())
 			prune = time.Now()
 		}
 		select {

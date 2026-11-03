@@ -158,3 +158,27 @@ label.check input { height: auto; }
   .side { position: static; }
   .cards { grid-template-columns: 1fr; }
 }
+
+/* Bản tin thô */
+.trace-grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 12px; align-items: start; }
+.trace-pane { padding: 0; }
+.trace-bar { padding: 8px 10px; margin: 0; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.frames { font-family: Consolas, "SF Mono", monospace; font-size: 12.5px; }
+.fr { display: grid; grid-template-columns: 96px 112px minmax(0, 1fr); gap: 8px; padding: 3px 10px; border-bottom: 1px solid #F0F2F5; align-items: start; }
+.fr .t { color: var(--muted); }
+.fr .d { font-weight: 700; font-size: 11px; padding: 1px 6px; border-radius: 4px; text-align: center; font-family: inherit; }
+.fr.rx .d { background: var(--ok-bg); color: var(--ok); }
+.fr.tx .d { background: var(--info-bg); color: var(--info); }
+.fr.ev { background: #FAFBFC; }
+.fr.ev .d { background: #EEF0F3; color: var(--muted); }
+.fr .c { white-space: pre-wrap; word-break: break-all; }
+.fr .h { color: var(--muted); font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+.fr .note { color: var(--danger); }
+.ctl { display: inline-block; padding: 0 3px; margin: 0 1px; border-radius: 3px; font-size: 10.5px; font-weight: 700; background: #EEF0FA; color: var(--primary); }
+.ctl.bad { background: var(--danger-bg); color: var(--danger); }
+.btn-file { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid var(--input-border); border-radius: var(--radius); cursor: pointer; background: #fff; }
+.btn-file:hover { border-color: var(--primary); color: var(--primary); }
+.decoded { padding: 10px; border-top: 2px solid var(--primary); display: flex; flex-direction: column; gap: 8px; }
+.dec { border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+.dec pre { margin: 6px 0 0; font-size: 12px; white-space: pre-wrap; background: #F6F7FA; padding: 6px; border-radius: 4px; }
+@media (max-width: 1100px) { .trace-grid { grid-template-columns: 1fr; } }
