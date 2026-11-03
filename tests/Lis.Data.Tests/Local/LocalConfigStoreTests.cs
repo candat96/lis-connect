@@ -9,64 +9,74 @@ namespace Lis.Data.Tests.Local;
 /// </summary>
 public class LocalConfigStoreTests : IDisposable
 {
-    private readonly string _thuMucTam;
+    private readonly string _tempDirectory;
 
     public LocalConfigStoreTests()
     {
-        _thuMucTam = Path.Combine(Path.GetTempPath(), "lis-connect-tests-" + Guid.NewGuid());
-        Directory.CreateDirectory(_thuMucTam);
+        _tempDirectory = Path.Combine(Path.GetTempPath(), "lis-connect-tests-" + Guid.NewGuid());
+        Directory.CreateDirectory(_tempDirectory);
     }
 
     public void Dispose()
     {
-        if (Directory.Exists(_thuMucTam))
+        if (Directory.Exists(_tempDirectory))
         {
-            Directory.Delete(_thuMucTam, recursive: true);
+            Directory.Delete(_tempDirectory, recursive: true);
         }
     }
 
-    private LocalConfigStore TaoStore()
+    private LocalConfigStore CreateStore()
     {
-        var protector = SecretProtectors.ForCurrentOs(_thuMucTam);
-        return new LocalConfigStore(_thuMucTam, protector);
+        var protector = SecretProtectors.ForCurrentOs(_tempDirectory);
+        return new LocalConfigStore(_tempDirectory, protector);
     }
 
     [Fact]
     public void SaveThenLoad_RoundTrips()
     {
-        var store = TaoStore();
-        var cauHinh = new LocalConfig(
+        var store = CreateStore();
+        var config = new LocalConfig(
             new DbSettings("localhost", 5432, "lis", "lis_user", "Thu@12345", RequireSsl: false),
             "WS-01");
 
-        store.Save(cauHinh);
-        var doc = store.Load();
+        store.Save(config);
+        var loaded = store.Load();
 
-        doc.ShouldNotBeNull();
-        doc.ShouldBe(cauHinh);
+        loaded.ShouldNotBeNull();
+        loaded.ShouldBe(config);
     }
 
     [Fact]
     public void Save_DoesNotWritePlainPassword()
     {
-        var store = TaoStore();
-        var cauHinh = new LocalConfig(
+        var store = CreateStore();
+        var config = new LocalConfig(
             new DbSettings("localhost", 5432, "lis", "lis_user", "Thu@12345", RequireSsl: true),
             "WS-01");
 
-        store.Save(cauHinh);
+        store.Save(config);
 
-        var noiDungTep = File.ReadAllText(Path.Combine(_thuMucTam, "config.json"));
-        noiDungTep.ShouldNotContain("Thu@12345");
+        var fileContent = File.ReadAllText(Path.Combine(_tempDirectory, "config.json"));
+        fileContent.ShouldNotContain("Thu@12345");
     }
 
     [Fact]
     public void Load_MissingFile_ReturnsNull()
     {
-        var store = TaoStore();
+        var store = CreateStore();
 
-        var ketQua = store.Load();
+        var result = store.Load();
 
-        ketQua.ShouldBeNull();
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public void DbSettings_ToString_RedactsPassword()
+    {
+        var db = new DbSettings("localhost", 5432, "lis", "lis_user", "Thu@12345", RequireSsl: false);
+        var config = new LocalConfig(db, "WS-01");
+
+        db.ToString().ShouldNotContain("Thu@12345");
+        config.ToString().ShouldNotContain("Thu@12345");
     }
 }

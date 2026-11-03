@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Lis.Data.Local;
 
 /// <summary>
@@ -13,6 +15,15 @@ public record DbSettings(string Host, int Port, string Database, string Username
     {
         var sslMode = RequireSsl ? "Require" : "Prefer";
         return $"Host={Host};Port={Port};Database={Database};Username={Username};Password={Password};SSL Mode={sslMode}";
+    }
+
+    /// <summary>
+    /// Ghi đè để che mật khẩu trong ToString() — tránh lộ mật khẩu qua log/thông báo lỗi/debugger.
+    /// </summary>
+    protected virtual bool PrintMembers(StringBuilder builder)
+    {
+        builder.Append($"Host = {Host}, Port = {Port}, Database = {Database}, Username = {Username}, Password = ***, RequireSsl = {RequireSsl}");
+        return true;
     }
 }
 

@@ -8,63 +8,63 @@ namespace Lis.Data.Local;
 /// </summary>
 public sealed class DevKeySecretProtector : ISecretProtector
 {
-    private const int KichThuocKhoa = 32; // AES-256
-    private const int KichThuocNonce = 12; // AES-GCM nonce chuẩn
-    private const int KichThuocTag = 16;
+    private const int KeySizeBytes = 32; // AES-256
+    private const int NonceSizeBytes = 12; // Kích thước nonce chuẩn của AES-GCM
+    private const int TagSizeBytes = 16;
 
-    private readonly string _tepKhoa;
+    private readonly string _keyFile;
 
     public DevKeySecretProtector(string directory)
     {
         Directory.CreateDirectory(directory);
-        _tepKhoa = Path.Combine(directory, "dev.key");
+        _keyFile = Path.Combine(directory, "dev.key");
     }
 
     public byte[] Protect(byte[] plain)
     {
-        var khoa = LayHoacTaoKhoa();
-        var nonce = RandomNumberGenerator.GetBytes(KichThuocNonce);
+        var key = LoadOrCreateKey();
+        var nonce = RandomNumberGenerator.GetBytes(NonceSizeBytes);
         var cipherText = new byte[plain.Length];
-        var tag = new byte[KichThuocTag];
+        var tag = new byte[TagSizeBytes];
 
-        using var aesGcm = new AesGcm(khoa, KichThuocTag);
+        using var aesGcm = new AesGcm(key, TagSizeBytes);
         aesGcm.Encrypt(nonce, plain, cipherText, tag);
 
         // Định dạng lưu: nonce (12) + tag (16) + dữ liệu mã hóa.
-        var ketQua = new byte[nonce.Length + tag.Length + cipherText.Length];
-        Buffer.BlockCopy(nonce, 0, ketQua, 0, nonce.Length);
-        Buffer.BlockCopy(tag, 0, ketQua, nonce.Length, tag.Length);
-        Buffer.BlockCopy(cipherText, 0, ketQua, nonce.Length + tag.Length, cipherText.Length);
-        return ketQua;
+        var result = new byte[nonce.Length + tag.Length + cipherText.Length];
+        Buffer.BlockCopy(nonce, 0, result, 0, nonce.Length);
+        Buffer.BlockCopy(tag, 0, result, nonce.Length, tag.Length);
+        Buffer.BlockCopy(cipherText, 0, result, nonce.Length + tag.Length, cipherText.Length);
+        return result;
     }
 
     public byte[] Unprotect(byte[] cipher)
     {
-        if (cipher.Length < KichThuocNonce + KichThuocTag)
+        if (cipher.Length < NonceSizeBytes + TagSizeBytes)
         {
             throw new CryptographicException("Dữ liệu mã hóa không hợp lệ.");
         }
 
-        var khoa = LayHoacTaoKhoa();
-        var nonce = cipher.AsSpan(0, KichThuocNonce).ToArray();
-        var tag = cipher.AsSpan(KichThuocNonce, KichThuocTag).ToArray();
-        var cipherText = cipher.AsSpan(KichThuocNonce + KichThuocTag).ToArray();
+        var key = LoadOrCreateKey();
+        var nonce = cipher.AsSpan(0, NonceSizeBytes).ToArray();
+        var tag = cipher.AsSpan(NonceSizeBytes, TagSizeBytes).ToArray();
+        var cipherText = cipher.AsSpan(NonceSizeBytes + TagSizeBytes).ToArray();
         var plain = new byte[cipherText.Length];
 
-        using var aesGcm = new AesGcm(khoa, KichThuocTag);
+        using var aesGcm = new AesGcm(key, TagSizeBytes);
         aesGcm.Decrypt(nonce, cipherText, tag, plain);
         return plain;
     }
 
-    private byte[] LayHoacTaoKhoa()
+    private byte[] LoadOrCreateKey()
     {
-        if (File.Exists(_tepKhoa))
+        if (File.Exists(_keyFile))
         {
-            return Convert.FromBase64String(File.ReadAllText(_tepKhoa));
+            return Convert.FromBase64String(File.ReadAllText(_keyFile));
         }
 
-        var khoaMoi = RandomNumberGenerator.GetBytes(KichThuocKhoa);
-        File.WriteAllText(_tepKhoa, Convert.ToBase64String(khoaMoi));
-        return khoaMoi;
+        var newKey = RandomNumberGenerator.GetBytes(KeySizeBytes);
+        File.WriteAllText(_keyFile, Convert.ToBase64String(newKey));
+        return newKey;
     }
 }

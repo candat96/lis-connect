@@ -20,57 +20,57 @@ public sealed class LocalConfigStore
         _protector = protector;
     }
 
-    private string TepCauHinh => Path.Combine(_directory, "config.json");
+    private string ConfigFile => Path.Combine(_directory, "config.json");
 
     public LocalConfig? Load()
     {
-        if (!File.Exists(TepCauHinh))
+        if (!File.Exists(ConfigFile))
         {
             return null;
         }
 
-        var json = File.ReadAllText(TepCauHinh);
-        var banGhi = JsonSerializer.Deserialize<BanGhiCauHinh>(json)
+        var json = File.ReadAllText(ConfigFile);
+        var record = JsonSerializer.Deserialize<ConfigRecord>(json)
             ?? throw new InvalidDataException("Tệp cấu hình cục bộ không đọc được.");
 
-        var matKhauMa = Convert.FromBase64String(banGhi.PasswordProtected);
-        var matKhau = Encoding.UTF8.GetString(_protector.Unprotect(matKhauMa));
+        var protectedPassword = Convert.FromBase64String(record.PasswordProtected);
+        var password = Encoding.UTF8.GetString(_protector.Unprotect(protectedPassword));
 
         var db = new DbSettings(
-            banGhi.Db.Host,
-            banGhi.Db.Port,
-            banGhi.Db.Database,
-            banGhi.Db.Username,
-            matKhau,
-            banGhi.Db.RequireSsl);
+            record.Db.Host,
+            record.Db.Port,
+            record.Db.Database,
+            record.Db.Username,
+            password,
+            record.Db.RequireSsl);
 
-        return new LocalConfig(db, banGhi.WorkstationCode);
+        return new LocalConfig(db, record.WorkstationCode);
     }
 
     public void Save(LocalConfig cfg)
     {
         Directory.CreateDirectory(_directory);
 
-        var matKhauMa = _protector.Protect(Encoding.UTF8.GetBytes(cfg.Db.Password));
+        var protectedPassword = _protector.Protect(Encoding.UTF8.GetBytes(cfg.Db.Password));
 
-        var banGhi = new BanGhiCauHinh(
-            new BanGhiDb(cfg.Db.Host, cfg.Db.Port, cfg.Db.Database, cfg.Db.Username, cfg.Db.RequireSsl),
-            Convert.ToBase64String(matKhauMa),
+        var record = new ConfigRecord(
+            new DbRecord(cfg.Db.Host, cfg.Db.Port, cfg.Db.Database, cfg.Db.Username, cfg.Db.RequireSsl),
+            Convert.ToBase64String(protectedPassword),
             cfg.WorkstationCode);
 
-        var json = JsonSerializer.Serialize(banGhi, TuyChonJson);
-        File.WriteAllText(TepCauHinh, json);
+        var json = JsonSerializer.Serialize(record, JsonOptions);
+        File.WriteAllText(ConfigFile, json);
     }
 
-    private static readonly JsonSerializerOptions TuyChonJson = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     /// <summary>Bản ghi JSON trên đĩa: mật khẩu chỉ xuất hiện dưới dạng đã mã hóa.</summary>
-    private sealed record BanGhiCauHinh(
-        [property: JsonPropertyName("db")] BanGhiDb Db,
+    private sealed record ConfigRecord(
+        [property: JsonPropertyName("db")] DbRecord Db,
         [property: JsonPropertyName("passwordProtected")] string PasswordProtected,
         [property: JsonPropertyName("workstationCode")] string WorkstationCode);
 
-    private sealed record BanGhiDb(
+    private sealed record DbRecord(
         [property: JsonPropertyName("host")] string Host,
         [property: JsonPropertyName("port")] int Port,
         [property: JsonPropertyName("database")] string Database,
