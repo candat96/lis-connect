@@ -22,6 +22,14 @@
 
     <!-- Mã hóa bí mật cục bộ -->
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+
+    <!-- Truy cập CSDL PostgreSQL -->
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
+    <PackageVersion Include="Dapper" Version="2.1.89" />
+    <PackageVersion Include="dbup-postgresql" Version="7.0.1" />
+
+    <!-- Kiểm thử CSDL -->
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
   </ItemGroup>
 
 </Project>
