@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Lis.App/Lis.App.csproj" />
+    <Project Path="src/Lis.Core/Lis.Core.csproj" />
+    <Project Path="src/Lis.Data/Lis.Data.csproj" />
+    <Project Path="src/Lis.Reports/Lis.Reports.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Lis.App.Tests/Lis.App.Tests.csproj" />
+    <Project Path="tests/Lis.Core.Tests/Lis.Core.Tests.csproj" />
+    <Project Path="tests/Lis.Data.Tests/Lis.Data.Tests.csproj" />
+    <Project Path="tests/Lis.Reports.Tests/Lis.Reports.Tests.csproj" />
+  </Folder>
+</Solution>

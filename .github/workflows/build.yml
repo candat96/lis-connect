@@ -1,0 +1,41 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Lấy mã nguồn
+        uses: actions/checkout@v4
+
+      - name: Cài .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Khôi phục gói
+        run: dotnet restore LisConnect.slnx
+
+      - name: Build toàn solution
+        run: dotnet build LisConnect.slnx --no-restore -warnaserror
+
+      - name: Test Lis.Core.Tests
+        run: dotnet test tests/Lis.Core.Tests --no-build
+
+      - name: Test Lis.Reports.Tests
+        run: dotnet test tests/Lis.Reports.Tests --no-build --ignore-exit-code 8
+
+      - name: Test Lis.App.Tests
+        run: dotnet test tests/Lis.App.Tests --no-build --ignore-exit-code 8
+
+      # Lis.Data.Tests dùng Testcontainers (cần Docker) nên chỉ chạy trên ubuntu-latest.
+      - name: Test Lis.Data.Tests (cần Docker)
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet test tests/Lis.Data.Tests --no-build --ignore-exit-code 8

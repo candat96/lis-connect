@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Lis.App\Lis.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <!--
+    Ghi chú: Avalonia.Headless.XUnit (bản mới nhất 11.3.22) chưa hỗ trợ Avalonia 12.x
+    và xunit.v3, nên tạm thời Lis.App.Tests chỉ dùng xunit.v3 thường, chưa có kiểm thử
+    headless cho giao diện. Sẽ bổ sung khi Avalonia.Headless.XUnit ra bản hỗ trợ.
+  -->
+
+</Project>
