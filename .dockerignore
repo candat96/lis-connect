@@ -1,9 +1,0 @@
-node_modules
-**/node_modules
-**/dist
-**/out
-**/*.tsbuildinfo
-.git
-docs
-apps/agent
-tools/simulator

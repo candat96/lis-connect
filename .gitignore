@@ -1,9 +1,0 @@
-node_modules/
-dist/
-out/
-*.tsbuildinfo
-.env
-.env.local
-.superpowers/
-.env.demo
-lis-agent/dist/
