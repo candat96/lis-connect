@@ -75,13 +75,13 @@ Thêm một bài học từ code cũ: các driver trước đây chưa từng đ
                                              │ PostgreSQL                │ named pipe (trạng thái máy, log thô trực tiếp)
                                         ┌────▼────┐               ┌──────┴──────────────┐
                                         │  CSDL   │◀──────────────│ Ứng dụng giao diện  │
-                                        │(cơ sở)  │               │ (WPF, icon khay)    │
+                                        │(cơ sở)  │               │ (Avalonia, icon khay)    │
                                         └─────────┘               └─────────────────────┘
 ```
 
 - **Ngôn ngữ và nền tảng:** C# trên .NET 10.
   - Dịch vụ nền dùng Worker Service, chạy dạng Windows Service: tự khởi động cùng máy, Windows tự khởi động lại khi dịch vụ chết.
-  - Giao diện dùng WPF.
+  - Giao diện dùng **Avalonia** (giao diện desktop kiểu WPF, chạy native trên Windows). Lúc lập kế hoạch Claude đổi từ WPF sang Avalonia vì máy phát triển là macOS: Avalonia cho phép chạy và chụp ảnh giao diện để kiểm tra ngay trên máy phát triển, còn sản phẩm cài trên Windows vẫn là ứng dụng Windows thật.
   - Lý do chọn .NET: hỗ trợ tốt nhất cho Windows Service, cổng COM (`System.IO.Ports`) và bộ cài đặt.
 - **Dịch vụ nền** làm mọi việc phải chạy liên tục:
   - giữ kết nối máy;
