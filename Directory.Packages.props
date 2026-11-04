@@ -10,6 +10,7 @@
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
 
     <!-- Giao diện Avalonia (Lis.App) -->
     <PackageVersion Include="Avalonia" Version="12.1.5" />
@@ -30,6 +31,9 @@
 
     <!-- Kiểm thử CSDL -->
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
+
+    <!-- Tài khoản, đăng nhập -->
+    <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
   </ItemGroup>
 
 </Project>
