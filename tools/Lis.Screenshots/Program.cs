@@ -131,6 +131,7 @@ internal sealed class ScreenshotApp : Application
 {
     public override void Initialize()
     {
+        RequestedThemeVariant = ThemeVariant.Light;
         Styles.Add(new global::Avalonia.Themes.Fluent.FluentTheme());
         Styles.Add(new StyleInclude(new Uri("avares://Lis.Screenshots/"))
         {

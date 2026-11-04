@@ -111,6 +111,10 @@ public partial class SetupWizardViewModel : ObservableObject
     [ObservableProperty]
     private string? _facilityError;
 
+    /// <summary>Lỗi không mong đợi (CSDL mất kết nối, lỗi tạo tài khoản/lưu thông tin cơ sở...) ở bước hiện tại.</summary>
+    [ObservableProperty]
+    private string? _errorMessage;
+
     private DbSettings BuildDbSettings() => new(Host, Port, Database, Username, Password, RequireSsl);
 
     [RelayCommand(CanExecute = nameof(CanTestConnection))]
@@ -137,6 +141,7 @@ public partial class SetupWizardViewModel : ObservableObject
     private async Task NextAsync()
     {
         IsBusy = true;
+        ErrorMessage = null;
         try
         {
             switch (Step)
@@ -151,6 +156,12 @@ public partial class SetupWizardViewModel : ObservableObject
                     await AdvanceFromFacilityInfoAsync();
                     break;
             }
+        }
+        catch (Exception ex)
+        {
+            // Lỗi không mong đợi (mất kết nối CSDL giữa chừng, lỗi ghi dữ liệu...) — hiện cho
+            // người dùng thay vì để ứng dụng crash, và ở lại bước hiện tại để họ thử lại.
+            ErrorMessage = $"Có lỗi xảy ra, thử lại: {ex.Message}";
         }
         finally
         {
@@ -169,8 +180,7 @@ public partial class SetupWizardViewModel : ObservableObject
             var migration = _setupService.Migrate(settings);
             if (!migration.Ok)
             {
-                ConnectionOk = false;
-                ConnectionMessage = $"Khởi tạo CSDL thất bại: {migration.Error}";
+                ErrorMessage = $"Không tạo được bảng CSDL: {migration.Error}";
                 return;
             }
         }

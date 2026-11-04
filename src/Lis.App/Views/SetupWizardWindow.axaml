@@ -111,6 +111,16 @@
                        IsVisible="{Binding FacilityError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
 
+        <TextBlock Grid.Row="1"
+                   Classes="error"
+                   Text="{Binding ErrorMessage}"
+                   TextWrapping="Wrap"
+                   HorizontalAlignment="Left"
+                   VerticalAlignment="Bottom"
+                   Margin="0,0,0,44"
+                   MaxWidth="360"
+                   IsVisible="{Binding ErrorMessage, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+
         <Button Grid.Row="1"
                 Name="NextButton"
                 Classes="primary"

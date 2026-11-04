@@ -73,13 +73,13 @@ public sealed class SetupService : ISetupService
 
     public async Task<bool> NeedsFirstAdminAsync(DbSettings settings)
     {
-        var store = new UserStore(Db.Create(settings.ToConnectionString()));
+        var store = CreateUserStore(settings);
         return !await store.AnyAsync();
     }
 
     public async Task CreateFirstAdminAsync(DbSettings settings, string username, string fullName, string password)
     {
-        var store = new UserStore(Db.Create(settings.ToConnectionString()));
+        var store = CreateUserStore(settings);
 
         if (await store.AnyAsync())
         {
@@ -88,6 +88,8 @@ public sealed class SetupService : ISetupService
 
         await store.CreateAsync(username, fullName, title: null, password, [Roles.QuanTri]);
     }
+
+    private static UserStore CreateUserStore(DbSettings settings) => new(Db.Create(settings.ToConnectionString()));
 
     /// <summary>
     /// Lỗi không tới được máy chủ: không mở được socket (sai host/cổng, máy chủ không chạy)

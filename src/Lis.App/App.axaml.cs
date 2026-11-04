@@ -30,7 +30,10 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            // Đóng cửa sổ cài đặt/đăng nhập (nút X) phải thoát hẳn ứng dụng — không có cửa sổ
+            // nào khác lúc đó. MainWindow không bị ảnh hưởng: nó không bao giờ thực sự Close()
+            // khi người dùng bấm X (xem MainWindow.OnClosing), chỉ ẩn xuống khay.
+            desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
             StartUp(desktop);
         }
 
@@ -61,9 +64,12 @@ public partial class App : Application
 
         viewModel.Completed += (_, config) =>
         {
+            // Lưu cấu hình & mở màn đăng nhập trước, đóng cửa sổ cài đặt sau — nếu đóng trước,
+            // có một khoảnh khắc không còn cửa sổ nào mở, và ShutdownMode.OnLastWindowClose sẽ
+            // thoát ứng dụng trước khi màn đăng nhập kịp hiện.
             configStore.Save(config);
-            window.Close();
             ShowLogin(desktop, config);
+            window.Close();
         };
 
         desktop.MainWindow = window;
@@ -78,9 +84,20 @@ public partial class App : Application
 
         viewModel.LoggedIn += async (_, user) =>
         {
-            await services.TouchWorkstationAsync();
-            window.Close();
+            try
+            {
+                await services.TouchWorkstationAsync();
+            }
+            catch (Exception ex)
+            {
+                // Đăng nhập đã đúng, nhưng cập nhật máy trạm thất bại (vd CSDL vừa mất kết nối) —
+                // báo lỗi và ở lại màn đăng nhập thay vì mở màn chính với trạng thái nửa vời.
+                viewModel.ErrorMessage = $"Đăng nhập được nhưng cập nhật máy trạm thất bại: {ex.Message}";
+                return;
+            }
+
             ShowMain(desktop, user);
+            window.Close();
         };
 
         desktop.MainWindow = window;

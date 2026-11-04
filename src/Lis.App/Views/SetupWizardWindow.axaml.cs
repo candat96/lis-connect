@@ -12,6 +12,6 @@ public partial class SetupWizardWindow : Window
     public SetupWizardWindow()
     {
         InitializeComponent();
-        KeyDown += KeyboardFormBehavior.OnKeyDown;
+        KeyDown += KeyboardFormBehavior.MoveFocusOnEnter;
     }
 }

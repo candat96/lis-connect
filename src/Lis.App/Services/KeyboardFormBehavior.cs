@@ -6,25 +6,17 @@ namespace Lis.App.Services;
 /// <summary>
 /// Hành vi bàn phím dùng chung cho các form nhập liệu (theo nguyên tắc "tối ưu bàn phím"
 /// của LIS Connect): Enter chuyển sang ô kế tiếp (trừ khi đang ở nút, nơi Enter đã có
-/// nghĩa là bấm nút), Esc đóng cửa sổ (coi cửa sổ cài đặt/đăng nhập như một hộp thoại).
+/// nghĩa là bấm nút). Không xử lý Esc ở đây — Esc chỉ nên đóng các hộp thoại thật sự
+/// (cửa sổ phụ, có cửa sổ khác phía sau); các cửa sổ chính của luồng khởi động (cài đặt,
+/// đăng nhập) không phải hộp thoại, đóng chúng bằng Esc sẽ làm ứng dụng ẩn mất không có
+/// cách mở lại (không có icon khay hữu dụng tới lúc đó).
 /// </summary>
 public static class KeyboardFormBehavior
 {
-    /// <summary>Gắn vào sự kiện KeyDown của cửa sổ (<c>window.KeyDown += KeyboardFormBehavior.OnKeyDown;</c>).</summary>
-    public static void OnKeyDown(object? sender, KeyEventArgs e)
+    /// <summary>Gắn vào sự kiện KeyDown của cửa sổ (<c>window.KeyDown += KeyboardFormBehavior.MoveFocusOnEnter;</c>).</summary>
+    public static void MoveFocusOnEnter(object? sender, KeyEventArgs e)
     {
-        if (sender is not Window window)
-        {
-            return;
-        }
-
-        if (e.Key == Key.Escape)
-        {
-            window.Close();
-            return;
-        }
-
-        if (e.Key != Key.Enter)
+        if (sender is not Window window || e.Key != Key.Enter)
         {
             return;
         }

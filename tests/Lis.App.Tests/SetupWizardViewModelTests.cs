@@ -14,14 +14,23 @@ internal sealed class FakeSetupService : ISetupService
 {
     public ConnectionTest NextTestResult { get; set; } = new(false, "Chưa thử", false);
 
+    public MigrationResult NextMigrationResult { get; set; } = new(true, [], null);
+
+    public Exception? MigrateException { get; set; }
+
+    public bool NeedsFirstAdminResult { get; set; }
+
+    public Exception? CreateFirstAdminException { get; set; }
+
     public Task<ConnectionTest> TestAsync(DbSettings settings) => Task.FromResult(NextTestResult);
 
-    public MigrationResult Migrate(DbSettings settings) => new(true, [], null);
+    public MigrationResult Migrate(DbSettings settings) =>
+        MigrateException is not null ? throw MigrateException : NextMigrationResult;
 
-    public Task<bool> NeedsFirstAdminAsync(DbSettings settings) => Task.FromResult(false);
+    public Task<bool> NeedsFirstAdminAsync(DbSettings settings) => Task.FromResult(NeedsFirstAdminResult);
 
     public Task CreateFirstAdminAsync(DbSettings settings, string username, string fullName, string password) =>
-        Task.CompletedTask;
+        CreateFirstAdminException is not null ? Task.FromException(CreateFirstAdminException) : Task.CompletedTask;
 }
 
 public class SetupWizardViewModelTests
@@ -57,5 +66,57 @@ public class SetupWizardViewModelTests
         vm.ConnectionOk.ShouldBeFalse();
         vm.ConnectionMessage.ShouldBe("Sai tài khoản hoặc mật khẩu CSDL");
         vm.NextCommand.CanExecute(null).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Next_MigrateThrows_ShowsErrorAndStaysOnStep1()
+    {
+        var vm = CreateViewModel(out var fake);
+        fake.NextTestResult = new ConnectionTest(true, "Kết nối thành công", true); // CSDL trống -> sẽ gọi Migrate
+        vm.TestConnectionCommand.Execute(null);
+        fake.MigrateException = new InvalidOperationException("mất kết nối giữa chừng");
+
+        vm.NextCommand.Execute(null);
+
+        vm.Step.ShouldBe(SetupWizardStep.ConnectDb);
+        vm.ErrorMessage.ShouldNotBeNullOrWhiteSpace();
+        vm.ErrorMessage.ShouldContain("mất kết nối giữa chừng");
+    }
+
+    [Fact]
+    public void Next_MigrationFails_ShowsVietnameseError()
+    {
+        var vm = CreateViewModel(out var fake);
+        fake.NextTestResult = new ConnectionTest(true, "Kết nối thành công", true); // CSDL trống -> sẽ gọi Migrate
+        vm.TestConnectionCommand.Execute(null);
+        fake.NextMigrationResult = new MigrationResult(false, [], "bảng service đã tồn tại");
+
+        vm.NextCommand.Execute(null);
+
+        vm.Step.ShouldBe(SetupWizardStep.ConnectDb);
+        vm.ErrorMessage.ShouldBe("Không tạo được bảng CSDL: bảng service đã tồn tại");
+    }
+
+    [Fact]
+    public void Next_CreateFirstAdminThrows_ShowsErrorAndStaysOnStep2()
+    {
+        var vm = CreateViewModel(out var fake);
+        fake.NextTestResult = new ConnectionTest(true, "Kết nối thành công", false);
+        vm.TestConnectionCommand.Execute(null);
+        fake.NeedsFirstAdminResult = true;
+        vm.NextCommand.Execute(null); // sang bước 2
+        vm.Step.ShouldBe(SetupWizardStep.FirstAdmin);
+
+        vm.AdminUsername = "quantri";
+        vm.AdminFullName = "Nguyễn Văn Thử";
+        vm.AdminPassword = "MatKhau123";
+        vm.AdminPasswordConfirm = "MatKhau123";
+        fake.CreateFirstAdminException = new InvalidOperationException("Tên đăng nhập đã tồn tại");
+
+        vm.NextCommand.Execute(null);
+
+        vm.Step.ShouldBe(SetupWizardStep.FirstAdmin);
+        vm.ErrorMessage.ShouldNotBeNullOrWhiteSpace();
+        vm.ErrorMessage.ShouldContain("Tên đăng nhập đã tồn tại");
     }
 }

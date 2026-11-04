@@ -11,6 +11,6 @@ public partial class LoginWindow : Window
     public LoginWindow()
     {
         InitializeComponent();
-        KeyDown += KeyboardFormBehavior.OnKeyDown;
+        KeyDown += KeyboardFormBehavior.MoveFocusOnEnter;
     }
 }
