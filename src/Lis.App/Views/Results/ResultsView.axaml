@@ -136,8 +136,8 @@
                                                 <TextBlock Text="{Binding StatusText}" Classes="success" FontSize="12" VerticalAlignment="Center" />
                                                 <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasPending}">
                                                     <TextBlock Text="{Binding PendingValue, StringFormat='Máy gửi lại: {0}'}" Classes="flagAbnormal" VerticalAlignment="Center" />
-                                                    <Button Content="Chấp nhận" Command="{Binding AcceptPendingCommand}" Padding="10,4" />
-                                                    <Button Content="Bỏ bản thay thế" Command="{Binding RejectPendingCommand}" Padding="10,4" />
+                                                    <Button Content="Chấp nhận" Command="{Binding AcceptPendingCommand}" IsVisible="{Binding CanAcceptPending}" Padding="10,4" />
+                                                    <Button Content="Bỏ bản thay thế" Command="{Binding RejectPendingCommand}" IsVisible="{Binding CanRejectPending}" Padding="10,4" />
                                                 </StackPanel>
                                             </StackPanel>
                                         </Grid>

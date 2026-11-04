@@ -124,7 +124,15 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                 throw new InvalidOperationException("Dịch vụ cha (panel) không có giá trị kết quả");
             }
 
-            var hasOldValue = !string.IsNullOrEmpty(item.Value);
+            // Đọc lại kết quả hiện có *sau khi* đã giữ khóa mẫu: bản LEFT JOIN ở trên có thể cũ
+            // (READ COMMITTED) khi một máy trạm khác vừa ghi xong cùng ô — nếu dựa vào đó,
+            // người thứ hai ghi "nhan" không lý do và đè mất giá trị người thứ nhất.
+            var existing = await connection.QuerySingleOrDefaultAsync<ExistingResultRow>(
+                "SELECT id, value FROM result WHERE order_item_id = @orderItemId FOR UPDATE",
+                new { orderItemId }, transaction);
+            var oldValue = existing?.Value;
+
+            var hasOldValue = !string.IsNullOrEmpty(oldValue);
             if (hasOldValue && string.IsNullOrWhiteSpace(reason))
             {
                 throw new ArgumentException("Nhập lý do sửa kết quả");
@@ -168,7 +176,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             await InsertHistoryAsync(
                 connection, transaction, resultId,
                 hasOldValue ? "sua" : "nhan",
-                oldValue: item.Value, newValue: computed.Value,
+                oldValue, newValue: computed.Value,
                 reason: hasOldValue ? reason!.Trim() : null,
                 actorId, now);
 
@@ -353,11 +361,19 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
         {
             case "so":
             {
-                var rounded = ValueRounding.Round(trimmed, service.Decimals);
-                var parsed = ResultValue.Parse(rounded);
+                var parsed = ResultValue.Parse(trimmed);
+                if (parsed.IsEmpty)
+                {
+                    // Ký hiệu lỗi của máy ("***.*", "**") hoặc chuỗi không phải số: không có giá
+                    // trị (không phải 0). Chuỗi thô vẫn còn trong lịch sử/raw_ref.
+                    return new ComputedValue(null, service.Unit, null, null, null, ResultFlag.None);
+                }
+
+                var normalized = NormalizeNumber(trimmed, parsed, service.Decimals);
                 var range = ReferenceRangeSelector.Select(await _catalog.RangesAsync(service.Id), patient, at, instrumentId);
-                var flag = FlagCalculator.Compute(parsed, range);
-                return new ComputedValue(rounded, service.Unit, range?.Low, range?.High, range?.TextRange, flag);
+                // Cờ tính trên giá trị đã làm tròn (giá trị sẽ hiển thị/in), không trên số thô.
+                var flag = FlagCalculator.Compute(ResultValue.Parse(normalized), range);
+                return new ComputedValue(normalized, service.Unit, range?.Low, range?.High, range?.TextRange, flag);
             }
 
             case "dinh-tinh":
@@ -371,6 +387,27 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             default:
                 return new ComputedValue(trimmed, service.Unit, null, null, null, ResultFlag.None);
         }
+    }
+
+    /// <summary>
+    /// Chuỗi số sẽ lưu: có số lẻ thì làm tròn (<see cref="ValueRounding"/>, giữ dấu so sánh);
+    /// không có số lẻ thì vẫn chuẩn hóa dấu phẩy thành dấu chấm ("4,8" → "4.8") — trừ hiệu giá
+    /// ("1:4", "1/4") giữ nguyên như gõ.
+    /// </summary>
+    private static string NormalizeNumber(string trimmed, ResultValue parsed, int? decimals)
+    {
+        if (decimals is not null)
+        {
+            return ValueRounding.Round(trimmed, decimals);
+        }
+
+        var body = trimmed[(parsed.Comparator?.Length ?? 0)..].Trim();
+        if (body.Contains(':') || body.Contains('/'))
+        {
+            return trimmed;
+        }
+
+        return (parsed.Comparator ?? "") + body.Replace(',', '.');
     }
 
     private const string JoinResultToSample = "JOIN order_item oi ON oi.id = r.order_item_id WHERE oi.sample_id = @sampleId";
@@ -513,6 +550,12 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
         public string ValueType { get; init; } = "";
         public int? Decimals { get; init; }
         public bool IsPanel { get; init; }
+    }
+
+    private sealed record ExistingResultRow
+    {
+        public Guid Id { get; init; }
+        public string? Value { get; init; }
     }
 
     private sealed record SampleLockRow

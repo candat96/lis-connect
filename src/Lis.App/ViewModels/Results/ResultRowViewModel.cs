@@ -97,6 +97,10 @@ public partial class ResultRowViewModel : ObservableObject
 
     public bool HasPending => Row.PendingValue is not null;
 
+    public bool CanAcceptPending => _owner.CanAcceptPending;
+
+    public bool CanRejectPending => _owner.CanRejectPending;
+
     /// <summary>Thay dữ liệu dòng sau khi nạp lại mẫu — giữ nguyên đối tượng để ô đang có focus không bị dựng lại.</summary>
     public void Update(ResultRow row, bool isEditable)
     {

@@ -26,6 +26,12 @@ internal sealed class FakeResultService : IResultService
 
     public List<(Guid SampleId, string Reason)> UnapproveCalls { get; } = [];
 
+    public List<Guid> AcceptPendingCalls { get; } = [];
+
+    public List<Guid> RejectPendingCalls { get; } = [];
+
+    public Exception? ApproveException { get; set; }
+
     public Task<IReadOnlyList<SampleListItem>> ListAsync(DateOnly from, DateOnly to, string? status, string? query) =>
         Task.FromResult<IReadOnlyList<SampleListItem>>(ListItems);
 
@@ -44,6 +50,11 @@ internal sealed class FakeResultService : IResultService
     public Task ApproveAsync(Guid sampleId, Guid actorId)
     {
         ApproveCalls.Add(sampleId);
+        if (ApproveException is not null)
+        {
+            return Task.FromException(ApproveException);
+        }
+
         Sample = Sample! with { ApprovedAt = new DateTimeOffset(2026, 11, 4, 2, 0, 0, TimeSpan.Zero), ApprovedBy = "Kỹ thuật viên Thử" };
         return Task.CompletedTask;
     }
@@ -55,9 +66,17 @@ internal sealed class FakeResultService : IResultService
         return Task.CompletedTask;
     }
 
-    public Task AcceptPendingAsync(Guid resultId, Guid actorId) => Task.CompletedTask;
+    public Task AcceptPendingAsync(Guid resultId, Guid actorId)
+    {
+        AcceptPendingCalls.Add(resultId);
+        return Task.CompletedTask;
+    }
 
-    public Task RejectPendingAsync(Guid resultId, Guid actorId) => Task.CompletedTask;
+    public Task RejectPendingAsync(Guid resultId, Guid actorId)
+    {
+        RejectPendingCalls.Add(resultId);
+        return Task.CompletedTask;
+    }
 
     public Task<bool> TryAutoApproveAsync(Guid sampleId) => Task.FromResult(false);
 }
@@ -216,6 +235,54 @@ public class ResultsViewModelTests
         viewModel.IsUnapprovePromptVisible.ShouldBeFalse();
         viewModel.Current!.ApprovedAt.ShouldBeNull();
         viewModel.CanEditValues.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task AcceptPending_HiddenWithoutHuyDuyet()
+    {
+        var pendingRow = Row(HgbItemId, "HGB", "Huyết sắc tố", "119", ResultFlag.Low) with { PendingValue = "125" };
+        var sample = UnapprovedSample() with { ApprovedAt = DateTimeOffset.UtcNow, ApprovedBy = "Trưởng khoa Thử", Rows = [pendingRow] };
+
+        var technicianService = new FakeResultService { Sample = sample };
+        var technician = CreateViewModel(technicianService, Roles.KyThuatVien);
+        await technician.LoadSampleAsync(SampleId);
+        var technicianRow = technician.Rows.Single();
+        technicianRow.HasPending.ShouldBeTrue();
+        technicianRow.CanAcceptPending.ShouldBeFalse();
+        technicianRow.CanRejectPending.ShouldBeTrue();
+
+        await technician.AcceptPendingAsync(technicianRow);
+        technicianService.AcceptPendingCalls.ShouldBeEmpty();
+        await technician.RejectPendingAsync(technicianRow);
+        technicianService.RejectPendingCalls.ShouldBe([pendingRow.ResultId!.Value]);
+
+        var headService = new FakeResultService { Sample = sample };
+        var head = CreateViewModel(headService, Roles.TruongKhoa);
+        await head.LoadSampleAsync(SampleId);
+        var headRow = head.Rows.Single();
+        headRow.CanAcceptPending.ShouldBeTrue();
+        headRow.CanRejectPending.ShouldBeTrue();
+
+        await head.AcceptPendingAsync(headRow);
+        headService.AcceptPendingCalls.ShouldBe([pendingRow.ResultId!.Value]);
+    }
+
+    [Fact]
+    public async Task Approve_Failure_ShowsErrorAndReloads()
+    {
+        var service = new FakeResultService { Sample = UnapprovedSample(), ApproveException = new InvalidOperationException("Mẫu đã duyệt") };
+        var viewModel = CreateViewModel(service, Roles.KyThuatVien);
+        await viewModel.LoadSampleAsync(SampleId);
+        var getCallsBefore = service.GetCalls;
+
+        // Máy trạm khác đã duyệt: service báo lỗi, bảng nạp lại trạng thái mới.
+        service.Sample = service.Sample! with { ApprovedAt = DateTimeOffset.UtcNow, ApprovedBy = "Người khác" };
+        await viewModel.ApproveCommand.ExecuteAsync(null);
+
+        viewModel.ErrorMessage.ShouldBe("Duyệt thất bại: Mẫu đã duyệt");
+        service.GetCalls.ShouldBe(getCallsBefore + 1);
+        viewModel.IsApproved.ShouldBeTrue();
+        viewModel.CanEditValues.ShouldBeFalse();
     }
 
     [Fact]

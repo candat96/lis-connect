@@ -58,9 +58,13 @@ public partial class ResultsView : UserControl
         e.Handled = true;
         await viewModel.CommitValueAsync(row);
 
-        if (row.IsDirty && viewModel.IsReasonVisible)
+        if (viewModel.ErrorMessage is not null)
         {
-            ReasonBox.Focus();
+            if (row.IsDirty && viewModel.IsReasonVisible)
+            {
+                ReasonBox.Focus();
+            }
+
             return;
         }
 
@@ -82,7 +86,7 @@ public partial class ResultsView : UserControl
         }
 
         await viewModel.CommitValueAsync(dirtyRow);
-        if (!dirtyRow.IsDirty)
+        if (viewModel.ErrorMessage is null && !dirtyRow.IsDirty)
         {
             FocusNextValueBox(dirtyRow);
         }

@@ -235,7 +235,7 @@ public partial class ResultsViewModel : ObservableObject
     /// <summary>Enter trên ô giá trị: ghi giá trị (sửa ô đã có giá trị phải có lý do) rồi nạp lại mẫu.</summary>
     public async Task CommitValueAsync(ResultRowViewModel row)
     {
-        if (!row.IsEditable || !row.IsDirty)
+        if (IsBusy || !row.IsEditable || !row.IsDirty)
         {
             return;
         }
@@ -341,9 +341,15 @@ public partial class ResultsViewModel : ObservableObject
         }
     }
 
+    /// <summary>"Chấp nhận" bản thay thế đưa mẫu về chưa duyệt, nên cần quyền <see cref="Permission.HuyDuyet"/>.</summary>
+    public bool CanAcceptPending => _currentUser.Can(Permission.HuyDuyet);
+
+    /// <summary>"Bỏ bản thay thế" không đổi giá trị chính thức — chỉ cần quyền nhập/sửa.</summary>
+    public bool CanRejectPending => _currentUser.Can(Permission.NhapSuaKetQua);
+
     public Task AcceptPendingAsync(ResultRowViewModel row)
     {
-        if (row.ResultId is not { } resultId || !_currentUser.Can(Permission.NhapSuaKetQua))
+        if (row.ResultId is not { } resultId || !CanAcceptPending)
         {
             return Task.CompletedTask;
         }
@@ -353,7 +359,7 @@ public partial class ResultsViewModel : ObservableObject
 
     public Task RejectPendingAsync(ResultRowViewModel row)
     {
-        if (row.ResultId is not { } resultId || !_currentUser.Can(Permission.NhapSuaKetQua))
+        if (row.ResultId is not { } resultId || !CanRejectPending)
         {
             return Task.CompletedTask;
         }
@@ -361,7 +367,11 @@ public partial class ResultsViewModel : ObservableObject
         return RunAsync("Bỏ bản thay thế thất bại", () => _results.RejectPendingAsync(resultId, ActorId));
     }
 
-    /// <summary>Chạy một thao tác ghi rồi nạp lại mẫu và dòng danh sách; lỗi hiện ở <see cref="ErrorMessage"/>.</summary>
+    /// <summary>
+    /// Chạy một thao tác ghi rồi nạp lại mẫu và dòng danh sách; lỗi hiện ở <see cref="ErrorMessage"/>.
+    /// Thất bại cũng nạp lại mẫu, để trạng thái do máy trạm khác vừa đổi (vd "Mẫu đã duyệt")
+    /// hiện đúng trên bảng.
+    /// </summary>
     private async Task RunAsync(string failurePrefix, Func<Task> action)
     {
         if (Current is null)
@@ -380,11 +390,26 @@ public partial class ResultsViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"{failurePrefix}: {ex.Message}";
+            var message = $"{failurePrefix}: {ex.Message}";
+            await ReloadAfterFailureAsync(sampleId);
+            ErrorMessage = message;
         }
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    private async Task ReloadAfterFailureAsync(Guid sampleId)
+    {
+        try
+        {
+            ShowSample(await _results.GetAsync(sampleId));
+            await RefreshListItemAsync(sampleId);
+        }
+        catch (Exception)
+        {
+            // Lỗi gốc đã được báo ở ErrorMessage; nạp lại không được thì giữ bảng cũ.
         }
     }
 

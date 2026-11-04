@@ -45,7 +45,7 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
         if (!string.IsNullOrEmpty(trimmedQuery))
         {
             conditions.Add(
-                "(s.barcode = @query OR lower(p.code) = lower(@query) OR unaccent(lower(p.full_name)) LIKE unaccent(lower(@pattern)))");
+                "(s.barcode = @query OR lower(p.code) = lower(@query) OR unaccent(lower(p.full_name)) LIKE unaccent(lower(@pattern)) ESCAPE '\\')");
         }
 
         switch (status)
@@ -89,10 +89,14 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
             WHERE {string.Join(" AND ", conditions)}
             ORDER BY o.created_at DESC, s.barcode DESC
             """,
-            new { fromUtc, toUtcExclusive, query = trimmedQuery, pattern = $"%{trimmedQuery}%" });
+            new { fromUtc, toUtcExclusive, query = trimmedQuery, pattern = $"%{EscapeLike(trimmedQuery ?? "")}%" });
 
         return rows.Select(row => row.ToItem()).ToList();
     }
+
+    /// <summary>Thoát ký tự đại diện của LIKE (<c>%</c>, <c>_</c>, <c>\</c>) để chuỗi người dùng gõ được so theo nghĩa đen.</summary>
+    private static string EscapeLike(string text) =>
+        text.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
     /// <summary>
     /// Bảng chỉ số của một mẫu: dòng cha (panel) rồi các chỉ số con thụt vào, theo

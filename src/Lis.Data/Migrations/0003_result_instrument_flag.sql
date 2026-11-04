@@ -6,9 +6,10 @@
 --   * result_history.actor_id cho phép NULL: dòng 'duyet' do tự duyệt và dòng 'nhan' do máy
 --     gửi không có người thao tác.
 
-ALTER TABLE result ADD COLUMN instrument_flag text NULL;
+-- IF NOT EXISTS / IF EXISTS: Migrator chạy script ngoài giao dịch, chạy lại sau khi đứt giữa chừng vẫn an toàn.
+ALTER TABLE result ADD COLUMN IF NOT EXISTS instrument_flag text NULL;
 
-ALTER TABLE result_history DROP CONSTRAINT result_history_action_check;
+ALTER TABLE result_history DROP CONSTRAINT IF EXISTS result_history_action_check;
 ALTER TABLE result_history ADD CONSTRAINT result_history_action_check
     CHECK (action IN ('nhan', 'sua', 'duyet', 'huy-duyet', 'thay-the', 'bo-thay-the'));
 

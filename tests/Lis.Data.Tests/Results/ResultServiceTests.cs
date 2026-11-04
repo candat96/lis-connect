@@ -5,6 +5,7 @@ using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Orders;
 using Lis.Data.Results;
+using Microsoft.Extensions.Time.Testing;
 using Shouldly;
 using Xunit;
 
@@ -20,7 +21,7 @@ public class ResultServiceTests(PostgresFixture fixture)
 {
     private sealed record Env(ResultService Results, OrderService Orders, CatalogStore Catalog, Guid EdtaId, Guid ActorId, Db Db);
 
-    private async Task<Env> CreateEnvAsync()
+    private async Task<Env> CreateEnvAsync(TimeProvider? clock = null)
     {
         var connectionString = await fixture.NewDatabaseAsync();
         var db = Db.Create(connectionString);
@@ -33,7 +34,8 @@ public class ResultServiceTests(PostgresFixture fixture)
 
         var actor = await new UserStore(db).CreateAsync("ktv.thu", "Kỹ thuật viên Thử", null, "mat-khau-thu-1", ["ky-thuat-vien"]);
 
-        return new Env(new ResultService(db, TimeProvider.System), new OrderService(db, TimeProvider.System), catalog, edtaId, actor.Id, db);
+        clock ??= TimeProvider.System;
+        return new Env(new ResultService(db, clock), new OrderService(db, clock), catalog, edtaId, actor.Id, db);
     }
 
     private static async Task<Guid> SaveServiceAsync(
@@ -66,6 +68,8 @@ public class ResultServiceTests(PostgresFixture fixture)
     private static NewPatient FemaleAdult(string name = "Trần Thị Mẫu") => new(name, new DateOnly(1990, 3, 15), null, 'F', null, "0900000011");
 
     private static NewPatient MaleAdult(string name = "Nguyễn Văn Mẫu") => new(name, new DateOnly(1988, 7, 1), null, 'M', null, "0900000012");
+
+    private sealed record WriteOutcome(bool Succeeded, string? Error);
 
     private sealed record HistoryRow
     {
@@ -202,6 +206,108 @@ public class ResultServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task SetManual_EmptyOverwrite_RequiresReasonAndKeepsOld()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Catalog, "HGB", "Huyết sắc tố", env.EdtaId, decimals: 0, unit: "g/L");
+        var (_, items) = await CreateSampleAsync(env, FemaleAdult(), hgbId);
+        await env.Results.SetManualAsync(items[hgbId], "119", env.ActorId, reason: null);
+
+        var ex = await Should.ThrowAsync<ArgumentException>(() => env.Results.SetManualAsync(items[hgbId], "", env.ActorId, reason: null));
+        ex.Message.ShouldBe("Nhập lý do sửa kết quả");
+        (await StoredAsync(env.Db, items[hgbId])).Value.ShouldBe("119");
+
+        await env.Results.SetManualAsync(items[hgbId], "  ", env.ActorId, reason: "Xóa vì nhập nhầm ô");
+
+        var stored = await StoredAsync(env.Db, items[hgbId]);
+        stored.Value.ShouldBeNull();
+        stored.Flag.ShouldBe("None");
+        var history = await HistoryAsync(env.Db, items[hgbId]);
+        history.Select(h => h.Action).ShouldBe(["nhan", "sua"]);
+        history[1].OldValue.ShouldBe("119");
+        history[1].NewValue.ShouldBeNull();
+        history[1].Reason.ShouldBe("Xóa vì nhập nhầm ô");
+    }
+
+    [Fact]
+    public async Task SetManual_Comparator_KeepsSymbol()
+    {
+        var env = await CreateEnvAsync();
+        var crpId = await SaveServiceAsync(env.Catalog, "CRP", "CRP", env.EdtaId, decimals: 1, unit: "mg/L");
+        await env.Catalog.SaveRangesAsync(crpId, [Range(crpId, null, 0, 5)]);
+        var (sampleId, items) = await CreateSampleAsync(env, MaleAdult(), crpId);
+
+        await env.Results.SetManualAsync(items[crpId], "> 500", env.ActorId, null);
+
+        // FlagCalculator so thẳng số sau dấu so sánh với ngưỡng: 500 > 5 → High.
+        var stored = await StoredAsync(env.Db, items[crpId]);
+        stored.Value.ShouldBe(">500.0");
+        stored.Flag.ShouldBe("High");
+        (await env.Results.GetAsync(sampleId)).Rows.Single().Flag.ShouldBe(ResultFlag.High);
+    }
+
+    [Fact]
+    public async Task SetManual_NoDecimals_NormalisesComma()
+    {
+        var env = await CreateEnvAsync();
+        var gluId = await SaveServiceAsync(env.Catalog, "GLU", "Glucose", env.EdtaId, decimals: null, unit: "mmol/L");
+        await env.Catalog.SaveRangesAsync(gluId, [Range(gluId, null, 3.9m, 6.4m)]);
+        var (_, items) = await CreateSampleAsync(env, MaleAdult(), gluId);
+
+        await env.Results.SetManualAsync(items[gluId], "4,8", env.ActorId, null);
+
+        var stored = await StoredAsync(env.Db, items[gluId]);
+        stored.Value.ShouldBe("4.8");
+        stored.Flag.ShouldBe("None");
+    }
+
+    [Fact]
+    public async Task SetManual_ErrorSymbol_StoresNoValue()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Catalog, "HGB", "Huyết sắc tố", env.EdtaId, decimals: 0, unit: "g/L");
+        var (_, items) = await CreateSampleAsync(env, FemaleAdult(), hgbId);
+
+        await env.Results.SetManualAsync(items[hgbId], "***.*", env.ActorId, null);
+
+        var stored = await StoredAsync(env.Db, items[hgbId]);
+        stored.Value.ShouldBeNull();
+        stored.Flag.ShouldBe("None");
+        (await HistoryAsync(env.Db, items[hgbId])).Single().Action.ShouldBe("nhan");
+    }
+
+    [Fact]
+    public async Task SetManual_Concurrent_SecondWriterNeedsReason()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Catalog, "HGB", "Huyết sắc tố", env.EdtaId, decimals: 0, unit: "g/L");
+        var (_, items) = await CreateSampleAsync(env, FemaleAdult(), hgbId);
+
+        async Task<WriteOutcome> TryWriteAsync(string value)
+        {
+            try
+            {
+                await env.Results.SetManualAsync(items[hgbId], value, env.ActorId, reason: null);
+                return new WriteOutcome(true, null);
+            }
+            catch (ArgumentException ex)
+            {
+                return new WriteOutcome(false, ex.Message);
+            }
+        }
+
+        var outcomes = await Task.WhenAll(TryWriteAsync("119"), TryWriteAsync("125"));
+
+        outcomes.Count(o => o.Succeeded).ShouldBe(1);
+        outcomes.Single(o => !o.Succeeded).Error.ShouldBe("Nhập lý do sửa kết quả");
+
+        var history = await HistoryAsync(env.Db, items[hgbId]);
+        history.Count.ShouldBe(1);
+        history[0].Action.ShouldBe("nhan");
+        (await StoredAsync(env.Db, items[hgbId])).Value.ShouldBe(history[0].NewValue);
+    }
+
+    [Fact]
     public async Task SetManual_ApprovedSample_Throws()
     {
         var env = await CreateEnvAsync();
@@ -324,6 +430,23 @@ public class ResultServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task TryAutoApprove_WithPending_ReturnsFalse()
+    {
+        var env = await CreateEnvAsync();
+        var instrumentId = await InsertInstrumentAsync(env.Db, "Máy thử XN");
+        var hgbId = await SaveServiceAsync(env.Catalog, "HGB", "Huyết sắc tố", env.EdtaId, decimals: 0, unit: "g/L", autoApprove: true);
+        await env.Catalog.SaveRangesAsync(hgbId, [Range(hgbId, null, 120, 170)]);
+        var (sampleId, items) = await CreateSampleAsync(env, MaleAdult(), hgbId);
+        await env.Results.SetManualAsync(items[hgbId], "140", env.ActorId, null);
+        await SetPendingAsync(env.Db, items[hgbId], "150", instrumentId, "MSG-004");
+
+        (await env.Results.TryAutoApproveAsync(sampleId)).ShouldBeFalse();
+
+        (await env.Results.GetAsync(sampleId)).ApprovedAt.ShouldBeNull();
+        (await StoredAsync(env.Db, items[hgbId])).Status.ShouldBe("cho-duyet");
+    }
+
+    [Fact]
     public async Task AcceptPending_ReplacesValue_AndUnapproves()
     {
         var env = await CreateEnvAsync();
@@ -332,16 +455,20 @@ public class ResultServiceTests(PostgresFixture fixture)
         // Khoảng chung 4–8; khoảng riêng của máy 4–7 — chấp nhận bản thay thế phải chọn khoảng theo máy.
         await env.Catalog.SaveRangesAsync(wbcId, [Range(wbcId, null, 4, 8), Range(wbcId, null, 4, 7, instrumentId)]);
 
-        var (sampleId, items) = await CreateSampleAsync(env, MaleAdult(), wbcId);
+        var hgbId = await SaveServiceAsync(env.Catalog, "HGB", "Huyết sắc tố", env.EdtaId, decimals: 0, unit: "g/L");
+
+        var (sampleId, items) = await CreateSampleAsync(env, MaleAdult(), wbcId, hgbId);
         await env.Results.SetManualAsync(items[wbcId], "6.0", env.ActorId, null);
+        await env.Results.SetManualAsync(items[hgbId], "140", env.ActorId, null);
         await env.Results.ApproveAsync(sampleId, env.ActorId);
         await SetPendingAsync(env.Db, items[wbcId], "7.25", instrumentId, "MSG-001");
 
         var before = await env.Results.GetAsync(sampleId);
-        before.Rows.Single().PendingValue.ShouldBe("7.25");
+        var wbcRow = before.Rows.Single(r => r.ServiceId == wbcId);
+        wbcRow.PendingValue.ShouldBe("7.25");
         before.ApprovedAt.ShouldNotBeNull();
 
-        await env.Results.AcceptPendingAsync(before.Rows.Single().ResultId!.Value, env.ActorId);
+        await env.Results.AcceptPendingAsync(wbcRow.ResultId!.Value, env.ActorId);
 
         var stored = await StoredAsync(env.Db, items[wbcId]);
         stored.Value.ShouldBe("7.3");
@@ -364,6 +491,46 @@ public class ResultServiceTests(PostgresFixture fixture)
         replaced.OldValue.ShouldBe("6.0");
         replaced.NewValue.ShouldBe("7.25");
         replaced.ActorId.ShouldBe(env.ActorId);
+
+        // Kết quả bị thay thế đã về cho-duyet trước khi hủy duyệt mẫu nên không có dòng huy-duyet riêng;
+        // chỉ số còn lại (đã duyệt) nhận đúng một dòng huy-duyet với lý do cố định.
+        history.Count(h => h.Action == "huy-duyet").ShouldBe(0);
+        var otherHistory = await HistoryAsync(env.Db, items[hgbId]);
+        otherHistory.Select(h => h.Action).ShouldBe(["nhan", "duyet", "huy-duyet"]);
+        otherHistory[2].Reason.ShouldBe("Chấp nhận bản thay thế của máy");
+        otherHistory[2].ActorId.ShouldBe(env.ActorId);
+        (await StoredAsync(env.Db, items[hgbId])).Status.ShouldBe("cho-duyet");
+    }
+
+    [Fact]
+    public async Task AcceptPending_ErrorSymbol_StoresNoValue()
+    {
+        var env = await CreateEnvAsync();
+        var instrumentId = await InsertInstrumentAsync(env.Db, "Máy thử XN");
+        var wbcId = await SaveServiceAsync(env.Catalog, "WBC", "Bạch cầu", env.EdtaId, decimals: 1, unit: "G/L");
+        var (sampleId, items) = await CreateSampleAsync(env, MaleAdult(), wbcId);
+        await env.Results.SetManualAsync(items[wbcId], "6.0", env.ActorId, null);
+        await env.Results.ApproveAsync(sampleId, env.ActorId);
+        await SetPendingAsync(env.Db, items[wbcId], "***.*", instrumentId, "MSG-003");
+        var resultId = (await StoredAsync(env.Db, items[wbcId])).Id;
+
+        await env.Results.AcceptPendingAsync(resultId, env.ActorId);
+
+        var stored = await StoredAsync(env.Db, items[wbcId]);
+        stored.Value.ShouldBeNull();
+        stored.Flag.ShouldBe("None");
+        stored.RawRef.ShouldBe("MSG-003");
+        var replaced = (await HistoryAsync(env.Db, items[wbcId])).Single(h => h.Action == "thay-the");
+        replaced.OldValue.ShouldBe("6.0");
+        replaced.NewValue.ShouldBe("***.*");
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var listed = (await env.Results.ListAsync(today.AddDays(-1), today.AddDays(1), null, null)).Single();
+        listed.WithValue.ShouldBe(0);
+        listed.Total.ShouldBe(1);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(() => env.Results.ApproveAsync(sampleId, env.ActorId));
+        ex.Message.ShouldBe("Chưa có kết quả để duyệt");
     }
 
     [Fact]
@@ -473,5 +640,56 @@ public class ResultServiceTests(PostgresFixture fixture)
         (await env.Results.ListAsync(from, to, null, barcode[1..])).ShouldBeEmpty();
 
         (await env.Results.ListAsync(today.AddDays(-10), today.AddDays(-5), null, null)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task List_DateFilter_UsesLocalDay()
+    {
+        // 23:30 ngày 04/11 giờ Việt Nam = 16:30 UTC cùng ngày; lọc "04/11" theo giờ máy phải thấy,
+        // lọc "05/11" không thấy — dù ngày UTC của 23:30+07 vẫn là 04/11, còn 01:30 ngày 05/11
+        // giờ Việt Nam (18:30 UTC 04/11) phải thuộc ngày 05/11.
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 4, 23, 30, 0, TimeSpan.FromHours(7)));
+        clock.SetLocalTimeZone(TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"));
+        var env = await CreateEnvAsync(clock);
+        var hgbId = await SaveServiceAsync(env.Catalog, "HGB", "Huyết sắc tố", env.EdtaId, decimals: 0, unit: "g/L");
+
+        var (lateEvening, _) = await CreateSampleAsync(env, MaleAdult("Nguyễn Văn Mẫu"), hgbId);
+        var (earlyMorning, _) = await CreateSampleAsync(env, MaleAdult("Lê Văn Mẫu"), hgbId);
+
+        // OrderService ghi lab_order.created_at bằng now() của CSDL — đặt lại trực tiếp để kiểm múi giờ.
+        await using (var connection = await env.Db.OpenAsync(TestContext.Current.CancellationToken))
+        {
+            await connection.ExecuteAsync(
+                "UPDATE lab_order SET created_at = @at WHERE id = (SELECT order_id FROM sample WHERE id = @sampleId)",
+                new { at = new DateTimeOffset(2026, 11, 4, 23, 30, 0, TimeSpan.FromHours(7)).ToUniversalTime(), sampleId = lateEvening });
+            await connection.ExecuteAsync(
+                "UPDATE lab_order SET created_at = @at WHERE id = (SELECT order_id FROM sample WHERE id = @sampleId)",
+                new { at = new DateTimeOffset(2026, 11, 5, 1, 30, 0, TimeSpan.FromHours(7)).ToUniversalTime(), sampleId = earlyMorning });
+        }
+
+        var day4 = new DateOnly(2026, 11, 4);
+        var day5 = new DateOnly(2026, 11, 5);
+
+        (await env.Results.ListAsync(day4, day4, null, null)).Select(s => s.SampleId).ShouldBe([lateEvening]);
+        (await env.Results.ListAsync(day5, day5, null, null)).Select(s => s.SampleId).ShouldBe([earlyMorning]);
+        (await env.Results.ListAsync(day4, day5, null, null)).Select(s => s.SampleId).ShouldBe([earlyMorning, lateEvening]);
+    }
+
+    [Fact]
+    public async Task List_Query_EscapesLikeWildcards()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Catalog, "HGB", "Huyết sắc tố", env.EdtaId, decimals: 0, unit: "g/L");
+        await CreateSampleAsync(env, MaleAdult("Nguyễn Văn Mẫu"), hgbId);
+        await CreateSampleAsync(env, new NewPatient("Trần 100% Mẫu", null, 1990, 'M', null, "0900000013"), hgbId);
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var from = today.AddDays(-1);
+        var to = today.AddDays(1);
+
+        (await env.Results.ListAsync(from, to, null, "%")).Select(s => s.PatientName).ShouldBe(["Trần 100% Mẫu"]);
+        (await env.Results.ListAsync(from, to, null, "100%")).Select(s => s.PatientName).ShouldBe(["Trần 100% Mẫu"]);
+        (await env.Results.ListAsync(from, to, null, "_")).ShouldBeEmpty();
+        (await env.Results.ListAsync(from, to, null, "van mau")).Select(s => s.PatientName).ShouldBe(["Nguyễn Văn Mẫu"]);
     }
 }
