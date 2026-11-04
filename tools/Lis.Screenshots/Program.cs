@@ -43,10 +43,10 @@ internal static class Program
         Capture(outputDirectory, "05-man-chinh.png", CreateMainWindow());
 
         var (catalogChildrenWindow, catalogChildrenViewModel) = CreateCatalogWindow(selectPanel: true, tabIndex: 0);
-        Capture(outputDirectory, "06-danh-muc-chi-so-con.png", catalogChildrenWindow, () => catalogChildrenViewModel.ErrorMessage = null);
+        Capture(outputDirectory, "06-danh-muc-chi-so-con.png", catalogChildrenWindow, () => ClearDetailErrors(catalogChildrenViewModel));
 
         var (catalogRangesWindow, catalogRangesViewModel) = CreateCatalogWindow(selectPanel: false, tabIndex: 1);
-        Capture(outputDirectory, "07-danh-muc-khoang-tham-chieu.png", catalogRangesWindow, () => catalogRangesViewModel.ErrorMessage = null);
+        Capture(outputDirectory, "07-danh-muc-khoang-tham-chieu.png", catalogRangesWindow, () => ClearDetailErrors(catalogRangesViewModel));
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
     }
@@ -100,13 +100,15 @@ internal static class Program
     /// <summary>
     /// Màn Danh mục với dữ liệu giả: panel "Tổng phân tích tế bào máu" gồm 3 chỉ số con
     /// WBC/RBC/HGB, và khoảng tham chiếu của HGB gồm nam/nữ (từ 15 tuổi) và trẻ sơ sinh
-    /// (0-28 ngày). Gán trực tiếp vào các collection của <see cref="CatalogViewModel"/> —
-    /// không gọi <see cref="CatalogStore"/> thật để nạp dữ liệu (xem ghi chú ở
-    /// <c>OnSelectedServiceChanged</c>). Gán <see cref="CatalogViewModel.SelectedService"/> vẫn
-    /// kéo theo <c>ServiceList.SelectionChanged</c> trong <c>CatalogView</c> gọi
-    /// <c>LoadSelectedDetailCommand</c> một lần — lệnh này thật sự thử kết nối CSDL (thất bại
-    /// ngay vì không có máy chủ), nên trả thêm <see cref="CatalogViewModel"/> để gọi nơi
-    /// chụp ảnh xóa <see cref="CatalogViewModel.ErrorMessage"/> sau khi lỗi đó đã hiện ra.
+    /// (0-28 ngày), một máy giả "Sysmex XN-1000" trong danh sách chọn máy. Gán trực tiếp vào
+    /// các collection của <see cref="CatalogViewModel"/> và các editor con — không gọi
+    /// <see cref="CatalogStore"/> thật để nạp dữ liệu (xem ghi chú ở
+    /// <c>CatalogViewModel.OnSelectedServiceChanged</c>). Gán <see cref="CatalogViewModel.SelectedService"/>
+    /// vẫn kéo theo <c>ServiceList.SelectionChanged</c> trong <c>CatalogView</c> gọi
+    /// <c>LoadSelectedDetailCommand</c> một lần — lệnh này thật sự thử tải khoảng tham
+    /// chiếu/quy đổi định tính từ CSDL (thất bại ngay vì không có máy chủ), nên trả thêm
+    /// <see cref="CatalogViewModel"/> để gọi nơi chụp ảnh xóa lỗi đó sau khi nó đã hiện ra
+    /// (xem <see cref="ClearDetailErrors"/>).
     /// </summary>
     private static (Window Window, CatalogViewModel ViewModel) CreateCatalogWindow(bool selectPanel, int tabIndex)
     {
@@ -115,6 +117,10 @@ internal static class Program
 
         var edta = new SpecimenTypeItem(Guid.NewGuid(), "EDTA", "Máu EDTA (huyết học)");
         viewModel.SpecimenTypes.Add(edta);
+
+        var instruments = new List<InstrumentItem> { new(Guid.NewGuid(), "Sysmex XN-1000") };
+        viewModel.RangesEditor.SetInstruments(instruments);
+        viewModel.QualitativeEditor.SetInstruments(instruments);
 
         var wbcId = Guid.NewGuid();
         var rbcId = Guid.NewGuid();
@@ -141,9 +147,22 @@ internal static class Program
 
         if (!selectPanel)
         {
-            viewModel.Ranges.Add(new ReferenceRangeRowViewModel(_ => { }) { Sex = "M", AgeFromValue = 15, AgeFromUnit = AgeUnit.Nam, Low = 130, High = 170, CriticalLow = 70, CriticalHigh = 200 });
-            viewModel.Ranges.Add(new ReferenceRangeRowViewModel(_ => { }) { Sex = "F", AgeFromValue = 15, AgeFromUnit = AgeUnit.Nam, Low = 120, High = 150, CriticalLow = 70, CriticalHigh = 200 });
-            viewModel.Ranges.Add(new ReferenceRangeRowViewModel(_ => { }) { Sex = null, AgeFromValue = 0, AgeFromUnit = AgeUnit.Ngay, AgeToValue = 28, AgeToUnit = AgeUnit.Ngay, Low = 140, High = 220, CriticalLow = 90, CriticalHigh = 250 });
+            var ranges = viewModel.RangesEditor.Ranges;
+            ranges.Add(new ReferenceRangeRowViewModel(viewModel.RangesEditor.Instruments, _ => { })
+            {
+                Sex = "M", AgeFromText = "15", AgeFromUnit = AgeUnit.Nam,
+                LowText = "130", HighText = "170", CriticalLowText = "70", CriticalHighText = "200",
+            });
+            ranges.Add(new ReferenceRangeRowViewModel(viewModel.RangesEditor.Instruments, _ => { })
+            {
+                Sex = "F", AgeFromText = "15", AgeFromUnit = AgeUnit.Nam,
+                LowText = "120", HighText = "150", CriticalLowText = "70", CriticalHighText = "200",
+            });
+            ranges.Add(new ReferenceRangeRowViewModel(viewModel.RangesEditor.Instruments, _ => { })
+            {
+                Sex = null, AgeFromText = "0", AgeFromUnit = AgeUnit.Ngay, AgeToText = "28", AgeToUnit = AgeUnit.Ngay,
+                LowText = "140", HighText = "220", CriticalLowText = "90", CriticalHighText = "250",
+            });
         }
 
         var view = new CatalogView { DataContext = viewModel };
@@ -153,11 +172,18 @@ internal static class Program
         {
             Title = "LIS Connect — Danh mục",
             Width = 1360,
-            Height = 760,
+            Height = 780,
             Content = view,
         };
 
         return (window, viewModel);
+    }
+
+    /// <summary>Xóa lỗi do <c>LoadSelectedDetailCommand</c> thật sự thử (và không) kết nối CSDL khi gán <see cref="CatalogViewModel.SelectedService"/> cho ảnh chụp — xem ghi chú ở <see cref="CreateCatalogWindow"/>.</summary>
+    private static void ClearDetailErrors(CatalogViewModel viewModel)
+    {
+        viewModel.RangesEditor.Errors = [];
+        viewModel.QualitativeEditor.ErrorMessage = null;
     }
 
     private static void Capture(string outputDirectory, string fileName, Window window, Action? afterShow = null)

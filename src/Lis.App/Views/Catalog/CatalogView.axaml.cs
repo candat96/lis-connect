@@ -31,12 +31,12 @@ public partial class CatalogView : UserControl
 
     private void OnAddChildBoxKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Enter || DataContext is not CatalogViewModel viewModel)
+        if (e.Key != Key.Enter || AddChildBox.DataContext is not ChildrenEditorViewModel childrenEditor)
         {
             return;
         }
 
-        viewModel.AddChildCommand.Execute(null);
+        childrenEditor.AddChildCommand.Execute(null);
         e.Handled = true;
     }
 }

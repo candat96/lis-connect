@@ -8,7 +8,7 @@ namespace Lis.Data.Tests.Catalog;
 /// <summary>
 /// Kiểm tra danh mục dịch vụ: quan hệ dịch vụ cha (panel) - chỉ số con (giữ thứ tự, không
 /// cho panel làm con), tìm theo mã không phân biệt hoa thường, và thay toàn bộ khoảng tham
-/// chiếu của một chỉ số.
+/// chiếu/quy tắc quy đổi định tính của một chỉ số.
 /// </summary>
 [Collection(PostgresCollection.Name)]
 public class CatalogStoreTests(PostgresFixture fixture)
@@ -123,5 +123,34 @@ public class CatalogStoreTests(PostgresFixture fixture)
         afterSecondSave.ShouldContain(r => r.Sex == null && r.AgeFromDays == 0 && r.AgeToDays == 28 && r.Low == 140);
         afterSecondSave.ShouldContain(r => r.Sex == 'F' && r.Low == 118);
         afterSecondSave.ShouldNotContain(r => r.Sex == 'M');
+    }
+
+    [Fact]
+    public async Task SaveQualitativeRules_ReplacesAll()
+    {
+        var (store, specimenTypeId) = await CreateStoreAsync();
+        var serviceId = await store.SaveServiceAsync(NewService("HBSAG", "HBsAg test nhanh", specimenTypeId));
+
+        var firstVersion = new List<QualitativeRule>
+        {
+            new(InstrumentId: null, serviceId, RawValue: "pos", DisplayValue: "Dương tính", Flag: ResultFlag.Abnormal),
+            new(InstrumentId: null, serviceId, RawValue: "neg", DisplayValue: "Âm tính", Flag: null),
+        };
+        await store.SaveQualitativeRulesAsync(serviceId, firstVersion);
+
+        var afterFirstSave = await store.QualitativeRulesAsync(serviceId);
+        afterFirstSave.Count.ShouldBe(2);
+
+        // Lưu lại một bộ khác (bỏ "neg", sửa hiển thị của "pos") — phải thay toàn bộ, không gộp.
+        var secondVersion = new List<QualitativeRule>
+        {
+            new(InstrumentId: null, serviceId, RawValue: "pos", DisplayValue: "Dương tính (+)", Flag: ResultFlag.Abnormal),
+        };
+        await store.SaveQualitativeRulesAsync(serviceId, secondVersion);
+
+        var afterSecondSave = await store.QualitativeRulesAsync(serviceId);
+        afterSecondSave.Count.ShouldBe(1);
+        afterSecondSave.ShouldContain(r => r.RawValue == "pos" && r.DisplayValue == "Dương tính (+)" && r.Flag == ResultFlag.Abnormal);
+        afterSecondSave.ShouldNotContain(r => r.RawValue == "neg");
     }
 }

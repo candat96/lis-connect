@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lis.Core.Results;
@@ -27,16 +28,19 @@ public static class ResultFlagExtensions
 /// </summary>
 public partial class QualitativeRuleRowViewModel : ObservableObject
 {
-    public QualitativeRuleRowViewModel(Action<QualitativeRuleRowViewModel> remove)
+    public QualitativeRuleRowViewModel(ObservableCollection<InstrumentItem> instruments, Action<QualitativeRuleRowViewModel> remove)
     {
+        Instruments = instruments;
         _remove = remove;
     }
 
     private readonly Action<QualitativeRuleRowViewModel> _remove;
 
-    /// <summary>Id máy áp dụng riêng, để trống = áp dụng cho mọi máy.</summary>
+    /// <summary>Danh sách máy để ComboBox của chính dòng này hiển thị — tham chiếu dùng chung từ <c>QualitativeRulesEditorViewModel</c>.</summary>
+    public ObservableCollection<InstrumentItem> Instruments { get; }
+
     [ObservableProperty]
-    private string? _instrumentIdText;
+    private InstrumentItem _instrument = InstrumentItem.Any;
 
     [ObservableProperty]
     private string _rawValue = "";
@@ -52,16 +56,18 @@ public partial class QualitativeRuleRowViewModel : ObservableObject
     [RelayCommand]
     private void Remove() => _remove(this);
 
-    public static QualitativeRuleRowViewModel From(QualitativeRule rule, Action<QualitativeRuleRowViewModel> remove) => new(remove)
+    public static QualitativeRuleRowViewModel From(QualitativeRule rule, ObservableCollection<InstrumentItem> instruments, Action<QualitativeRuleRowViewModel> remove) => new(instruments, remove)
     {
-        InstrumentIdText = rule.InstrumentId?.ToString(),
+        Instrument = rule.InstrumentId is { } instrumentId
+            ? instruments.FirstOrDefault(i => i.Id == instrumentId) ?? InstrumentItem.Any
+            : InstrumentItem.Any,
         RawValue = rule.RawValue,
         DisplayValue = rule.DisplayValue,
         Flag = rule.Flag ?? ResultFlag.None,
     };
 
     public QualitativeRule ToRule(Guid serviceId) => new(
-        Guid.TryParse(InstrumentIdText, out var instrumentId) ? instrumentId : null,
+        Instrument.Id == Guid.Empty ? null : Instrument.Id,
         serviceId,
         RawValue,
         DisplayValue,

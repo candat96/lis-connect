@@ -32,7 +32,7 @@ public sealed class ResultFlagLabelConverter : IValueConverter
         throw new NotSupportedException();
 }
 
-/// <summary>"M"/"F"/null (lưu CSDL theo <c>reference_range.sex</c>) → "Nam"/"Nữ"/"Cả hai giới".</summary>
+/// <summary>"M"/"F"/null (lưu CSDL theo <c>reference_range.sex</c>) → "Nam"/"Nữ"/"Chung" (chung cho cả hai giới — ngắn gọn để vừa cột hẹp, xem CatalogView.axaml).</summary>
 public sealed class SexLabelConverter : IValueConverter
 {
     public static readonly SexLabelConverter Instance = new();
@@ -41,7 +41,7 @@ public sealed class SexLabelConverter : IValueConverter
     {
         "M" => "Nam",
         "F" => "Nữ",
-        _ => "Cả hai giới",
+        _ => "Chung",
     };
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>

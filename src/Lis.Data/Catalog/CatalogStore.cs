@@ -259,6 +259,15 @@ public sealed class CatalogStore(Db db)
         return rows.Select(row => (row.Id, row.Code, row.Name)).ToList();
     }
 
+    /// <summary>Danh sách máy xét nghiệm đang dùng, theo tên — dùng cho ComboBox chọn máy trên các khoảng tham chiếu/quy đổi định tính.</summary>
+    public async Task<IReadOnlyList<(Guid Id, string Name)>> InstrumentsAsync()
+    {
+        await using var connection = await db.OpenAsync();
+        var rows = await connection.QueryAsync<InstrumentRow>(
+            "SELECT id, name FROM instrument WHERE active = true ORDER BY name");
+        return rows.Select(row => (row.Id, row.Name)).ToList();
+    }
+
     private static async Task<IReadOnlyDictionary<Guid, List<Guid>>> LoadChildrenByParentAsync(
         NpgsqlConnection connection, IReadOnlyCollection<Guid> parentIds)
     {
@@ -286,7 +295,7 @@ public sealed class CatalogStore(Db db)
         return result;
     }
 
-    private sealed class ServiceRow
+    private sealed record ServiceRow
     {
         public Guid Id { get; init; }
         public string Code { get; init; } = "";
@@ -317,7 +326,7 @@ public sealed class CatalogStore(Db db)
         public Guid ChildId { get; init; }
     }
 
-    private sealed class RangeRow
+    private sealed record RangeRow
     {
         public Guid Id { get; init; }
         public Guid ServiceId { get; init; }
@@ -336,7 +345,7 @@ public sealed class CatalogStore(Db db)
             Low, High, CriticalLow, CriticalHigh, TextRange);
     }
 
-    private sealed class QualitativeRuleRow
+    private sealed record QualitativeRuleRow
     {
         public Guid? InstrumentId { get; init; }
         public Guid ServiceId { get; init; }
@@ -349,10 +358,16 @@ public sealed class CatalogStore(Db db)
             Flag is null ? null : Enum.Parse<ResultFlag>(Flag));
     }
 
-    private sealed class SpecimenTypeRow
+    private sealed record SpecimenTypeRow
     {
         public Guid Id { get; init; }
         public string Code { get; init; } = "";
+        public string Name { get; init; } = "";
+    }
+
+    private sealed record InstrumentRow
+    {
+        public Guid Id { get; init; }
         public string Name { get; init; } = "";
     }
 }

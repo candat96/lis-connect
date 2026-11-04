@@ -7,7 +7,9 @@ namespace Lis.App.ViewModels.Catalog;
 
 /// <summary>
 /// ViewModel cho màn Danh mục: bảng dịch vụ có ô lọc, form sửa dịch vụ, và 3 tab cho dịch vụ
-/// đang chọn — chỉ số con (chỉ áp dụng cho panel), khoảng tham chiếu, quy đổi định tính.
+/// đang chọn — mỗi tab là một ViewModel riêng (<see cref="ChildrenEditor"/>,
+/// <see cref="RangesEditor"/>, <see cref="QualitativeEditor"/>) được <see cref="CatalogViewModel"/>
+/// nạp lại mỗi khi đổi <see cref="SelectedService"/>.
 /// </summary>
 public partial class CatalogViewModel : ObservableObject
 {
@@ -16,7 +18,16 @@ public partial class CatalogViewModel : ObservableObject
     public CatalogViewModel(CatalogStore store)
     {
         _store = store;
+        ChildrenEditor = new ChildrenEditorViewModel(store);
+        RangesEditor = new RangesEditorViewModel(store);
+        QualitativeEditor = new QualitativeRulesEditorViewModel(store);
     }
+
+    public ChildrenEditorViewModel ChildrenEditor { get; }
+
+    public RangesEditorViewModel RangesEditor { get; }
+
+    public QualitativeRulesEditorViewModel QualitativeEditor { get; }
 
     public ObservableCollection<ServiceListItemViewModel> Services { get; } = [];
 
@@ -26,12 +37,6 @@ public partial class CatalogViewModel : ObservableObject
 
     public IReadOnlyList<ValueTypeOption> ValueTypeOptions { get; } = ValueTypeOption.All;
 
-    public ObservableCollection<ChildServiceViewModel> Children { get; } = [];
-
-    public ObservableCollection<ReferenceRangeRowViewModel> Ranges { get; } = [];
-
-    public ObservableCollection<QualitativeRuleRowViewModel> QualitativeRules { get; } = [];
-
     [ObservableProperty]
     private string _filterText = "";
 
@@ -40,12 +45,6 @@ public partial class CatalogViewModel : ObservableObject
 
     [ObservableProperty]
     private string? _errorMessage;
-
-    [ObservableProperty]
-    private string? _childError;
-
-    [ObservableProperty]
-    private string _addChildCode = "";
 
     // Trường sửa dịch vụ (dịch vụ mới khi SelectedService null).
     [ObservableProperty]
@@ -87,7 +86,7 @@ public partial class CatalogViewModel : ObservableObject
     [ObservableProperty]
     private string? _editHisCode;
 
-    /// <summary>Nạp toàn bộ dịch vụ và loại mẫu bệnh phẩm từ CSDL.</summary>
+    /// <summary>Nạp toàn bộ dịch vụ, loại mẫu bệnh phẩm và danh sách máy từ CSDL.</summary>
     [RelayCommand]
     public async Task LoadAsync()
     {
@@ -96,6 +95,7 @@ public partial class CatalogViewModel : ObservableObject
         {
             var services = await _store.ListServicesAsync(activeOnly: false);
             var specimenTypes = await _store.SpecimenTypesAsync();
+            var instruments = await _store.InstrumentsAsync();
 
             Services.Clear();
             foreach (var service in services)
@@ -108,6 +108,10 @@ public partial class CatalogViewModel : ObservableObject
             {
                 SpecimenTypes.Add(new SpecimenTypeItem(specimenType.Id, specimenType.Code, specimenType.Name));
             }
+
+            var instrumentItems = instruments.Select(i => new InstrumentItem(i.Id, i.Name)).ToList();
+            RangesEditor.SetInstruments(instrumentItems);
+            QualitativeEditor.SetInstruments(instrumentItems);
 
             ApplyFilter();
         }
@@ -137,26 +141,24 @@ public partial class CatalogViewModel : ObservableObject
 
     partial void OnSelectedServiceChanged(ServiceListItemViewModel? value)
     {
-        ChildError = null;
-
         if (value is null)
         {
             ClearEditFields();
-            Children.Clear();
-            Ranges.Clear();
-            QualitativeRules.Clear();
+            ChildrenEditor.Clear();
+            RangesEditor.Clear();
+            QualitativeEditor.Clear();
             return;
         }
 
         LoadIntoEditFields(value.Service);
-        LoadChildrenFromService(value.Service);
+        ChildrenEditor.LoadForService(value.Service, Services);
 
         // Khoảng tham chiếu/quy đổi định tính không tự tải khi đổi SelectedService — màn hình
         // (CatalogView, qua ServiceList.SelectionChanged) gọi LoadSelectedDetailCommand. Tách
         // ra để công cụ chụp ảnh (tools/Lis.Screenshots) gán SelectedService bằng dữ liệu giả
         // mà không kéo theo một lệnh gọi CSDL thật.
-        Ranges.Clear();
-        QualitativeRules.Clear();
+        RangesEditor.Clear();
+        QualitativeEditor.Clear();
     }
 
     private void LoadIntoEditFields(ServiceInfo s)
@@ -193,22 +195,6 @@ public partial class CatalogViewModel : ObservableObject
         EditHisCode = null;
     }
 
-    private void LoadChildrenFromService(ServiceInfo panel)
-    {
-        Children.Clear();
-        foreach (var childId in panel.ChildIds)
-        {
-            var child = Services.FirstOrDefault(s => s.Id == childId);
-            if (child is not null)
-            {
-                Children.Add(NewChildRow(child.Id, child.Code, child.Name));
-            }
-        }
-    }
-
-    private ChildServiceViewModel NewChildRow(Guid id, string code, string name) =>
-        new(id, code, name, remove: RemoveChild, moveUp: MoveChildUp, moveDown: MoveChildDown);
-
     /// <summary>
     /// Tải khoảng tham chiếu và quy đổi định tính của <see cref="SelectedService"/>. Gọi bởi
     /// <c>CatalogView</c> khi người dùng đổi dòng chọn trên bảng dịch vụ — không tự gọi khi
@@ -223,26 +209,8 @@ public partial class CatalogViewModel : ObservableObject
         }
 
         var serviceId = SelectedService.Id;
-        try
-        {
-            var ranges = await _store.RangesAsync(serviceId);
-            Ranges.Clear();
-            foreach (var range in ranges)
-            {
-                Ranges.Add(ReferenceRangeRowViewModel.From(range, RemoveRange));
-            }
-
-            var rules = await _store.QualitativeRulesAsync(serviceId);
-            QualitativeRules.Clear();
-            foreach (var rule in rules)
-            {
-                QualitativeRules.Add(QualitativeRuleRowViewModel.From(rule, RemoveQualitativeRule));
-            }
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Không tải được chi tiết dịch vụ: {ex.Message}";
-        }
+        await RangesEditor.LoadAsync(serviceId);
+        await QualitativeEditor.LoadAsync(serviceId);
     }
 
     /// <summary>Bỏ chọn dịch vụ hiện tại để chuẩn bị thêm dịch vụ mới.</summary>
@@ -298,158 +266,6 @@ public partial class CatalogViewModel : ObservableObject
         catch (Exception ex)
         {
             ErrorMessage = $"Không lưu được dịch vụ: {ex.Message}";
-        }
-    }
-
-    [RelayCommand]
-    private async Task AddChildAsync()
-    {
-        ChildError = null;
-
-        if (SelectedService is null)
-        {
-            ChildError = "Chọn dịch vụ cha (panel) trước";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(AddChildCode))
-        {
-            return;
-        }
-
-        try
-        {
-            var child = await _store.FindByCodeAsync(AddChildCode.Trim());
-            if (child is null)
-            {
-                ChildError = "Không tìm thấy mã dịch vụ này";
-                return;
-            }
-
-            if (child.Id == SelectedService.Id)
-            {
-                ChildError = "Dịch vụ không thể là con của chính nó";
-                return;
-            }
-
-            if (child.IsPanel)
-            {
-                ChildError = "Chỉ số con không được là một dịch vụ cha (panel)";
-                return;
-            }
-
-            if (Children.Any(c => c.Id == child.Id))
-            {
-                ChildError = "Chỉ số này đã có trong danh sách";
-                return;
-            }
-
-            Children.Add(NewChildRow(child.Id, child.Code, child.Name));
-            await PersistChildrenAsync();
-            AddChildCode = "";
-        }
-        catch (Exception ex)
-        {
-            ChildError = $"Không thêm được chỉ số con: {ex.Message}";
-        }
-    }
-
-    private void RemoveChild(ChildServiceViewModel child)
-    {
-        Children.Remove(child);
-        _ = PersistChildrenAsync();
-    }
-
-    private void MoveChildUp(ChildServiceViewModel child)
-    {
-        var index = Children.IndexOf(child);
-        if (index <= 0)
-        {
-            return;
-        }
-
-        Children.Move(index, index - 1);
-        _ = PersistChildrenAsync();
-    }
-
-    private void MoveChildDown(ChildServiceViewModel child)
-    {
-        var index = Children.IndexOf(child);
-        if (index < 0 || index >= Children.Count - 1)
-        {
-            return;
-        }
-
-        Children.Move(index, index + 1);
-        _ = PersistChildrenAsync();
-    }
-
-    private async Task PersistChildrenAsync()
-    {
-        if (SelectedService is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await _store.SetChildrenAsync(SelectedService.Id, Children.Select(c => c.Id).ToList());
-        }
-        catch (Exception ex)
-        {
-            ChildError = $"Không lưu được danh sách chỉ số con: {ex.Message}";
-        }
-    }
-
-    [RelayCommand]
-    private void AddRange() => Ranges.Add(new ReferenceRangeRowViewModel(RemoveRange));
-
-    private void RemoveRange(ReferenceRangeRowViewModel row) => Ranges.Remove(row);
-
-    [RelayCommand]
-    private async Task SaveRangesAsync()
-    {
-        if (SelectedService is null)
-        {
-            ErrorMessage = "Chọn dịch vụ trước";
-            return;
-        }
-
-        try
-        {
-            var ranges = Ranges.Select(r => r.ToReferenceRange(SelectedService.Id)).ToList();
-            await _store.SaveRangesAsync(SelectedService.Id, ranges);
-            ErrorMessage = null;
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Không lưu được khoảng tham chiếu: {ex.Message}";
-        }
-    }
-
-    [RelayCommand]
-    private void AddQualitativeRule() => QualitativeRules.Add(new QualitativeRuleRowViewModel(RemoveQualitativeRule));
-
-    private void RemoveQualitativeRule(QualitativeRuleRowViewModel row) => QualitativeRules.Remove(row);
-
-    [RelayCommand]
-    private async Task SaveQualitativeRulesAsync()
-    {
-        if (SelectedService is null)
-        {
-            ErrorMessage = "Chọn dịch vụ trước";
-            return;
-        }
-
-        try
-        {
-            var rules = QualitativeRules.Select(r => r.ToRule(SelectedService.Id)).ToList();
-            await _store.SaveQualitativeRulesAsync(SelectedService.Id, rules);
-            ErrorMessage = null;
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Không lưu được quy đổi định tính: {ex.Message}";
         }
     }
 }
