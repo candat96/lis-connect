@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Lis.App.ViewModels"
+        xmlns:catalog="using:Lis.App.Views.Catalog"
         x:Class="Lis.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Icon="avares://Lis.App/Assets/app-icon.ico"
@@ -36,7 +37,12 @@
         <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="24">
             <TextBlock Grid.Row="0" Classes="title" Text="{Binding PageTitle}" Margin="0,0,0,16" />
 
-            <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+            <!-- Panel giữ DataContext=MainViewModel cho IsVisible; CatalogView bên trong tự đổi DataContext sang Catalog. -->
+            <Panel Grid.Row="1" IsVisible="{Binding IsCatalogSelected}">
+                <catalog:CatalogView DataContext="{Binding Catalog}" />
+            </Panel>
+
+            <StackPanel Grid.Row="1" IsVisible="{Binding IsPlaceholderSelected}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
                 <TextBlock Classes="muted" Text="Đang xây dựng" HorizontalAlignment="Center" FontSize="18" />
                 <TextBlock Classes="muted" Text="Màn hình này sẽ có ở các bước tiếp theo." HorizontalAlignment="Center" />
             </StackPanel>

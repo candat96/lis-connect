@@ -96,7 +96,7 @@ public partial class App : Application
                 return;
             }
 
-            ShowMain(desktop, user);
+            ShowMain(desktop, services, user);
             window.Close();
         };
 
@@ -104,10 +104,10 @@ public partial class App : Application
         window.Show();
     }
 
-    private void ShowMain(IClassicDesktopStyleApplicationLifetime desktop, UserInfo user)
+    private void ShowMain(IClassicDesktopStyleApplicationLifetime desktop, AppServices services, UserInfo user)
     {
         var currentUser = new CurrentUser(user);
-        var viewModel = new MainViewModel(currentUser);
+        var viewModel = new MainViewModel(currentUser, services.Catalog);
         var window = new MainWindow { DataContext = viewModel };
 
         _mainWindow = window;

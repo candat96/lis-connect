@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Lis.App.Services;
 
 namespace Lis.App.Views;
 
@@ -13,6 +14,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Closing += OnClosing;
+        KeyDown += KeyboardFormBehavior.MoveFocusOnEnter;
     }
 
     /// <summary>true khi ứng dụng thực sự đang thoát (chọn "Thoát" ở khay) — cho Close() đi qua bình thường.</summary>

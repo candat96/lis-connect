@@ -1,6 +1,7 @@
 using Dapper;
 using Lis.Data;
 using Lis.Data.Auth;
+using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Local;
 
@@ -19,6 +20,7 @@ public sealed class AppServices
         Users = new UserStore(Db);
         Auth = new AuthService(Db, new PasswordHasher(), TimeProvider.System);
         Facility = new FacilityStore(Db);
+        Catalog = new CatalogStore(Db);
     }
 
     public LocalConfig Config { get; }
@@ -30,6 +32,8 @@ public sealed class AppServices
     public AuthService Auth { get; }
 
     public FacilityStore Facility { get; }
+
+    public CatalogStore Catalog { get; }
 
     /// <summary>
     /// Cập nhật máy trạm (<c>workstation.last_seen_at</c>) ngay sau khi đăng nhập thành công.

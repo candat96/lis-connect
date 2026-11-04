@@ -1,6 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Lis.App.ViewModels.Catalog;
 using Lis.Core.Auth;
 using Lis.Data.Auth;
+using Lis.Data.Catalog;
 
 namespace Lis.App.ViewModels;
 
@@ -18,22 +20,44 @@ public sealed class NavItem(string label, Permission permission)
 /// </summary>
 public partial class MainViewModel : ObservableObject
 {
-    public MainViewModel(CurrentUser currentUser)
+    public MainViewModel(CurrentUser currentUser, CatalogStore catalogStore)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
         SelectedItem = NavItems.FirstOrDefault();
+
+        Catalog = new CatalogViewModel(catalogStore);
     }
 
     public CurrentUser CurrentUser { get; }
 
     public IReadOnlyList<NavItem> NavItems { get; }
 
+    /// <summary>ViewModel của màn Danh mục — tải khi người dùng mở mục "Danh mục" lần đầu (xem <see cref="OnSelectedItemChanged"/>).</summary>
+    public CatalogViewModel Catalog { get; }
+
+    private bool _catalogLoaded;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PageTitle))]
+    [NotifyPropertyChangedFor(nameof(IsCatalogSelected))]
+    [NotifyPropertyChangedFor(nameof(IsPlaceholderSelected))]
     private NavItem? _selectedItem;
 
     public string PageTitle => SelectedItem?.Label ?? "";
+
+    public bool IsCatalogSelected => SelectedItem?.Label == "Danh mục";
+
+    public bool IsPlaceholderSelected => !IsCatalogSelected;
+
+    partial void OnSelectedItemChanged(NavItem? value)
+    {
+        if (IsCatalogSelected && !_catalogLoaded)
+        {
+            _catalogLoaded = true;
+            _ = Catalog.LoadAsync();
+        }
+    }
 
     private static IReadOnlyList<NavItem> BuildNavItems(CurrentUser user)
     {

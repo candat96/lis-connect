@@ -6,10 +6,13 @@ using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Lis.App.ViewModels;
+using Lis.App.ViewModels.Catalog;
 using Lis.App.Views;
+using Lis.App.Views.Catalog;
 using Lis.Core.Auth;
 using Lis.Data;
 using Lis.Data.Auth;
+using Lis.Data.Catalog;
 using Lis.Data.Local;
 using Lis.Data.Setup;
 
@@ -38,6 +41,12 @@ internal static class Program
         Capture(outputDirectory, "03-cai-dat-thong-tin-co-so.png", CreateWizardWindow(SetupWizardStep.FacilityInfo, withConnectionOk: true));
         Capture(outputDirectory, "04-dang-nhap.png", CreateLoginWindow());
         Capture(outputDirectory, "05-man-chinh.png", CreateMainWindow());
+
+        var (catalogChildrenWindow, catalogChildrenViewModel) = CreateCatalogWindow(selectPanel: true, tabIndex: 0);
+        Capture(outputDirectory, "06-danh-muc-chi-so-con.png", catalogChildrenWindow, () => catalogChildrenViewModel.ErrorMessage = null);
+
+        var (catalogRangesWindow, catalogRangesViewModel) = CreateCatalogWindow(selectPanel: false, tabIndex: 1);
+        Capture(outputDirectory, "07-danh-muc-khoang-tham-chieu.png", catalogRangesWindow, () => catalogRangesViewModel.ErrorMessage = null);
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
     }
@@ -83,14 +92,84 @@ internal static class Program
     private static Window CreateMainWindow()
     {
         var user = new UserInfo(Guid.NewGuid(), "ktv.thu", "Nguyễn Văn Thử", "Kỹ thuật viên trưởng", [Roles.QuanTri], true);
-        var viewModel = new MainViewModel(new CurrentUser(user));
+        var catalogStore = new CatalogStore(Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused"));
+        var viewModel = new MainViewModel(new CurrentUser(user), catalogStore);
         return new MainWindow { DataContext = viewModel };
     }
 
-    private static void Capture(string outputDirectory, string fileName, Window window)
+    /// <summary>
+    /// Màn Danh mục với dữ liệu giả: panel "Tổng phân tích tế bào máu" gồm 3 chỉ số con
+    /// WBC/RBC/HGB, và khoảng tham chiếu của HGB gồm nam/nữ (từ 15 tuổi) và trẻ sơ sinh
+    /// (0-28 ngày). Gán trực tiếp vào các collection của <see cref="CatalogViewModel"/> —
+    /// không gọi <see cref="CatalogStore"/> thật để nạp dữ liệu (xem ghi chú ở
+    /// <c>OnSelectedServiceChanged</c>). Gán <see cref="CatalogViewModel.SelectedService"/> vẫn
+    /// kéo theo <c>ServiceList.SelectionChanged</c> trong <c>CatalogView</c> gọi
+    /// <c>LoadSelectedDetailCommand</c> một lần — lệnh này thật sự thử kết nối CSDL (thất bại
+    /// ngay vì không có máy chủ), nên trả thêm <see cref="CatalogViewModel"/> để gọi nơi
+    /// chụp ảnh xóa <see cref="CatalogViewModel.ErrorMessage"/> sau khi lỗi đó đã hiện ra.
+    /// </summary>
+    private static (Window Window, CatalogViewModel ViewModel) CreateCatalogWindow(bool selectPanel, int tabIndex)
+    {
+        var catalogStore = new CatalogStore(Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused"));
+        var viewModel = new CatalogViewModel(catalogStore);
+
+        var edta = new SpecimenTypeItem(Guid.NewGuid(), "EDTA", "Máu EDTA (huyết học)");
+        viewModel.SpecimenTypes.Add(edta);
+
+        var wbcId = Guid.NewGuid();
+        var rbcId = Guid.NewGuid();
+        var hgbId = Guid.NewGuid();
+
+        var wbc = new ServiceInfo(wbcId, "WBC", "Bạch cầu", "Huyết học", edta.Id, "G/L", "so", 2, 2, false, false, true, null, []);
+        var rbc = new ServiceInfo(rbcId, "RBC", "Hồng cầu", "Huyết học", edta.Id, "T/L", "so", 2, 3, false, false, true, null, []);
+        var hgb = new ServiceInfo(hgbId, "HGB", "Huyết sắc tố", "Huyết học", edta.Id, "g/L", "so", 0, 4, false, false, true, null, []);
+        var panel = new ServiceInfo(Guid.NewGuid(), "TPTTBM", "Tổng phân tích tế bào máu", "Huyết học",
+            edta.Id, null, "so", null, 1, true, false, true, null, [wbcId, rbcId, hgbId]);
+
+        foreach (var service in new[] { panel, wbc, rbc, hgb })
+        {
+            var item = new ServiceListItemViewModel(service);
+            viewModel.Services.Add(item);
+            viewModel.FilteredServices.Add(item);
+        }
+
+        // SelectedService không gọi CSDL (xem CatalogViewModel.OnSelectedServiceChanged) — chỉ
+        // nạp form sửa dịch vụ và danh sách chỉ số con (với panel) từ dữ liệu đã có trong
+        // Services, nên gán trực tiếp ở đây an toàn, không cần Db thật.
+        var selected = selectPanel ? panel : hgb;
+        viewModel.SelectedService = viewModel.Services.First(s => s.Id == selected.Id);
+
+        if (!selectPanel)
+        {
+            viewModel.Ranges.Add(new ReferenceRangeRowViewModel(_ => { }) { Sex = "M", AgeFromValue = 15, AgeFromUnit = AgeUnit.Nam, Low = 130, High = 170, CriticalLow = 70, CriticalHigh = 200 });
+            viewModel.Ranges.Add(new ReferenceRangeRowViewModel(_ => { }) { Sex = "F", AgeFromValue = 15, AgeFromUnit = AgeUnit.Nam, Low = 120, High = 150, CriticalLow = 70, CriticalHigh = 200 });
+            viewModel.Ranges.Add(new ReferenceRangeRowViewModel(_ => { }) { Sex = null, AgeFromValue = 0, AgeFromUnit = AgeUnit.Ngay, AgeToValue = 28, AgeToUnit = AgeUnit.Ngay, Low = 140, High = 220, CriticalLow = 90, CriticalHigh = 250 });
+        }
+
+        var view = new CatalogView { DataContext = viewModel };
+        view.SelectTab(tabIndex);
+
+        var window = new Window
+        {
+            Title = "LIS Connect — Danh mục",
+            Width = 1360,
+            Height = 760,
+            Content = view,
+        };
+
+        return (window, viewModel);
+    }
+
+    private static void Capture(string outputDirectory, string fileName, Window window, Action? afterShow = null)
     {
         window.Show();
         Dispatcher.UIThread.RunJobs();
+
+        if (afterShow is not null)
+        {
+            afterShow();
+            Dispatcher.UIThread.RunJobs();
+        }
 
         using var frame = window.CaptureRenderedFrame();
         frame?.Save(Path.Combine(outputDirectory, fileName), new PngBitmapEncoderOptions());

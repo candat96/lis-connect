@@ -1,0 +1,231 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Catalog"
+             xmlns:conv="using:Lis.App.Services.Converters"
+             x:Class="Lis.App.Views.Catalog.CatalogView"
+             x:DataType="vm:CatalogViewModel">
+
+    <Grid ColumnDefinitions="340,*" RowDefinitions="*">
+
+        <!-- Cột trái: bảng dịch vụ có ô lọc -->
+        <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto" Margin="0,0,16,0">
+
+            <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,8">
+                <TextBlock Classes="label" Text="Lọc theo mã hoặc tên" />
+                <TextBox Name="FilterBox" Text="{Binding FilterText}" PlaceholderText="Nhập mã hoặc tên dịch vụ..." />
+            </StackPanel>
+
+            <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+                <ListBox Name="ServiceList"
+                         ItemsSource="{Binding FilteredServices}"
+                         SelectedItem="{Binding SelectedService}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ServiceListItemViewModel">
+                            <Grid ColumnDefinitions="80,*,70" Margin="0,2">
+                                <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{Binding Name}" TextWrapping="Wrap" Margin="8,0" />
+                                <TextBlock Grid.Column="2" Text="{Binding Loai}" Classes="muted" FontSize="12" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <Button Grid.Row="2" Content="+ Dịch vụ mới" Command="{Binding NewServiceCommand}" Margin="0,8,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+
+        </Grid>
+
+        <!-- Cột phải: form sửa dịch vụ + 3 tab -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*">
+
+            <!-- Form sửa dịch vụ -->
+            <Border Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+                <StackPanel Spacing="8">
+
+                    <Grid ColumnDefinitions="*,*,*" Margin="0,0,0,8">
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <TextBlock Classes="label" Text="Mã dịch vụ" />
+                            <TextBox Text="{Binding EditCode}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                            <TextBlock Classes="label" Text="Tên dịch vụ" />
+                            <TextBox Text="{Binding EditName}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Classes="label" Text="Nhóm" />
+                            <TextBox Text="{Binding EditGroupName}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,*,*,*" Margin="0,0,0,8">
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <TextBlock Classes="label" Text="Loại mẫu bệnh phẩm" />
+                            <ComboBox ItemsSource="{Binding SpecimenTypes}" SelectedItem="{Binding EditSpecimenType}" HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                            <TextBlock Classes="label" Text="Kiểu giá trị" />
+                            <ComboBox ItemsSource="{Binding ValueTypeOptions}" SelectedItem="{Binding EditValueType}" HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Margin="0,0,8,0">
+                            <TextBlock Classes="label" Text="Đơn vị" />
+                            <TextBox Text="{Binding EditUnit}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="3">
+                            <TextBlock Classes="label" Text="Số lẻ" />
+                            <NumericUpDown Value="{Binding EditDecimals}" Minimum="0" Maximum="4" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,*,*,*,*" Margin="0,0,0,4">
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <TextBlock Classes="label" Text="Thứ tự in" />
+                            <NumericUpDown Value="{Binding EditPrintOrder}" Minimum="0" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                            <TextBlock Classes="label" Text="Mã HIS" />
+                            <TextBox Text="{Binding EditHisCode}" />
+                        </StackPanel>
+                        <CheckBox Grid.Column="2" Content="Là dịch vụ cha (panel)" IsChecked="{Binding EditIsPanel}" VerticalAlignment="Bottom" />
+                        <CheckBox Grid.Column="3" Content="Tự duyệt" IsChecked="{Binding EditAutoApprove}" VerticalAlignment="Bottom" />
+                        <CheckBox Grid.Column="4" Content="Đang dùng" IsChecked="{Binding EditActive}" VerticalAlignment="Bottom" />
+                    </Grid>
+
+                    <Button Classes="primary" Content="Lưu dịch vụ" Command="{Binding SaveServiceCommand}" HorizontalAlignment="Right" Margin="0,8,0,0" />
+
+                </StackPanel>
+            </Border>
+
+            <TextBlock Grid.Row="1" Classes="error" Text="{Binding ErrorMessage}" Margin="0,8,0,0" TextWrapping="Wrap" />
+
+            <!-- 3 tab -->
+            <TabControl Name="Tabs" Grid.Row="2" Margin="0,16,0,0">
+
+                <TabItem Header="Chỉ số con">
+                    <Grid RowDefinitions="Auto,Auto,*" Margin="0,12,0,0">
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8">
+                            <TextBox Name="AddChildBox" Width="200" Text="{Binding AddChildCode}" PlaceholderText="Mã chỉ số, Enter để thêm" />
+                            <Button Content="Thêm" Command="{Binding AddChildCommand}" />
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Classes="error" Text="{Binding ChildError}" Margin="0,4,0,0" />
+                        <ListBox Grid.Row="2" ItemsSource="{Binding Children}" Margin="0,8,0,0">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ChildServiceViewModel">
+                                    <Grid ColumnDefinitions="80,*,Auto,Auto,Auto" Margin="0,2">
+                                        <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="8,0" />
+                                        <Button Grid.Column="2" Content="▲" Command="{Binding MoveUpCommand}" />
+                                        <Button Grid.Column="3" Content="▼" Command="{Binding MoveDownCommand}" Margin="4,0,0,0" />
+                                        <Button Grid.Column="4" Content="Xóa" Command="{Binding RemoveCommand}" Margin="4,0,0,0" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Khoảng tham chiếu">
+                    <Grid RowDefinitions="Auto,*,Auto" Margin="0,12,0,0">
+                        <Grid Grid.Row="0" ColumnDefinitions="100,70,80,70,80,110,70,70,70,70,110,Auto" Margin="0,0,0,4">
+                            <TextBlock Grid.Column="0" Classes="label" Text="Giới" />
+                            <TextBlock Grid.Column="1" Classes="label" Text="Tuổi từ" />
+                            <TextBlock Grid.Column="2" Classes="label" Text="Đơn vị" />
+                            <TextBlock Grid.Column="3" Classes="label" Text="Tuổi đến" />
+                            <TextBlock Grid.Column="4" Classes="label" Text="Đơn vị" />
+                            <TextBlock Grid.Column="5" Classes="label" Text="Máy" />
+                            <TextBlock Grid.Column="6" Classes="label" Text="Thấp" />
+                            <TextBlock Grid.Column="7" Classes="label" Text="Cao" />
+                            <TextBlock Grid.Column="8" Classes="label" Text="Nguy hiểm thấp" />
+                            <TextBlock Grid.Column="9" Classes="label" Text="Nguy hiểm cao" />
+                            <TextBlock Grid.Column="10" Classes="label" Text="Khoảng chữ" />
+                        </Grid>
+                        <ListBox Grid.Row="1" Name="RangeList" ItemsSource="{Binding Ranges}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ReferenceRangeRowViewModel">
+                                    <Grid ColumnDefinitions="100,70,80,70,80,110,70,70,70,70,110,Auto" Margin="0,2">
+                                        <ComboBox Grid.Column="0" SelectedItem="{Binding Sex}">
+                                            <ComboBox.Items>
+                                                <x:Null />
+                                                <x:String>M</x:String>
+                                                <x:String>F</x:String>
+                                            </ComboBox.Items>
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={x:Static conv:SexLabelConverter.Instance}}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding AgeFromValue}" ShowButtonSpinner="False" />
+                                        <ComboBox Grid.Column="2" ItemsSource="{x:Static vm:AgeUnitExtensions.All}" SelectedItem="{Binding AgeFromUnit}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={x:Static conv:AgeUnitLabelConverter.Instance}}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <NumericUpDown Grid.Column="3" Value="{Binding AgeToValue}" ShowButtonSpinner="False" />
+                                        <ComboBox Grid.Column="4" ItemsSource="{x:Static vm:AgeUnitExtensions.All}" SelectedItem="{Binding AgeToUnit}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={x:Static conv:AgeUnitLabelConverter.Instance}}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBox Grid.Column="5" Text="{Binding InstrumentIdText}" PlaceholderText="để trống = mọi máy" />
+                                        <NumericUpDown Grid.Column="6" Value="{Binding Low}" ShowButtonSpinner="False" />
+                                        <NumericUpDown Grid.Column="7" Value="{Binding High}" ShowButtonSpinner="False" />
+                                        <NumericUpDown Grid.Column="8" Value="{Binding CriticalLow}" ShowButtonSpinner="False" />
+                                        <NumericUpDown Grid.Column="9" Value="{Binding CriticalHigh}" ShowButtonSpinner="False" />
+                                        <TextBox Grid.Column="10" Text="{Binding TextRange}" />
+                                        <Button Grid.Column="11" Content="Xóa" Command="{Binding RemoveCommand}" Margin="4,0,0,0" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                            <Button Content="+ Thêm dòng" Command="{Binding AddRangeCommand}" />
+                            <Button Classes="primary" Content="Lưu khoảng tham chiếu" Command="{Binding SaveRangesCommand}" />
+                        </StackPanel>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Quy đổi định tính">
+                    <Grid RowDefinitions="Auto,*,Auto" Margin="0,12,0,0">
+                        <Grid Grid.Row="0" ColumnDefinitions="110,140,140,150,Auto" Margin="0,0,0,4">
+                            <TextBlock Grid.Column="0" Classes="label" Text="Máy" />
+                            <TextBlock Grid.Column="1" Classes="label" Text="Giá trị thô" />
+                            <TextBlock Grid.Column="2" Classes="label" Text="Hiển thị" />
+                            <TextBlock Grid.Column="3" Classes="label" Text="Cờ" />
+                        </Grid>
+                        <ListBox Grid.Row="1" Name="QualitativeList" ItemsSource="{Binding QualitativeRules}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:QualitativeRuleRowViewModel">
+                                    <Grid ColumnDefinitions="110,140,140,150,Auto" Margin="0,2">
+                                        <TextBox Grid.Column="0" Text="{Binding InstrumentIdText}" PlaceholderText="mọi máy" />
+                                        <TextBox Grid.Column="1" Text="{Binding RawValue}" Margin="4,0" />
+                                        <TextBox Grid.Column="2" Text="{Binding DisplayValue}" Margin="4,0" />
+                                        <ComboBox Grid.Column="3" ItemsSource="{x:Static vm:QualitativeRuleRowViewModel.FlagOptions}" SelectedItem="{Binding Flag}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={x:Static conv:ResultFlagLabelConverter.Instance}}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <Button Grid.Column="4" Content="Xóa" Command="{Binding RemoveCommand}" Margin="4,0,0,0" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                            <Button Content="+ Thêm dòng" Command="{Binding AddQualitativeRuleCommand}" />
+                            <Button Classes="primary" Content="Lưu quy đổi định tính" Command="{Binding SaveQualitativeRulesCommand}" />
+                        </StackPanel>
+                    </Grid>
+                </TabItem>
+
+            </TabControl>
+
+        </Grid>
+
+    </Grid>
+
+</UserControl>
