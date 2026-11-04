@@ -18,6 +18,10 @@
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.5" />
     <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.5" />
 
+    <!-- Chụp ảnh giao diện không đầu (tools/Lis.Screenshots) -->
+    <PackageVersion Include="Avalonia.Headless" Version="12.1.5" />
+    <PackageVersion Include="Avalonia.Skia" Version="12.1.5" />
+
     <!-- MVVM -->
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
 

@@ -1,0 +1,46 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Lis.App.ViewModels"
+        xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
+        x:Class="Lis.App.Views.LoginWindow"
+        x:DataType="vm:LoginViewModel"
+        Icon="avares://Lis.App/Assets/app-icon.ico"
+        Title="LIS Connect — Đăng nhập"
+        Width="380"
+        Height="340"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen">
+
+    <Border Padding="24" VerticalAlignment="Center">
+        <StackPanel Spacing="12">
+
+            <TextBlock Classes="title" Text="LIS Connect" HorizontalAlignment="Center" />
+            <TextBlock Classes="muted" Text="Đăng nhập để tiếp tục" HorizontalAlignment="Center" Margin="0,0,0,12" />
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Tên đăng nhập" />
+                <TextBox Name="UsernameBox" Text="{Binding Username}" />
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Mật khẩu" />
+                <TextBox Name="PasswordBox" Text="{Binding Password}" PasswordChar="●" />
+            </StackPanel>
+
+            <TextBlock Classes="error"
+                       Text="{Binding ErrorMessage}"
+                       TextWrapping="Wrap"
+                       IsVisible="{Binding ErrorMessage, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+
+            <Button Name="LoginButton"
+                    Classes="primary"
+                    Content="Đăng nhập"
+                    Command="{Binding LoginCommand}"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    Margin="0,8,0,0" />
+
+        </StackPanel>
+    </Border>
+
+</Window>

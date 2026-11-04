@@ -5,6 +5,20 @@
 
     <Application.Styles>
         <FluentTheme />
+        <StyleInclude Source="avares://Lis.App/Styles/Theme.axaml" />
     </Application.Styles>
+
+    <TrayIcon.Icons>
+        <TrayIcons>
+            <TrayIcon ToolTipText="LIS Connect" Icon="avares://Lis.App/Assets/app-icon.ico">
+                <TrayIcon.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="Mở" Click="OnTrayOpenClicked" />
+                        <NativeMenuItem Header="Thoát" Click="OnTrayExitClicked" />
+                    </NativeMenu>
+                </TrayIcon.Menu>
+            </TrayIcon>
+        </TrayIcons>
+    </TrayIcon.Icons>
 
 </Application>

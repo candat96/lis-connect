@@ -1,0 +1,111 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    Bảng màu và khoảng cách dùng chung cho toàn bộ giao diện LIS Connect. Mọi màn hình dùng
+    các tài nguyên ở đây thay vì đặt màu/khoảng cách trực tiếp trong view, để đổi một chỗ
+    là đổi toàn bộ.
+  -->
+  <Styles.Resources>
+    <ResourceDictionary>
+
+      <Color x:Key="ColorPrimary">#2563EB</Color>
+      <Color x:Key="ColorPrimaryHover">#1D4ED8</Color>
+      <Color x:Key="ColorBackground">#F4F6F9</Color>
+      <Color x:Key="ColorSurface">#FFFFFF</Color>
+      <Color x:Key="ColorBorder">#D7DCE3</Color>
+      <Color x:Key="ColorText">#1F2933</Color>
+      <Color x:Key="ColorTextMuted">#6B7280</Color>
+      <Color x:Key="ColorDanger">#DC2626</Color>
+      <Color x:Key="ColorSuccess">#15803D</Color>
+      <Color x:Key="ColorNavSelected">#E8EFFD</Color>
+
+      <SolidColorBrush x:Key="BrushPrimary" Color="{StaticResource ColorPrimary}" />
+      <SolidColorBrush x:Key="BrushPrimaryHover" Color="{StaticResource ColorPrimaryHover}" />
+      <SolidColorBrush x:Key="BrushBackground" Color="{StaticResource ColorBackground}" />
+      <SolidColorBrush x:Key="BrushSurface" Color="{StaticResource ColorSurface}" />
+      <SolidColorBrush x:Key="BrushBorder" Color="{StaticResource ColorBorder}" />
+      <SolidColorBrush x:Key="BrushText" Color="{StaticResource ColorText}" />
+      <SolidColorBrush x:Key="BrushTextMuted" Color="{StaticResource ColorTextMuted}" />
+      <SolidColorBrush x:Key="BrushDanger" Color="{StaticResource ColorDanger}" />
+      <SolidColorBrush x:Key="BrushSuccess" Color="{StaticResource ColorSuccess}" />
+      <SolidColorBrush x:Key="BrushNavSelected" Color="{StaticResource ColorNavSelected}" />
+
+      <x:Double x:Key="SpacingSmall">8</x:Double>
+      <x:Double x:Key="SpacingMedium">16</x:Double>
+      <x:Double x:Key="SpacingLarge">24</x:Double>
+
+      <x:Double x:Key="FontSizeBase">14</x:Double>
+      <x:Double x:Key="FontSizeLabel">13</x:Double>
+      <x:Double x:Key="FontSizeHeading">16</x:Double>
+      <x:Double x:Key="FontSizeTitle">20</x:Double>
+
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{StaticResource BrushBackground}" />
+    <Setter Property="FontSize" Value="{StaticResource FontSizeBase}" />
+  </Style>
+
+  <Style Selector="TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+    <Setter Property="FontSize" Value="{StaticResource FontSizeBase}" />
+  </Style>
+
+  <Style Selector="TextBlock.heading">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeHeading}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="TextBlock.title">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeTitle}" />
+    <Setter Property="FontWeight" Value="Bold" />
+  </Style>
+
+  <Style Selector="TextBlock.label">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeLabel}" />
+    <Setter Property="Foreground" Value="{StaticResource BrushTextMuted}" />
+    <Setter Property="Margin" Value="0,0,0,4" />
+  </Style>
+
+  <Style Selector="TextBlock.muted">
+    <Setter Property="Foreground" Value="{StaticResource BrushTextMuted}" />
+  </Style>
+
+  <Style Selector="TextBlock.error">
+    <Setter Property="Foreground" Value="{StaticResource BrushDanger}" />
+  </Style>
+
+  <Style Selector="TextBlock.success">
+    <Setter Property="Foreground" Value="{StaticResource BrushSuccess}" />
+  </Style>
+
+  <Style Selector="TextBox, NumericUpDown">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeBase}" />
+    <Setter Property="Padding" Value="8,6" />
+    <Setter Property="MinHeight" Value="34" />
+  </Style>
+
+  <Style Selector="Button">
+    <Setter Property="Padding" Value="16,8" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="FontSize" Value="{StaticResource FontSizeBase}" />
+  </Style>
+
+  <!-- Nút hành động chính (vd Thử kết nối, Tiếp theo, Đăng nhập) — nổi bật, dễ nhận biết. -->
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource BrushPrimary}" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushPrimaryHover}" />
+  </Style>
+
+  <Style Selector="Button.primary:disabled /template/ ContentPresenter">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+
+</Styles>

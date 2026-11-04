@@ -1,0 +1,124 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Lis.App.ViewModels"
+        xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
+        x:Class="Lis.App.Views.SetupWizardWindow"
+        x:DataType="vm:SetupWizardViewModel"
+        Icon="avares://Lis.App/Assets/app-icon.ico"
+        Title="LIS Connect — Cài đặt lần đầu"
+        Width="520"
+        Height="640"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid RowDefinitions="Auto,*" Margin="24">
+
+        <TextBlock Grid.Row="0" Classes="title" Text="Cài đặt lần đầu" Margin="0,0,0,16" />
+
+        <!-- Bước 1: kết nối CSDL -->
+        <StackPanel Grid.Row="1" Spacing="12" IsVisible="{Binding IsConnectStep}">
+            <TextBlock Classes="heading" Text="Bước 1 — Kết nối CSDL" />
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Máy chủ" />
+                <TextBox Name="HostBox" Text="{Binding Host}" />
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Cổng" />
+                <NumericUpDown Name="PortBox" Value="{Binding Port}" Minimum="1" Maximum="65535" FormatString="0" />
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Tên CSDL" />
+                <TextBox Name="DatabaseBox" Text="{Binding Database}" />
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Tài khoản" />
+                <TextBox Name="UsernameBox" Text="{Binding Username}" />
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Mật khẩu" />
+                <TextBox Name="PasswordBox" Text="{Binding Password}" PasswordChar="●" />
+            </StackPanel>
+
+            <CheckBox Content="Bắt buộc SSL (bắt buộc cho CSDL cloud)" IsChecked="{Binding RequireSsl}" />
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Mã máy trạm (vd XN-01)" />
+                <TextBox Name="WorkstationCodeBox" Text="{Binding WorkstationCode}" />
+            </StackPanel>
+
+            <Button Content="Thử kết nối" Command="{Binding TestConnectionCommand}" />
+
+            <TextBlock Text="{Binding ConnectionMessage}"
+                       Classes.success="{Binding ConnectionOk}"
+                       Classes.error="{Binding !ConnectionOk}"
+                       TextWrapping="Wrap"
+                       IsVisible="{Binding ConnectionMessage, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+
+        <!-- Bước 2: tài khoản quản trị đầu tiên (chỉ hiện khi CSDL chưa có tài khoản) -->
+        <StackPanel Grid.Row="1" Spacing="12" IsVisible="{Binding IsAdminStep}">
+            <TextBlock Classes="heading" Text="Bước 2 — Tài khoản quản trị đầu tiên" />
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Tên đăng nhập" />
+                <TextBox Name="AdminUsernameBox" Text="{Binding AdminUsername}" />
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Họ tên" />
+                <TextBox Name="AdminFullNameBox" Text="{Binding AdminFullName}" />
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Mật khẩu (tối thiểu 8 ký tự)" />
+                <TextBox Name="AdminPasswordBox" Text="{Binding AdminPassword}" PasswordChar="●" />
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Nhập lại mật khẩu" />
+                <TextBox Name="AdminPasswordConfirmBox" Text="{Binding AdminPasswordConfirm}" PasswordChar="●" />
+            </StackPanel>
+
+            <TextBlock Classes="error" Text="{Binding AdminError}"
+                       IsVisible="{Binding AdminError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+
+        <!-- Bước 3: thông tin cơ sở (chỉ hiện khi CSDL vừa được tạo mới) -->
+        <StackPanel Grid.Row="1" Spacing="12" IsVisible="{Binding IsFacilityStep}">
+            <TextBlock Classes="heading" Text="Bước 3 — Thông tin cơ sở" />
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Tên cơ sở" />
+                <TextBox Name="FacilityNameBox" Text="{Binding FacilityName}" />
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Địa chỉ" />
+                <TextBox Name="FacilityAddressBox" Text="{Binding FacilityAddress}" />
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Classes="label" Text="Điện thoại" />
+                <TextBox Name="FacilityPhoneBox" Text="{Binding FacilityPhone}" />
+            </StackPanel>
+
+            <TextBlock Classes="error" Text="{Binding FacilityError}"
+                       IsVisible="{Binding FacilityError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+
+        <Button Grid.Row="1"
+                Name="NextButton"
+                Classes="primary"
+                Content="Tiếp theo"
+                Command="{Binding NextCommand}"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom" />
+
+    </Grid>
+
+</Window>

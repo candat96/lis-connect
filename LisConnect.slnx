@@ -11,4 +11,7 @@
     <Project Path="tests/Lis.Data.Tests/Lis.Data.Tests.csproj" />
     <Project Path="tests/Lis.Reports.Tests/Lis.Reports.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Lis.Screenshots/Lis.Screenshots.csproj" />
+  </Folder>
 </Solution>

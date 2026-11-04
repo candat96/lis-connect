@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Lis.App.ViewModels"
+        x:Class="Lis.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="avares://Lis.App/Assets/app-icon.ico"
+        Title="LIS Connect"
+        Width="1024"
+        Height="720"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid ColumnDefinitions="220,*">
+
+        <!-- Thanh điều hướng trái -->
+        <Border Grid.Column="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="16,20,16,16" Spacing="2">
+                    <TextBlock Classes="heading" Text="LIS Connect" />
+                    <TextBlock Classes="muted" Text="{Binding CurrentUser.User.FullName}" />
+                </StackPanel>
+
+                <ListBox Name="NavList"
+                         ItemsSource="{Binding NavItems}"
+                         SelectedItem="{Binding SelectedItem}"
+                         Margin="8,0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:NavItem">
+                            <TextBlock Text="{Binding Label}" Padding="8,10" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- Nội dung -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="24">
+            <TextBlock Grid.Row="0" Classes="title" Text="{Binding PageTitle}" Margin="0,0,0,16" />
+
+            <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                <TextBlock Classes="muted" Text="Đang xây dựng" HorizontalAlignment="Center" FontSize="18" />
+                <TextBlock Classes="muted" Text="Màn hình này sẽ có ở các bước tiếp theo." HorizontalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
+    </Grid>
+
+</Window>
