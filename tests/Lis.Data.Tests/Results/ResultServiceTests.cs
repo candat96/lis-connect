@@ -1,13 +1,12 @@
 using Dapper;
 using Lis.Core.Results;
-using Lis.Data.Auth;
 using Lis.Data.Catalog;
-using Lis.Data.Facility;
 using Lis.Data.Orders;
 using Lis.Data.Results;
 using Microsoft.Extensions.Time.Testing;
 using Shouldly;
 using Xunit;
+using static Lis.Data.Tests.Results.ResultTestData;
 
 namespace Lis.Data.Tests.Results;
 
@@ -19,128 +18,9 @@ namespace Lis.Data.Tests.Results;
 [Collection(PostgresCollection.Name)]
 public class ResultServiceTests(PostgresFixture fixture)
 {
-    private sealed record Env(ResultService Results, OrderService Orders, CatalogStore Catalog, Guid EdtaId, Guid ActorId, Db Db);
-
-    private async Task<Env> CreateEnvAsync(TimeProvider? clock = null)
-    {
-        var connectionString = await fixture.NewDatabaseAsync();
-        var db = Db.Create(connectionString);
-
-        await new FacilityStore(db).SaveAsync(new FacilityInfo(
-            "Khoa Xét nghiệm — Bệnh viện Thử", null, null, null, "9", "yyMMdd", 3, "per-specimen"));
-
-        var catalog = new CatalogStore(db);
-        var edtaId = (await catalog.SpecimenTypesAsync()).First(s => s.Code == "EDTA").Id;
-
-        var actor = await new UserStore(db).CreateAsync("ktv.thu", "Kỹ thuật viên Thử", null, "mat-khau-thu-1", ["ky-thuat-vien"]);
-
-        clock ??= TimeProvider.System;
-        return new Env(new ResultService(db, clock), new OrderService(db, clock), catalog, edtaId, actor.Id, db);
-    }
-
-    private static async Task<Guid> SaveServiceAsync(
-        CatalogStore catalog, string code, string name, Guid specimenTypeId, int? decimals, string? unit,
-        bool autoApprove = false, bool isPanel = false, string valueType = "so")
-    {
-        return await catalog.SaveServiceAsync(new ServiceInfo(
-            Guid.Empty, code, name, GroupName: null, specimenTypeId, unit, valueType, decimals,
-            PrintOrder: 0, isPanel, autoApprove, Active: true, HisCode: null, ChildIds: []));
-    }
-
-    private static ReferenceRange Range(Guid serviceId, char? sex, decimal low, decimal high, Guid? instrumentId = null,
-        decimal? criticalLow = null, decimal? criticalHigh = null) =>
-        new(Guid.Empty, serviceId, sex, null, null, instrumentId, low, high, criticalLow, criticalHigh, null);
-
-    /// <summary>Tạo một chỉ định cho người bệnh giả và trả về mẫu (duy nhất, loại EDTA) kèm order_item theo dịch vụ.</summary>
-    private static async Task<(Guid SampleId, IReadOnlyDictionary<Guid, Guid> ItemByService)> CreateSampleAsync(
-        Env env, NewPatient patient, params Guid[] serviceIds)
-    {
-        var created = await env.Orders.CreateAsync(new NewOrder(null, patient, serviceIds, null, null, null), env.ActorId);
-        var sampleId = created.Samples.Single().SampleId;
-
-        await using var connection = await env.Db.OpenAsync();
-        var items = await connection.QueryAsync<(Guid ServiceId, Guid Id)>(
-            "SELECT service_id, id FROM order_item WHERE sample_id = @sampleId", new { sampleId });
-
-        return (sampleId, items.ToDictionary(i => i.ServiceId, i => i.Id));
-    }
-
-    private static NewPatient FemaleAdult(string name = "Trần Thị Mẫu") => new(name, new DateOnly(1990, 3, 15), null, 'F', null, "0900000011");
-
-    private static NewPatient MaleAdult(string name = "Nguyễn Văn Mẫu") => new(name, new DateOnly(1988, 7, 1), null, 'M', null, "0900000012");
+    private Task<ResultTestEnv> CreateEnvAsync(TimeProvider? clock = null) => ResultTestEnv.CreateAsync(fixture, clock);
 
     private sealed record WriteOutcome(bool Succeeded, string? Error);
-
-    private sealed record HistoryRow
-    {
-        public string Action { get; init; } = "";
-        public string? OldValue { get; init; }
-        public string? NewValue { get; init; }
-        public string? Reason { get; init; }
-        public Guid? ActorId { get; init; }
-    }
-
-    private static async Task<List<HistoryRow>> HistoryAsync(Db db, Guid orderItemId)
-    {
-        await using var connection = await db.OpenAsync();
-        var rows = await connection.QueryAsync<HistoryRow>(
-            """
-            SELECT h.action, h.old_value, h.new_value, h.reason, h.actor_id
-            FROM result_history h
-            JOIN result r ON r.id = h.result_id
-            WHERE r.order_item_id = @orderItemId
-            ORDER BY h.at, h.id
-            """,
-            new { orderItemId });
-        return rows.ToList();
-    }
-
-    private sealed record StoredResult
-    {
-        public Guid Id { get; init; }
-        public string? Value { get; init; }
-        public string? Unit { get; init; }
-        public decimal? RefLow { get; init; }
-        public decimal? RefHigh { get; init; }
-        public string? Flag { get; init; }
-        public string? Source { get; init; }
-        public Guid? InstrumentId { get; init; }
-        public string? RawRef { get; init; }
-        public string Status { get; init; } = "";
-        public string? PendingValue { get; init; }
-        public Guid? PendingInstrumentId { get; init; }
-        public string? PendingRawRef { get; init; }
-    }
-
-    private static async Task<StoredResult> StoredAsync(Db db, Guid orderItemId)
-    {
-        await using var connection = await db.OpenAsync();
-        return await connection.QuerySingleAsync<StoredResult>(
-            """
-            SELECT id, value, unit, ref_low, ref_high, flag, source, instrument_id, raw_ref, status,
-                   pending_value, pending_instrument_id, pending_raw_ref
-            FROM result WHERE order_item_id = @orderItemId
-            """,
-            new { orderItemId });
-    }
-
-    private static async Task<Guid> InsertInstrumentAsync(Db db, string name)
-    {
-        await using var connection = await db.OpenAsync();
-        return await connection.ExecuteScalarAsync<Guid>("INSERT INTO instrument (name) VALUES (@name) RETURNING id", new { name });
-    }
-
-    /// <summary>Giả lập máy gửi lại kết quả cho mẫu đã duyệt (Task 11 sẽ ghi các cột pending_* này).</summary>
-    private static async Task SetPendingAsync(Db db, Guid orderItemId, string pendingValue, Guid instrumentId, string rawRef)
-    {
-        await using var connection = await db.OpenAsync();
-        await connection.ExecuteAsync(
-            """
-            UPDATE result SET pending_value = @pendingValue, pending_instrument_id = @instrumentId, pending_raw_ref = @rawRef
-            WHERE order_item_id = @orderItemId
-            """,
-            new { orderItemId, pendingValue, instrumentId, rawRef });
-    }
 
     [Fact]
     public async Task SetManual_RoundsAndFlagsWithPatientRange()

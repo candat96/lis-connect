@@ -1,7 +1,6 @@
 using Dapper;
 using Lis.Core.Patients;
 using Lis.Core.Results;
-using Lis.Data.Catalog;
 using Npgsql;
 
 namespace Lis.Data.Results;
@@ -79,20 +78,17 @@ public interface IResultService
 }
 
 /// <summary>
-/// Ghi kết quả xét nghiệm (bảng <c>result</c>) và lịch sử (<c>result_history</c>). Mỗi lần ghi
-/// giá trị đều qua một đường duy nhất (<see cref="ComputeAsync"/>): làm tròn theo số lẻ của
-/// chỉ số, chọn khoảng tham chiếu theo người bệnh / ngày chỉ định / máy, tính cờ, và lưu
-/// khoảng đã áp vào <c>result</c>. Mọi thao tác ghi nằm trong một giao dịch.
+/// Nghiệp vụ kết quả phía người dùng: nhập tay, duyệt / hủy duyệt, tự duyệt, chấp nhận / bỏ
+/// bản thay thế. Mọi lần ghi giá trị đi qua <see cref="ResultWriter"/> (đường tính giá trị và
+/// ghi <c>result</c> + <c>result_history</c> dùng chung với máy gửi). Mọi thao tác ghi nằm
+/// trong một giao dịch.
 /// </summary>
 public sealed class ResultService(Db db, TimeProvider clock) : IResultService
 {
-    private const string StatusPending = "cho-duyet";
-    private const string StatusApproved = "da-duyet";
+    private const string StatusPending = ResultWriter.StatusPending;
+    private const string StatusApproved = ResultWriter.StatusApproved;
 
-    private const string SourceManual = "tay";
-    private const string SourceInstrument = "may";
-
-    private readonly CatalogStore _catalog = new(db);
+    private readonly ResultWriter _writer = new(db);
     private readonly SampleResultsQuery _query = new(db, clock);
 
     public Task<IReadOnlyList<SampleListItem>> ListAsync(DateOnly from, DateOnly to, string? status, string? query) =>
@@ -106,7 +102,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
         {
             var item = await connection.QuerySingleOrDefaultAsync<ItemContext>(
                 $"""
-                {ItemContextSelect("LEFT JOIN")}
+                {ResultWriter.ItemContextSelect("LEFT JOIN")}
                 WHERE oi.id = @orderItemId
                 FOR UPDATE OF oi, s
                 """,
@@ -118,7 +114,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                 throw new InvalidOperationException("Mẫu đã duyệt — hủy duyệt trước khi sửa");
             }
 
-            var service = await LoadServiceAsync(connection, transaction, item.ServiceId);
+            var service = await ResultWriter.LoadServiceAsync(connection, transaction, item.ServiceId);
             if (service.IsPanel)
             {
                 throw new InvalidOperationException("Dịch vụ cha (panel) không có giá trị kết quả");
@@ -148,47 +144,14 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                 throw new ArgumentException("Nhập lý do sửa kết quả");
             }
 
-            var computed = await ComputeAsync(service, item.Patient, item.OrderedLocalDate(clock), instrumentId: null, value);
-            var now = clock.GetUtcNow();
+            var computed = await _writer.ComputeAsync(service, item.Patient, item.OrderedLocalDate(clock), instrumentId: null, value);
 
-            var resultId = await connection.ExecuteScalarAsync<Guid>(
-                """
-                INSERT INTO result
-                    (order_item_id, value, unit, ref_low, ref_high, ref_text, flag, source, instrument_id, raw_ref,
-                     instrument_flag, status, updated_at, updated_by)
-                VALUES
-                    (@orderItemId, @value, @unit, @refLow, @refHigh, @refText, @flag, @source, NULL, NULL,
-                     NULL, @status, @now, @actorId)
-                ON CONFLICT (order_item_id) DO UPDATE SET
-                    value = EXCLUDED.value, unit = EXCLUDED.unit,
-                    ref_low = EXCLUDED.ref_low, ref_high = EXCLUDED.ref_high, ref_text = EXCLUDED.ref_text,
-                    flag = EXCLUDED.flag, source = EXCLUDED.source, instrument_id = NULL, raw_ref = NULL,
-                    instrument_flag = NULL, status = EXCLUDED.status,
-                    updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by
-                RETURNING id
-                """,
-                new
-                {
-                    orderItemId,
-                    value = computed.Value,
-                    unit = computed.Unit,
-                    refLow = computed.RefLow,
-                    refHigh = computed.RefHigh,
-                    refText = computed.RefText,
-                    flag = computed.Flag.ToString(),
-                    source = SourceManual,
-                    status = StatusPending,
-                    now,
-                    actorId,
-                },
-                transaction);
-
-            await InsertHistoryAsync(
-                connection, transaction, resultId,
+            await ResultWriter.WriteValueAsync(
+                connection, transaction, orderItemId, computed, ResultOrigin.Manual,
                 hasOldValue ? "sua" : "nhan",
-                oldValue, newValue: computed.Value,
+                oldValue,
                 reason: hasOldValue ? reason!.Trim() : null,
-                actorId, now);
+                actorId, clock.GetUtcNow());
 
             return true;
         });
@@ -198,7 +161,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
     {
         await db.InTransactionAsync(async (connection, transaction) =>
         {
-            var approvedAt = await LockSampleAsync(connection, transaction, sampleId);
+            var approvedAt = await ResultWriter.LockSampleAsync(connection, transaction, sampleId);
             if (approvedAt is not null)
             {
                 return false;
@@ -227,7 +190,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
 
         await db.InTransactionAsync(async (connection, transaction) =>
         {
-            var approvedAt = await LockSampleAsync(connection, transaction, sampleId);
+            var approvedAt = await ResultWriter.LockSampleAsync(connection, transaction, sampleId);
             if (approvedAt is null)
             {
                 return false;
@@ -248,8 +211,8 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                 throw new InvalidOperationException("Không có bản thay thế để chấp nhận");
             }
 
-            var service = await LoadServiceAsync(connection, transaction, item.ServiceId);
-            var computed = await ComputeAsync(service, item.Patient, item.OrderedLocalDate(clock), item.PendingInstrumentId, item.PendingValue);
+            var service = await ResultWriter.LoadServiceAsync(connection, transaction, item.ServiceId);
+            var computed = await _writer.ComputeAsync(service, item.Patient, item.OrderedLocalDate(clock), item.PendingInstrumentId, item.PendingValue);
             var now = clock.GetUtcNow();
 
             // Cờ máy gửi kèm bản thay thế không được lưu (không có cột pending_instrument_flag),
@@ -273,14 +236,14 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                     refHigh = computed.RefHigh,
                     refText = computed.RefText,
                     flag = computed.Flag.ToString(),
-                    source = SourceInstrument,
+                    source = ResultWriter.SourceInstrument,
                     status = StatusPending,
                     now,
                     actorId,
                 },
                 transaction);
 
-            await InsertHistoryAsync(connection, transaction, resultId, "thay-the", item.Value, item.PendingValue, reason: null, actorId, now);
+            await ResultWriter.InsertHistoryAsync(connection, transaction, resultId, "thay-the", item.Value, item.PendingValue, reason: null, actorId, now);
 
             if (item.ApprovedAt is not null)
             {
@@ -305,7 +268,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                 "UPDATE result SET pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL WHERE id = @resultId",
                 new { resultId }, transaction);
 
-            await InsertHistoryAsync(
+            await ResultWriter.InsertHistoryAsync(
                 connection, transaction, resultId, "bo-thay-the",
                 oldValue: item.PendingValue, newValue: item.Value, reason: null, actorId, clock.GetUtcNow());
 
@@ -315,121 +278,48 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
 
     public async Task<bool> TryAutoApproveAsync(Guid sampleId)
     {
-        return await db.InTransactionAsync(async (connection, transaction) =>
-        {
-            var approvedAt = await LockSampleAsync(connection, transaction, sampleId);
-            if (approvedAt is not null)
-            {
-                return false;
-            }
-
-            var leaves = (await connection.QueryAsync<LeafRow>(
-                """
-                SELECT sv.auto_approve, r.value, r.flag, r.instrument_flag, r.pending_value
-                FROM order_item oi
-                JOIN service sv ON sv.id = oi.service_id AND sv.is_panel = false
-                LEFT JOIN result r ON r.order_item_id = oi.id
-                WHERE oi.sample_id = @sampleId
-                """,
-                new { sampleId }, transaction)).ToList();
-
-            var eligible = leaves.Count > 0 && leaves.All(leaf =>
-                leaf.AutoApprove
-                && !string.IsNullOrEmpty(leaf.Value)
-                && (leaf.Flag is null || leaf.Flag == nameof(ResultFlag.None))
-                && string.IsNullOrEmpty(leaf.InstrumentFlag)
-                && leaf.PendingValue is null);
-
-            if (!eligible)
-            {
-                return false;
-            }
-
-            await ApproveLockedSampleAsync(connection, transaction, sampleId, actorId: null, clock.GetUtcNow());
-            return true;
-        });
-    }
-
-    /// <summary>Giá trị đã qua đường xử lý chung, sẵn sàng ghi vào <c>result</c>.</summary>
-    private sealed record ComputedValue(string? Value, string? Unit, decimal? RefLow, decimal? RefHigh, string? RefText, ResultFlag Flag);
-
-    /// <summary>
-    /// Đường xử lý chung cho mọi lần ghi giá trị. Giá trị trống → lưu NULL (không phải "0"),
-    /// cờ None. Kiểu <c>so</c>: làm tròn theo số lẻ, chọn khoảng tham chiếu, tính cờ. Kiểu
-    /// <c>dinh-tinh</c>: quy đổi theo luật (luật riêng máy chỉ khi có máy), cờ là cờ ghi đè của
-    /// luật, khoảng tham chiếu (nếu có) chỉ để hiển thị. Kiểu <c>chu</c>: giữ nguyên, cờ None.
-    /// </summary>
-    private async Task<ComputedValue> ComputeAsync(ServiceRow service, PatientFacts patient, DateOnly at, Guid? instrumentId, string raw)
-    {
-        var trimmed = raw.Trim();
-        if (trimmed.Length == 0)
-        {
-            return new ComputedValue(null, service.Unit, null, null, null, ResultFlag.None);
-        }
-
-        switch (service.ValueType)
-        {
-            case "so":
-            {
-                var parsed = ResultValue.Parse(trimmed);
-                if (parsed.IsEmpty)
-                {
-                    // Ký hiệu lỗi của máy ("***.*", "**") hoặc chuỗi không phải số: không có giá
-                    // trị (không phải 0). Chuỗi thô vẫn còn trong lịch sử/raw_ref.
-                    return new ComputedValue(null, service.Unit, null, null, null, ResultFlag.None);
-                }
-
-                var normalized = NormalizeNumber(trimmed, parsed, service.Decimals);
-                var range = ReferenceRangeSelector.Select(await _catalog.RangesAsync(service.Id), patient, at, instrumentId);
-                // Cờ tính trên giá trị đã làm tròn (giá trị sẽ hiển thị/in), không trên số thô.
-                var flag = FlagCalculator.Compute(ResultValue.Parse(normalized), range);
-                return new ComputedValue(normalized, service.Unit, range?.Low, range?.High, range?.TextRange, flag);
-            }
-
-            case "dinh-tinh":
-            {
-                var rules = await _catalog.QualitativeRulesAsync(service.Id);
-                var (display, flagOverride) = QualitativeMapper.Apply(trimmed, service.Id, instrumentId, rules);
-                var range = ReferenceRangeSelector.Select(await _catalog.RangesAsync(service.Id), patient, at, instrumentId);
-                return new ComputedValue(display, service.Unit, range?.Low, range?.High, range?.TextRange, flagOverride ?? ResultFlag.None);
-            }
-
-            default:
-                return new ComputedValue(trimmed, service.Unit, null, null, null, ResultFlag.None);
-        }
+        return await db.InTransactionAsync((connection, transaction) => TryAutoApproveAsync(connection, transaction, sampleId));
     }
 
     /// <summary>
-    /// Chuỗi số sẽ lưu: có số lẻ thì làm tròn (<see cref="ValueRounding"/>, giữ dấu so sánh);
-    /// không có số lẻ thì vẫn chuẩn hóa dấu phẩy thành dấu chấm ("4,8" → "4.8") — trừ hiệu giá
-    /// ("1:4", "1/4") giữ nguyên như gõ.
+    /// Bản chạy trên giao dịch của bên gọi — máy gửi (<c>IngestService</c>) và gán tay từ Chưa
+    /// ghép gọi ngay sau khi ghi giá trị để tự duyệt cùng một giao dịch.
     /// </summary>
-    private static string NormalizeNumber(string trimmed, ResultValue parsed, int? decimals)
+    internal async Task<bool> TryAutoApproveAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid sampleId)
     {
-        if (decimals is not null)
+        var approvedAt = await ResultWriter.LockSampleAsync(connection, transaction, sampleId);
+        if (approvedAt is not null)
         {
-            return ValueRounding.Round(trimmed, decimals);
+            return false;
         }
 
-        var body = trimmed[(parsed.Comparator?.Length ?? 0)..].Trim();
-        if (body.Contains(':') || body.Contains('/'))
+        var leaves = (await connection.QueryAsync<LeafRow>(
+            """
+            SELECT sv.auto_approve, r.value, r.flag, r.instrument_flag, r.pending_value
+            FROM order_item oi
+            JOIN service sv ON sv.id = oi.service_id AND sv.is_panel = false
+            LEFT JOIN result r ON r.order_item_id = oi.id
+            WHERE oi.sample_id = @sampleId
+            """,
+            new { sampleId }, transaction)).ToList();
+
+        var eligible = leaves.Count > 0 && leaves.All(leaf =>
+            leaf.AutoApprove
+            && !string.IsNullOrEmpty(leaf.Value)
+            && (leaf.Flag is null || leaf.Flag == nameof(ResultFlag.None))
+            && string.IsNullOrEmpty(leaf.InstrumentFlag)
+            && leaf.PendingValue is null);
+
+        if (!eligible)
         {
-            return trimmed;
+            return false;
         }
 
-        return (parsed.Comparator ?? "") + body.Replace(',', '.');
+        await ApproveLockedSampleAsync(connection, transaction, sampleId, actorId: null, clock.GetUtcNow());
+        return true;
     }
 
     private const string JoinResultToSample = "JOIN order_item oi ON oi.id = r.order_item_id WHERE oi.sample_id = @sampleId";
-
-    /// <summary>Khóa dòng mẫu trong giao dịch và trả về <c>approved_at</c> hiện tại.</summary>
-    private static async Task<DateTimeOffset?> LockSampleAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid sampleId)
-    {
-        var row = await connection.QuerySingleOrDefaultAsync<SampleLockRow>(
-            "SELECT id, approved_at FROM sample WHERE id = @sampleId FOR UPDATE", new { sampleId }, transaction)
-            ?? throw new InvalidOperationException("Không tìm thấy mẫu");
-        return row.ApprovedAt;
-    }
 
     /// <summary>Duyệt mẫu đã khóa: mọi kết quả có giá trị sang <c>da-duyet</c> + dòng lịch sử <c>duyet</c>; <paramref name="actorId"/> null là tự duyệt.</summary>
     private static async Task ApproveLockedSampleAsync(
@@ -481,43 +371,6 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             new { sampleId }, transaction);
     }
 
-    private static async Task InsertHistoryAsync(
-        NpgsqlConnection connection, NpgsqlTransaction transaction, Guid resultId, string action,
-        string? oldValue, string? newValue, string? reason, Guid? actorId, DateTimeOffset now)
-    {
-        await connection.ExecuteAsync(
-            """
-            INSERT INTO result_history (result_id, action, old_value, new_value, reason, actor_id, at)
-            VALUES (@resultId, @action, @oldValue, @newValue, @reason, @actorId, @now)
-            """,
-            new { resultId, action, oldValue, newValue, reason, actorId, now }, transaction);
-    }
-
-    private static async Task<ServiceRow> LoadServiceAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid serviceId)
-    {
-        return await connection.QuerySingleOrDefaultAsync<ServiceRow>(
-            "SELECT id, unit, value_type, decimals, is_panel FROM service WHERE id = @serviceId",
-            new { serviceId }, transaction)
-            ?? throw new InvalidOperationException("Không tìm thấy dịch vụ");
-    }
-
-    /// <summary>
-    /// Dòng chỉ định + mẫu + người bệnh + kết quả hiện có — ngữ cảnh cho mọi lần ghi.
-    /// <paramref name="resultJoin"/> là "LEFT JOIN" khi chỉ số có thể chưa có kết quả (nhập tay)
-    /// hoặc "JOIN" khi đi từ kết quả có sẵn (bản thay thế) — FOR UPDATE không khóa được bảng ở
-    /// phía ngoài của LEFT JOIN.
-    /// </summary>
-    private static string ItemContextSelect(string resultJoin) => $"""
-        SELECT oi.id AS order_item_id, oi.sample_id, oi.service_id, s.approved_at,
-               p.sex, p.dob, p.birth_year, o.created_at AS order_created_at,
-               r.id AS result_id, r.value, r.pending_value, r.pending_instrument_id, r.pending_raw_ref
-        FROM order_item oi
-        JOIN sample s ON s.id = oi.sample_id
-        JOIN lab_order o ON o.id = oi.order_id
-        JOIN patient p ON p.id = o.patient_id
-        {resultJoin} result r ON r.order_item_id = oi.id
-        """;
-
     /// <summary>
     /// Khóa kết quả kèm mẫu của nó. Quy tắc thứ tự khóa chung cho mọi đường ghi: mẫu trước,
     /// kết quả sau (SetManual: khóa mẫu rồi mới FOR UPDATE result; Approve/Unapprove/AutoApprove:
@@ -528,7 +381,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
     {
         return await connection.QuerySingleOrDefaultAsync<ItemContext>(
             $"""
-            {ItemContextSelect("JOIN")}
+            {ResultWriter.ItemContextSelect("JOIN")}
             WHERE r.id = @resultId
             FOR UPDATE OF s, r
             """,
@@ -536,48 +389,10 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             ?? throw new InvalidOperationException("Không tìm thấy kết quả");
     }
 
-    private sealed record ItemContext
-    {
-        public Guid OrderItemId { get; init; }
-        public Guid SampleId { get; init; }
-        public Guid ServiceId { get; init; }
-        public DateTimeOffset? ApprovedAt { get; init; }
-        public string Sex { get; init; } = "";
-        public DateOnly? Dob { get; init; }
-        public int? BirthYear { get; init; }
-        public DateTimeOffset OrderCreatedAt { get; init; }
-        public Guid? ResultId { get; init; }
-        public string? Value { get; init; }
-        public string? PendingValue { get; init; }
-        public Guid? PendingInstrumentId { get; init; }
-        public string? PendingRawRef { get; init; }
-
-        public PatientFacts Patient => new(Sex[0], Dob, BirthYear);
-
-        /// <summary>Ngày chỉ định theo giờ máy — mốc tính tuổi khi chọn khoảng tham chiếu.</summary>
-        public DateOnly OrderedLocalDate(TimeProvider clock) =>
-            DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(OrderCreatedAt, clock.LocalTimeZone).DateTime);
-    }
-
-    private sealed record ServiceRow
-    {
-        public Guid Id { get; init; }
-        public string? Unit { get; init; }
-        public string ValueType { get; init; } = "";
-        public int? Decimals { get; init; }
-        public bool IsPanel { get; init; }
-    }
-
     private sealed record ExistingResultRow
     {
         public Guid Id { get; init; }
         public string? Value { get; init; }
-    }
-
-    private sealed record SampleLockRow
-    {
-        public Guid Id { get; init; }
-        public DateTimeOffset? ApprovedAt { get; init; }
     }
 
     private sealed record LeafRow
