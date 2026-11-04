@@ -107,7 +107,7 @@ public partial class App : Application
     private void ShowMain(IClassicDesktopStyleApplicationLifetime desktop, AppServices services, UserInfo user)
     {
         var currentUser = new CurrentUser(user);
-        var viewModel = new MainViewModel(currentUser, services.Catalog);
+        var viewModel = new MainViewModel(currentUser, services.Catalog, services.Orders, services.Facility, services.LabelPrinter);
         var window = new MainWindow { DataContext = viewModel };
 
         _mainWindow = window;

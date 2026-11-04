@@ -47,3 +47,27 @@ public sealed class SexLabelConverter : IValueConverter
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 }
+
+/// <summary><c>service.is_panel</c> (bool) → "Gói (panel)"/"Chỉ số" — dùng ở gợi ý dịch vụ màn Tiếp nhận.</summary>
+public sealed class PanelLabelConverter : IValueConverter
+{
+    public static readonly PanelLabelConverter Instance = new();
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is true ? "Gói (panel)" : "Chỉ số";
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>Ghép danh sách tên dịch vụ của một mẫu (<c>CreatedSample.ServiceNames</c>) thành một chuỗi, cách nhau bởi dấu phẩy.</summary>
+public sealed class JoinNamesConverter : IValueConverter
+{
+    public static readonly JoinNamesConverter Instance = new();
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is IEnumerable<string> names ? string.Join(", ", names) : value;
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}

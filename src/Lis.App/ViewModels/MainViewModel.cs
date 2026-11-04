@@ -1,8 +1,12 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Lis.App.Services;
 using Lis.App.ViewModels.Catalog;
+using Lis.App.ViewModels.Reception;
 using Lis.Core.Auth;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
+using Lis.Data.Facility;
+using Lis.Data.Orders;
 
 namespace Lis.App.ViewModels;
 
@@ -20,13 +24,17 @@ public sealed class NavItem(string label, Permission permission)
 /// </summary>
 public partial class MainViewModel : ObservableObject
 {
-    public MainViewModel(CurrentUser currentUser, CatalogStore catalogStore)
+    public MainViewModel(
+        CurrentUser currentUser, CatalogStore catalogStore, OrderService orders, FacilityStore facility, ILabelPrinter labelPrinter)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
-        SelectedItem = NavItems.FirstOrDefault();
 
         Catalog = new CatalogViewModel(catalogStore);
+        Reception = new ReceptionViewModel(orders, catalogStore, facility, currentUser, labelPrinter);
+
+        // Đặt sau khi Catalog/Reception đã có — OnSelectedItemChanged có thể tải màn đầu tiên ngay.
+        SelectedItem = NavItems.FirstOrDefault();
     }
 
     public CurrentUser CurrentUser { get; }
@@ -36,11 +44,17 @@ public partial class MainViewModel : ObservableObject
     /// <summary>ViewModel của màn Danh mục — tải khi người dùng mở mục "Danh mục" lần đầu (xem <see cref="OnSelectedItemChanged"/>).</summary>
     public CatalogViewModel Catalog { get; }
 
+    /// <summary>ViewModel của màn Tiếp nhận — tải khi người dùng mở mục "Tiếp nhận" lần đầu (xem <see cref="OnSelectedItemChanged"/>).</summary>
+    public ReceptionViewModel Reception { get; }
+
     private bool _catalogLoaded;
+
+    private bool _receptionLoaded;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PageTitle))]
     [NotifyPropertyChangedFor(nameof(IsCatalogSelected))]
+    [NotifyPropertyChangedFor(nameof(IsReceptionSelected))]
     [NotifyPropertyChangedFor(nameof(IsPlaceholderSelected))]
     private NavItem? _selectedItem;
 
@@ -48,7 +62,9 @@ public partial class MainViewModel : ObservableObject
 
     public bool IsCatalogSelected => SelectedItem?.Label == "Danh mục";
 
-    public bool IsPlaceholderSelected => !IsCatalogSelected;
+    public bool IsReceptionSelected => SelectedItem?.Label == "Tiếp nhận";
+
+    public bool IsPlaceholderSelected => !IsCatalogSelected && !IsReceptionSelected;
 
     partial void OnSelectedItemChanged(NavItem? value)
     {
@@ -56,6 +72,12 @@ public partial class MainViewModel : ObservableObject
         {
             _catalogLoaded = true;
             _ = Catalog.LoadAsync();
+        }
+
+        if (IsReceptionSelected && !_receptionLoaded)
+        {
+            _receptionLoaded = true;
+            _ = Reception.LoadAsync();
         }
     }
 

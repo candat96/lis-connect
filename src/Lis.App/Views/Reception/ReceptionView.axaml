@@ -1,0 +1,172 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Reception"
+             xmlns:orders="using:Lis.Data.Orders"
+             xmlns:catalog="using:Lis.Data.Catalog"
+             xmlns:conv="using:Lis.App.Services.Converters"
+             x:Class="Lis.App.Views.Reception.ReceptionView"
+             x:DataType="vm:ReceptionViewModel">
+
+    <Grid RowDefinitions="Auto,Auto,*">
+
+        <!-- Người bệnh -->
+        <Border Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16" Margin="0,0,0,12">
+            <StackPanel Spacing="8">
+
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Tìm người bệnh (mã, họ tên hoặc SĐT) — Enter để tìm" />
+                        <TextBox Name="PatientSearchBox" Text="{Binding PatientSearchQuery}" PlaceholderText="Nhập mã/họ tên/SĐT..." />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="Người bệnh mới" Command="{Binding StartNewPatientCommand}" VerticalAlignment="Bottom" />
+                </Grid>
+
+                <ListBox Name="PatientResultsList" ItemsSource="{Binding PatientSearchResults}" MaxHeight="140"
+                         IsVisible="{Binding !!PatientSearchResults.Count}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="orders:PatientHit">
+                            <Grid ColumnDefinitions="100,*,100" Margin="0,2">
+                                <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{Binding FullName}" Margin="8,0" />
+                                <TextBlock Grid.Column="2" Text="{Binding Phone}" Classes="muted" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <TextBlock Text="{Binding SelectedPatientHit.FullName, StringFormat='Người bệnh đã chọn: {0}'}"
+                           IsVisible="{Binding IsExistingPatient}" Classes="success" FontWeight="SemiBold" />
+
+                <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="8" IsVisible="{Binding !IsExistingPatient}">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Họ tên" />
+                        <TextBox Text="{Binding NewPatientFullName}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Ngày sinh (dd/MM/yyyy)" />
+                        <TextBox Text="{Binding NewPatientDobText}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Classes="label" Text="Hoặc chỉ năm sinh" />
+                        <TextBox Text="{Binding NewPatientBirthYearText}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="3">
+                        <TextBlock Classes="label" Text="Giới tính" />
+                        <ComboBox ItemsSource="{Binding SexOptions}" SelectedItem="{Binding NewPatientSex}" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8" IsVisible="{Binding !IsExistingPatient}">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Địa chỉ" />
+                        <TextBox Text="{Binding NewPatientAddress}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Số điện thoại" />
+                        <TextBox Text="{Binding NewPatientPhone}" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Bác sĩ chỉ định" />
+                        <TextBox Text="{Binding OrderingDoctor}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Khoa chỉ định" />
+                        <TextBox Text="{Binding OrderingDept}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Classes="label" Text="Chẩn đoán" />
+                        <TextBox Text="{Binding Diagnosis}" />
+                    </StackPanel>
+                </Grid>
+
+            </StackPanel>
+        </Border>
+
+        <!-- Chọn dịch vụ -->
+        <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16" Margin="0,0,0,12">
+            <StackPanel Spacing="8">
+                <TextBlock Classes="label" Text="Mã dịch vụ — gõ mã rồi Enter để thêm, gõ chữ để gợi ý" />
+                <TextBox Name="ServiceCodeBox" Text="{Binding ServiceCodeInput}" PlaceholderText="Mã dịch vụ hoặc tên..." />
+
+                <ListBox Name="SuggestionsList" ItemsSource="{Binding ServiceSuggestions}" MaxHeight="140"
+                         IsVisible="{Binding !!ServiceSuggestions.Count}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="catalog:ServiceInfo">
+                            <Grid ColumnDefinitions="80,*,70" Margin="0,2">
+                                <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="8,0" />
+                                <TextBlock Grid.Column="2" Text="{Binding IsPanel, Converter={x:Static conv:PanelLabelConverter.Instance}}" Classes="muted" FontSize="12" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <!-- Danh sách đã chọn (nhóm theo loại mẫu) + bảng barcode đã cấp -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="16">
+
+            <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto">
+                <TextBlock Grid.Row="0" Classes="heading" Text="Dịch vụ đã chọn" Margin="0,0,0,8" />
+
+                <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+                    <ListBox ItemsSource="{Binding SelectedServices}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SelectedServiceViewModel">
+                                <Grid ColumnDefinitions="80,*,90,Auto" Margin="0,2">
+                                    <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="8,0" />
+                                    <TextBlock Grid.Column="2" Text="{Binding Loai}" Classes="muted" FontSize="12" />
+                                    <Button Grid.Column="3" Content="Xóa" Command="{Binding RemoveCommand}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+
+                <TextBlock Grid.Row="2" Classes="label" Text="Xem trước nhóm mẫu" Margin="0,12,0,4" />
+                <ItemsControl Grid.Row="3" ItemsSource="{Binding GroupPreview}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SampleGroupPreviewViewModel">
+                            <Border Background="{StaticResource BrushBackground}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="8" Margin="0,0,0,4">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding SpecimenName}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding ServiceNamesText}" Classes="muted" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+
+            <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
+                <TextBlock Grid.Row="0" Classes="heading" Text="Barcode đã cấp" Margin="0,0,0,8" />
+
+                <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+                    <ListBox ItemsSource="{Binding IssuedSamples}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="orders:CreatedSample">
+                                <StackPanel Margin="0,4" Spacing="2">
+                                    <TextBlock Text="{Binding Barcode}" FontWeight="Bold" FontFamily="Consolas,Menlo,monospace" FontSize="16" />
+                                    <TextBlock Text="{Binding SpecimenName}" />
+                                    <TextBlock Text="{Binding ServiceNames, Converter={x:Static conv:JoinNamesConverter.Instance}}" Classes="muted" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+
+                <Button Grid.Row="2" Name="SaveButton" Classes="primary" Content="Lưu và in tem (F9)" Command="{Binding SaveCommand}"
+                        HorizontalAlignment="Right" Margin="0,12,0,0" />
+            </Grid>
+
+        </Grid>
+
+    </Grid>
+
+</UserControl>

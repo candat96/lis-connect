@@ -5,15 +5,20 @@ using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Lis.App.Services;
 using Lis.App.ViewModels;
 using Lis.App.ViewModels.Catalog;
+using Lis.App.ViewModels.Reception;
 using Lis.App.Views;
 using Lis.App.Views.Catalog;
+using Lis.App.Views.Reception;
 using Lis.Core.Auth;
 using Lis.Data;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
+using Lis.Data.Facility;
 using Lis.Data.Local;
+using Lis.Data.Orders;
 using Lis.Data.Setup;
 
 namespace Lis.Screenshots;
@@ -47,6 +52,8 @@ internal static class Program
 
         var (catalogRangesWindow, catalogRangesViewModel) = CreateCatalogWindow(selectPanel: false, tabIndex: 1);
         Capture(outputDirectory, "07-danh-muc-khoang-tham-chieu.png", catalogRangesWindow, () => ClearDetailErrors(catalogRangesViewModel));
+
+        Capture(outputDirectory, "08-tiep-nhan-sau-khi-luu.png", CreateReceptionWindow());
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
     }
@@ -91,10 +98,69 @@ internal static class Program
 
     private static Window CreateMainWindow()
     {
+        var unusedDb = Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused");
         var user = new UserInfo(Guid.NewGuid(), "ktv.thu", "Nguyễn Văn Thử", "Kỹ thuật viên trưởng", [Roles.QuanTri], true);
-        var catalogStore = new CatalogStore(Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused"));
-        var viewModel = new MainViewModel(new CurrentUser(user), catalogStore);
+        var catalogStore = new CatalogStore(unusedDb);
+        var orders = new OrderService(unusedDb, TimeProvider.System);
+        var facilityStore = new FacilityStore(unusedDb);
+        var viewModel = new MainViewModel(new CurrentUser(user), catalogStore, orders, facilityStore, new NoOpLabelPrinter());
         return new MainWindow { DataContext = viewModel };
+    }
+
+    /// <summary>
+    /// Màn Tiếp nhận sau khi lưu: người bệnh giả "Nguyễn Văn Mẫu" đã chọn, một panel (3 chỉ
+    /// số, loại mẫu EDTA) + một dịch vụ huyết thanh đã chọn, và bảng barcode đã cấp cho thấy
+    /// đúng 2 mẫu (2 barcode) — một cho nhóm EDTA, một cho nhóm huyết thanh. Nạp danh mục
+    /// trực tiếp qua <see cref="ReceptionViewModel.SeedCatalog"/>, không gọi CSDL thật.
+    /// </summary>
+    private static Window CreateReceptionWindow()
+    {
+        var unusedDb = Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused");
+        var orders = new OrderService(unusedDb, TimeProvider.System);
+        var catalogStore = new CatalogStore(unusedDb);
+        var facilityStore = new FacilityStore(unusedDb);
+        var user = new UserInfo(Guid.NewGuid(), "tiepnhan.thu", "Lê Thị Thử", "Tiếp nhận", [Roles.TiepNhan], true);
+
+        var viewModel = new ReceptionViewModel(orders, catalogStore, facilityStore, new CurrentUser(user), new NoOpLabelPrinter());
+
+        var edtaId = Guid.NewGuid();
+        var serumId = Guid.NewGuid();
+
+        var wbcId = Guid.NewGuid();
+        var rbcId = Guid.NewGuid();
+        var hgbId = Guid.NewGuid();
+        var wbc = new ServiceInfo(wbcId, "WBC", "Bạch cầu", "Huyết học", edtaId, "G/L", "so", 2, 2, false, false, true, null, []);
+        var rbc = new ServiceInfo(rbcId, "RBC", "Hồng cầu", "Huyết học", edtaId, "T/L", "so", 2, 3, false, false, true, null, []);
+        var hgb = new ServiceInfo(hgbId, "HGB", "Huyết sắc tố", "Huyết học", edtaId, "g/L", "so", 0, 4, false, false, true, null, []);
+        var panel = new ServiceInfo(Guid.NewGuid(), "TPTTBM", "Tổng phân tích tế bào máu", "Huyết học",
+            edtaId, null, "so", null, 1, true, false, true, null, [wbcId, rbcId, hgbId]);
+        var glu = new ServiceInfo(Guid.NewGuid(), "GLU", "Glucose", "Hóa sinh", serumId, "mmol/L", "so", 1, 5, false, false, true, null, []);
+
+        viewModel.SeedCatalog(
+            [panel, wbc, rbc, hgb, glu],
+            new Dictionary<Guid, string> { [edtaId] = "Máu EDTA (huyết học)", [serumId] = "Huyết thanh (hóa sinh, miễn dịch)" },
+            "per-specimen");
+
+        viewModel.PickPatientCommand.Execute(new PatientHit(
+            Guid.NewGuid(), "BN2611040007", "Nguyễn Văn Mẫu", new DateOnly(1990, 5, 1), null, 'M', "0900000099"));
+
+        viewModel.SelectedServices.Add(new SelectedServiceViewModel(panel, _ => { }));
+        viewModel.SelectedServices.Add(new SelectedServiceViewModel(glu, _ => { }));
+        viewModel.GroupPreview.Add(new SampleGroupPreviewViewModel("Máu EDTA (huyết học)", ["Bạch cầu", "Hồng cầu", "Huyết sắc tố"]));
+        viewModel.GroupPreview.Add(new SampleGroupPreviewViewModel("Huyết thanh (hóa sinh, miễn dịch)", ["Glucose"]));
+
+        viewModel.IssuedSamples.Add(new CreatedSample(Guid.NewGuid(), "9261104001", "Máu EDTA (huyết học)", ["Bạch cầu", "Hồng cầu", "Huyết sắc tố"]));
+        viewModel.IssuedSamples.Add(new CreatedSample(Guid.NewGuid(), "9261104002", "Huyết thanh (hóa sinh, miễn dịch)", ["Glucose"]));
+
+        var view = new ReceptionView { DataContext = viewModel };
+
+        return new Window
+        {
+            Title = "LIS Connect — Tiếp nhận",
+            Width = 1360,
+            Height = 820,
+            Content = view,
+        };
     }
 
     /// <summary>

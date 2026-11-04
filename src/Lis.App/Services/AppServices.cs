@@ -4,6 +4,7 @@ using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Local;
+using Lis.Data.Orders;
 
 namespace Lis.App.Services;
 
@@ -21,6 +22,8 @@ public sealed class AppServices
         Auth = new AuthService(Db, new PasswordHasher(), TimeProvider.System);
         Facility = new FacilityStore(Db);
         Catalog = new CatalogStore(Db);
+        Orders = new OrderService(Db, TimeProvider.System);
+        LabelPrinter = new NoOpLabelPrinter();
     }
 
     public LocalConfig Config { get; }
@@ -34,6 +37,10 @@ public sealed class AppServices
     public FacilityStore Facility { get; }
 
     public CatalogStore Catalog { get; }
+
+    public OrderService Orders { get; }
+
+    public ILabelPrinter LabelPrinter { get; }
 
     /// <summary>
     /// Cập nhật máy trạm (<c>workstation.last_seen_at</c>) ngay sau khi đăng nhập thành công.
