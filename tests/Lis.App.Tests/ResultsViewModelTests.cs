@@ -32,6 +32,8 @@ internal sealed class FakeResultService : IResultService
 
     public Exception? ApproveException { get; set; }
 
+    public Exception? SetManualException { get; set; }
+
     public Task<IReadOnlyList<SampleListItem>> ListAsync(DateOnly from, DateOnly to, string? status, string? query) =>
         Task.FromResult<IReadOnlyList<SampleListItem>>(ListItems);
 
@@ -44,7 +46,7 @@ internal sealed class FakeResultService : IResultService
     public Task SetManualAsync(Guid orderItemId, string value, Guid actorId, string? reason)
     {
         SetManualCalls.Add((orderItemId, value, actorId, reason));
-        return Task.CompletedTask;
+        return SetManualException is null ? Task.CompletedTask : Task.FromException(SetManualException);
     }
 
     public Task ApproveAsync(Guid sampleId, Guid actorId)
@@ -163,6 +165,22 @@ public class ResultsViewModelTests
 
         viewModel.ErrorMessage.ShouldBeNull();
         service.SetManualCalls.ShouldBe([(WbcItemId, "6,5", viewModel.ActorId, null)]);
+    }
+
+    [Fact]
+    public async Task CommitValue_ServiceRejects_KeepsTypedText()
+    {
+        var service = new FakeResultService { Sample = UnapprovedSample(), SetManualException = new ArgumentException("Giá trị không hợp lệ: 'abc'") };
+        var viewModel = CreateViewModel(service, Roles.KyThuatVien);
+        await viewModel.LoadSampleAsync(SampleId);
+        var row = viewModel.Rows.Single(r => r.Code == "WBC");
+
+        row.EditText = "abc";
+        await viewModel.CommitValueAsync(row);
+
+        viewModel.ErrorMessage.ShouldBe("Ghi kết quả thất bại: Giá trị không hợp lệ: 'abc'");
+        row.EditText.ShouldBe("abc");
+        row.IsDirty.ShouldBeTrue();
     }
 
     [Fact]

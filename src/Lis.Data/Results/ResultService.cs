@@ -124,6 +124,16 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                 throw new InvalidOperationException("Dịch vụ cha (panel) không có giá trị kết quả");
             }
 
+            // Nhập tay chỉ số số mà gõ chuỗi không đọc được thành số ("abc", "12..5", kể cả ký
+            // hiệu lỗi của máy "***.*") thì từ chối ngay — nếu lặng lẽ lưu NULL, người nhập
+            // tưởng đã lưu và mất luôn chuỗi đã gõ. Đường máy gửi (AcceptPending) vẫn lưu NULL
+            // và giữ chuỗi thô trong raw_ref/lịch sử.
+            var trimmedValue = value.Trim();
+            if (service.ValueType == "so" && trimmedValue.Length > 0 && ResultValue.Parse(trimmedValue).IsEmpty)
+            {
+                throw new ArgumentException($"Giá trị không hợp lệ: '{trimmedValue}'");
+            }
+
             // Đọc lại kết quả hiện có *sau khi* đã giữ khóa mẫu: bản LEFT JOIN ở trên có thể cũ
             // (READ COMMITTED) khi một máy trạm khác vừa ghi xong cùng ô — nếu dựa vào đó,
             // người thứ hai ghi "nhan" không lý do và đè mất giá trị người thứ nhất.
@@ -508,13 +518,19 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
         {resultJoin} result r ON r.order_item_id = oi.id
         """;
 
+    /// <summary>
+    /// Khóa kết quả kèm mẫu của nó. Quy tắc thứ tự khóa chung cho mọi đường ghi: mẫu trước,
+    /// kết quả sau (SetManual: khóa mẫu rồi mới FOR UPDATE result; Approve/Unapprove/AutoApprove:
+    /// khóa mẫu rồi cập nhật result) — liệt kê <c>FOR UPDATE OF s, r</c> theo đúng thứ tự đó
+    /// để ai đọc cũng thấy cùng một quy tắc, tránh hai giao dịch chờ nhau chéo.
+    /// </summary>
     private static async Task<ItemContext> LockResultAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid resultId)
     {
         return await connection.QuerySingleOrDefaultAsync<ItemContext>(
             $"""
             {ItemContextSelect("JOIN")}
             WHERE r.id = @resultId
-            FOR UPDATE OF r, s
+            FOR UPDATE OF s, r
             """,
             new { resultId }, transaction)
             ?? throw new InvalidOperationException("Không tìm thấy kết quả");

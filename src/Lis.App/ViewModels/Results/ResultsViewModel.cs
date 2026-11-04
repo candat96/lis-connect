@@ -252,11 +252,21 @@ public partial class ResultsViewModel : ObservableObject
             reason = ReasonText.Trim();
         }
 
+        var typed = row.EditText;
+        var storedBefore = row.Value;
+
         await RunAsync("Ghi kết quả thất bại", async () =>
         {
-            await _results.SetManualAsync(row.OrderItemId, row.EditText, ActorId, reason);
+            await _results.SetManualAsync(row.OrderItemId, typed, ActorId, reason);
             ReasonText = "";
         });
+
+        // Ghi lỗi (vd "Giá trị không hợp lệ"): nạp lại mẫu đã trả ô về giá trị đã lưu — đặt lại
+        // chuỗi vừa gõ để người nhập sửa tiếp, trừ khi giá trị lưu đã bị máy trạm khác đổi.
+        if (ErrorMessage is not null && row.Value == storedBefore)
+        {
+            row.EditText = typed;
+        }
     }
 
     /// <summary>Esc trên ô giá trị: bỏ nội dung đang gõ, trả lại giá trị đã lưu.</summary>

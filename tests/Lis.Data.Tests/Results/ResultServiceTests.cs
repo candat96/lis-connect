@@ -261,19 +261,34 @@ public class ResultServiceTests(PostgresFixture fixture)
         stored.Flag.ShouldBe("None");
     }
 
-    [Fact]
-    public async Task SetManual_ErrorSymbol_StoresNoValue()
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("12..5")]
+    [InlineData("***.*")]
+    public async Task SetManual_UnparsableNumber_Throws(string raw)
     {
         var env = await CreateEnvAsync();
         var hgbId = await SaveServiceAsync(env.Catalog, "HGB", "Huyết sắc tố", env.EdtaId, decimals: 0, unit: "g/L");
         var (_, items) = await CreateSampleAsync(env, FemaleAdult(), hgbId);
+        await env.Results.SetManualAsync(items[hgbId], "119", env.ActorId, null);
 
-        await env.Results.SetManualAsync(items[hgbId], "***.*", env.ActorId, null);
+        var ex = await Should.ThrowAsync<ArgumentException>(() => env.Results.SetManualAsync(items[hgbId], $" {raw} ", env.ActorId, "Sửa thử"));
 
-        var stored = await StoredAsync(env.Db, items[hgbId]);
-        stored.Value.ShouldBeNull();
-        stored.Flag.ShouldBe("None");
-        (await HistoryAsync(env.Db, items[hgbId])).Single().Action.ShouldBe("nhan");
+        ex.Message.ShouldBe($"Giá trị không hợp lệ: '{raw}'");
+        (await StoredAsync(env.Db, items[hgbId])).Value.ShouldBe("119");
+        (await HistoryAsync(env.Db, items[hgbId])).Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task SetManual_TextService_AcceptsAnyText()
+    {
+        var env = await CreateEnvAsync();
+        var noteId = await SaveServiceAsync(env.Catalog, "GHICHU", "Ghi chú", env.EdtaId, decimals: null, unit: null, valueType: "chu");
+        var (_, items) = await CreateSampleAsync(env, FemaleAdult(), noteId);
+
+        await env.Results.SetManualAsync(items[noteId], "Mẫu hơi tán huyết", env.ActorId, null);
+
+        (await StoredAsync(env.Db, items[noteId])).Value.ShouldBe("Mẫu hơi tán huyết");
     }
 
     [Fact]
