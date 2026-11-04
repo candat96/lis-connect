@@ -42,6 +42,16 @@ public class ResultValueTests
         value.Comparator.ShouldBeNull();
     }
 
+    [Fact]
+    public void Parse_NegativeNumber()
+    {
+        var value = ResultValue.Parse("-4.8");
+
+        value.IsEmpty.ShouldBeFalse();
+        value.Number.ShouldBe(-4.8m);
+        value.Comparator.ShouldBeNull();
+    }
+
     [Theory]
     [InlineData("***.*")]
     [InlineData("**")]

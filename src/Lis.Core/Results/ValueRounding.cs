@@ -8,8 +8,6 @@ namespace Lis.Core.Results;
 /// </summary>
 public static class ValueRounding
 {
-    private static readonly string[] Comparators = { "<=", ">=", "<", ">" };
-
     /// <summary>
     /// Làm tròn kiểu "half away from zero" và giữ đúng số chữ số thập phân
     /// (kể cả số 0 ở cuối, ví dụ "4.8" với 2 chữ số thành "4.80"). Giữ nguyên
@@ -25,17 +23,7 @@ public static class ValueRounding
 
         var trimmed = raw.Trim();
 
-        var comparator = string.Empty;
-        var body = trimmed;
-        foreach (var candidate in Comparators)
-        {
-            if (body.StartsWith(candidate, StringComparison.Ordinal))
-            {
-                comparator = candidate;
-                body = body[candidate.Length..].Trim();
-                break;
-            }
-        }
+        var (comparator, body) = ComparatorParsing.Strip(trimmed);
 
         var normalizedBody = body.Replace(',', '.');
         if (!decimal.TryParse(
@@ -50,6 +38,6 @@ public static class ValueRounding
         var rounded = Math.Round(number, decimals.Value, MidpointRounding.AwayFromZero);
         var numberText = rounded.ToString("F" + decimals.Value, CultureInfo.InvariantCulture);
 
-        return comparator + numberText;
+        return (comparator ?? string.Empty) + numberText;
     }
 }

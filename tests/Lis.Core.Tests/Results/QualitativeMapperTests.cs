@@ -16,10 +16,10 @@ public class QualitativeMapperTests
     [Fact]
     public void Qualitative_InstrumentRuleWins()
     {
-        var luatChung = new QualitativeRule(null, ServiceId, "pos", "Dương tính", ResultFlag.Abnormal);
-        var luatDungMay = new QualitativeRule(InstrumentId, ServiceId, "pos", "DƯƠNG TÍNH (máy X)", ResultFlag.Abnormal);
+        var generalRule = new QualitativeRule(null, ServiceId, "pos", "Dương tính", ResultFlag.Abnormal);
+        var instrumentRule = new QualitativeRule(InstrumentId, ServiceId, "pos", "DƯƠNG TÍNH (máy X)", ResultFlag.Abnormal);
 
-        var (display, flag) = QualitativeMapper.Apply(" POS ", ServiceId, InstrumentId, new[] { luatChung, luatDungMay });
+        var (display, flag) = QualitativeMapper.Apply(" POS ", ServiceId, InstrumentId, new[] { generalRule, instrumentRule });
 
         display.ShouldBe("DƯƠNG TÍNH (máy X)");
         flag.ShouldBe(ResultFlag.Abnormal);
@@ -28,9 +28,9 @@ public class QualitativeMapperTests
     [Fact]
     public void Qualitative_NegativeOverridesFlagToNone()
     {
-        var luat = new QualitativeRule(null, ServiceId, "neg", "Âm tính", ResultFlag.None);
+        var rule = new QualitativeRule(null, ServiceId, "neg", "Âm tính", ResultFlag.None);
 
-        var (display, flag) = QualitativeMapper.Apply("NEG", ServiceId, null, new[] { luat });
+        var (display, flag) = QualitativeMapper.Apply("NEG", ServiceId, null, new[] { rule });
 
         display.ShouldBe("Âm tính");
         flag.ShouldBe(ResultFlag.None);

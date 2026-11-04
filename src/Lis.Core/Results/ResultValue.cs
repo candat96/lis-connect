@@ -10,8 +10,6 @@ namespace Lis.Core.Results;
 /// </summary>
 public sealed record ResultValue(string Raw, decimal? Number, string? Comparator, bool IsEmpty)
 {
-    private static readonly string[] Comparators = { "<=", ">=", "<", ">" };
-
     /// <summary>
     /// Mẫu so khớp hiệu giá dạng "a:b" hoặc "a/b".
     /// </summary>
@@ -32,17 +30,7 @@ public sealed record ResultValue(string Raw, decimal? Number, string? Comparator
             return new ResultValue(original, null, null, true);
         }
 
-        string? comparator = null;
-        var body = trimmed;
-        foreach (var candidate in Comparators)
-        {
-            if (body.StartsWith(candidate, StringComparison.Ordinal))
-            {
-                comparator = candidate;
-                body = body[candidate.Length..].Trim();
-                break;
-            }
-        }
+        var (comparator, body) = ComparatorParsing.Strip(trimmed);
 
         var titerMatch = TiterPattern.Match(body);
         if (titerMatch.Success)
