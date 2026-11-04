@@ -69,9 +69,15 @@ public partial class PrinterSettingsViewModel(ISettingStore settings, IPrintServ
             // Liệt kê máy in có thể chậm (hỏi driver/spooler) — không chạy trên luồng giao diện.
             var printers = await Task.Run(printService.Printers);
 
-            LabelPrinter = await settings.GetAsync(SettingKeys.LabelPrinter);
-            ReportPrinter = await settings.GetAsync(SettingKeys.ReportPrinter);
-            Printers = WithSavedPrinters(printers, LabelPrinter, ReportPrinter);
+            var labelPrinter = await settings.GetAsync(SettingKeys.LabelPrinter);
+            var reportPrinter = await settings.GetAsync(SettingKeys.ReportPrinter);
+
+            // Thứ tự gán quan trọng: ComboBox đã gắn vào ViewModel từ lúc dựng cửa sổ, nên phải
+            // có danh sách (ItemsSource) trước rồi mới đặt SelectedItem — gán ngược lại thì
+            // SelectedItem bị đối chiếu với danh sách rỗng, về -1 và không tự chọn lại.
+            Printers = WithSavedPrinters(printers, labelPrinter, reportPrinter);
+            LabelPrinter = labelPrinter;
+            ReportPrinter = reportPrinter;
 
             var size = LabelSize.FromSetting(await settings.GetAsync(SettingKeys.LabelSize));
             LabelWidthText = FormatMm(size.WidthMm);

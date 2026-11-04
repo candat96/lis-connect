@@ -76,6 +76,7 @@ public class ReceptionViewModelTests
         var unusedDb = Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused");
         var user = new UserInfo(Guid.NewGuid(), "tiepnhan.thu", "Lê Thị Thử", "Tiếp nhận", [Roles.TiepNhan], true);
         var clock = new FakeTimeProvider(new DateTimeOffset(Today, new TimeOnly(8, 0), TimeSpan.FromHours(7)));
+        clock.SetLocalTimeZone(TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"));
 
         var viewModel = new ReceptionViewModel(
             orders,

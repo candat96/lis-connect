@@ -101,10 +101,16 @@ public sealed class PdfPrintService : IPrintService
                 e.HasMorePages = pageIndex < pages.Count;
             };
 
-            document.OriginAtMargins = false;
+            // Lề đã đặt 0 ở QueryPageSettings; OriginAtMargins = true để gốc vẽ là góc vật lý của
+            // tờ giấy (GDI tự dịch đi phần lề cứng), không phải góc vùng in được — máy in có lề
+            // cứng khác 0 sẽ không làm tem bị xê dịch/cắt mép.
+            document.OriginAtMargins = true;
 
             ct.ThrowIfCancellationRequested();
             document.Print();
+            // Hủy giữa chừng: PrintPage chỉ đặt e.Cancel, Print() vẫn trả về bình thường — báo
+            // hủy ra ngoài để PrintAsync không kết thúc "thành công" trong im lặng.
+            ct.ThrowIfCancellationRequested();
         }
         finally
         {

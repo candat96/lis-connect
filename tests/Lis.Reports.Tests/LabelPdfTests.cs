@@ -126,7 +126,7 @@ public class LabelPdfTests
         new LabelSize(40.5, 20).ToSetting().ShouldBe("40.5x20");
     }
 
-    private static byte[] RenderBarsToPng(IReadOnlyList<Bar> bars, double widthUnits, double scale, int height)
+    private static byte[] RenderBarsToPng(IReadOnlyList<Code128Bar> bars, double widthUnits, double scale, int height)
     {
         var width = (int)Math.Ceiling(widthUnits * scale);
         using var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));

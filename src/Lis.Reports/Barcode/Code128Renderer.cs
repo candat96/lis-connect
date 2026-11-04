@@ -4,7 +4,7 @@ using ZXing.OneD;
 namespace Lis.Reports.Barcode;
 
 /// <summary>Một vạch đen của Code 128: vị trí và bề rộng tính từ mép trái vùng vẽ, cùng đơn vị với vùng vẽ.</summary>
-public sealed record Bar(double X, double Width);
+public sealed record Code128Bar(double X, double Width);
 
 /// <summary>
 /// Mã hóa chuỗi thành Code 128 (qua ZXing) và vẽ thành vạch vector lên PDF — không chèn ảnh
@@ -37,7 +37,7 @@ public static class Code128Renderer
     /// nằm trong vùng, các module đen kề nhau gộp thành một vạch để không có khe hở khi raster
     /// hóa. Đây là bước thuần túy (không vẽ) để kiểm thử được; <see cref="Draw"/> chỉ tô các vạch này.
     /// </summary>
-    public static IReadOnlyList<Bar> Bars(string content, double width)
+    public static IReadOnlyList<Code128Bar> Bars(string content, double width)
     {
         if (width <= 0)
         {
@@ -49,7 +49,7 @@ public static class Code128Renderer
         var moduleWidth = width / totalModules;
         var left = QuietZoneModules * moduleWidth;
 
-        var bars = new List<Bar>();
+        var bars = new List<Code128Bar>();
         var i = 0;
         while (i < modules.Length)
         {
@@ -65,7 +65,7 @@ public static class Code128Renderer
                 i++;
             }
 
-            bars.Add(new Bar(left + runStart * moduleWidth, (i - runStart) * moduleWidth));
+            bars.Add(new Code128Bar(left + runStart * moduleWidth, (i - runStart) * moduleWidth));
         }
 
         return bars;
