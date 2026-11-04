@@ -3,6 +3,7 @@ using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Orders;
+using Microsoft.Extensions.Time.Testing;
 using Shouldly;
 using Xunit;
 
@@ -17,7 +18,7 @@ namespace Lis.Data.Tests.Orders;
 public class OrderServiceTests(PostgresFixture fixture)
 {
     private async Task<(OrderService Orders, CatalogStore Catalog, Guid EdtaId, Guid SerumId, Guid ActorId, Db Db)> CreateServiceAsync(
-        string barcodeMode = "per-specimen", int seqDigits = 3)
+        string barcodeMode = "per-specimen", int seqDigits = 3, TimeProvider? clock = null)
     {
         var connectionString = await fixture.NewDatabaseAsync();
         var db = Db.Create(connectionString);
@@ -34,7 +35,7 @@ public class OrderServiceTests(PostgresFixture fixture)
         var userStore = new UserStore(db);
         var actor = await userStore.CreateAsync("tiepnhan.thu", "Tiếp nhận Thử", null, "mat-khau-thu-1", []);
 
-        return (new OrderService(db, TimeProvider.System), catalogStore, edtaId, serumId, actor.Id, db);
+        return (new OrderService(db, clock ?? TimeProvider.System), catalogStore, edtaId, serumId, actor.Id, db);
     }
 
     private static NewService NewServiceInfo(string code, string name, Guid specimenTypeId, bool isPanel = false) =>
@@ -114,6 +115,74 @@ public class OrderServiceTests(PostgresFixture fixture)
 
         var patientCodes = results.Select(r => r.PatientCode).ToList();
         patientCodes.Distinct().Count().ShouldBe(20);
+    }
+
+    [Fact]
+    public async Task CreateOrder_EarlyMorningLocal_UsesLocalDay()
+    {
+        // 23:30 UTC ngày 03/11 = 06:30 sáng ngày 04/11 giờ Việt Nam: tem in lúc này phải mang ngày 04/11.
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 3, 23, 30, 0, TimeSpan.Zero));
+        clock.SetLocalTimeZone(TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"));
+
+        var (orders, catalog, edtaId, _, actorId, db) = await CreateServiceAsync(clock: clock);
+        var wbcId = await SaveServiceAsync(catalog, NewServiceInfo("WBC5", "Bạch cầu", edtaId));
+
+        var patient = new NewPatient("Phạm Văn Mẫu", null, 1990, 'M', null, "0900000005");
+        var created = await orders.CreateAsync(new NewOrder(null, patient, [wbcId], null, null, null), actorId);
+
+        created.Samples.Single().Barcode.ShouldStartWith("9261104");
+        created.PatientCode.ShouldStartWith("BN261104");
+
+        await using var connection = await db.OpenAsync(TestContext.Current.CancellationToken);
+        var counterDay = await connection.ExecuteScalarAsync<DateOnly>(
+            "SELECT day FROM barcode_counter WHERE prefix = '9'");
+        counterDay.ShouldBe(new DateOnly(2026, 11, 4));
+    }
+
+    [Fact]
+    public async Task CreateOrder_DuplicateService_Throws()
+    {
+        var (orders, catalog, _, serumId, actorId, _) = await CreateServiceAsync();
+        var gluId = await SaveServiceAsync(catalog, NewServiceInfo("GLU6", "Glucose", serumId));
+
+        var patient = new NewPatient("Lê Thị Mẫu", null, 1990, 'F', null, "0900000006");
+        var order = new NewOrder(null, patient, [gluId, gluId], null, null, null);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(() => orders.CreateAsync(order, actorId));
+
+        ex.Message.ShouldBe("Dịch vụ 'Glucose' đã được chọn hai lần");
+    }
+
+    [Fact]
+    public async Task CreateOrder_PanelAndOwnChild_Throws()
+    {
+        var (orders, catalog, edtaId, _, actorId, _) = await CreateServiceAsync();
+
+        var panelId = await SaveServiceAsync(catalog, NewServiceInfo("TPTTBM7", "Tổng phân tích tế bào máu", edtaId, isPanel: true));
+        var wbcId = await SaveServiceAsync(catalog, NewServiceInfo("WBC7", "Bạch cầu", edtaId));
+        var rbcId = await SaveServiceAsync(catalog, NewServiceInfo("RBC7", "Hồng cầu", edtaId));
+        await catalog.SetChildrenAsync(panelId, [wbcId, rbcId]);
+
+        var patient = new NewPatient("Hoàng Văn Mẫu", null, 1990, 'M', null, "0900000007");
+        var order = new NewOrder(null, patient, [panelId, wbcId], null, null, null);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(() => orders.CreateAsync(order, actorId));
+
+        ex.Message.ShouldBe("Chỉ số 'Bạch cầu' đã nằm trong gói 'Tổng phân tích tế bào máu'");
+    }
+
+    [Fact]
+    public async Task CreateOrder_EmptyPanel_Throws()
+    {
+        var (orders, catalog, edtaId, _, actorId, _) = await CreateServiceAsync();
+        var panelId = await SaveServiceAsync(catalog, NewServiceInfo("GOI-RONG8", "Gói rỗng", edtaId, isPanel: true));
+
+        var patient = new NewPatient("Vũ Thị Mẫu", null, 1990, 'F', null, "0900000008");
+        var order = new NewOrder(null, patient, [panelId], null, null, null);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(() => orders.CreateAsync(order, actorId));
+
+        ex.Message.ShouldBe("Gói 'GOI-RONG8' chưa có chỉ số con");
     }
 
     [Fact]

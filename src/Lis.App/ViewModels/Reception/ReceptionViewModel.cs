@@ -198,7 +198,11 @@ public partial class ReceptionViewModel : ObservableObject
             return;
         }
 
-        AddService(exact);
+        if (!TryAddService(exact))
+        {
+            return;
+        }
+
         ServiceCodeInput = "";
         ServiceSuggestions.Clear();
         ErrorMessage = null;
@@ -228,22 +232,38 @@ public partial class ReceptionViewModel : ObservableObject
     [RelayCommand]
     private void PickServiceSuggestion(ServiceInfo service)
     {
-        AddService(service);
+        if (!TryAddService(service))
+        {
+            return;
+        }
+
         ServiceCodeInput = "";
         ServiceSuggestions.Clear();
         ErrorMessage = null;
     }
 
-    private void AddService(ServiceInfo service)
+    /// <summary>
+    /// Thêm dịch vụ vào danh sách đã chọn — kiểm tra trước bằng đúng quy tắc
+    /// <see cref="OrderService.CreateAsync"/> sẽ áp dụng (<see cref="ServiceSelectionValidator"/>),
+    /// để người dùng thấy lỗi "chọn trùng chỉ số" ngay lúc thêm chứ không phải lúc Lưu.
+    /// </summary>
+    private bool TryAddService(ServiceInfo service)
     {
-        if (SelectedServices.Any(s => s.ServiceId == service.Id))
+        var wouldBeSelection = SelectedServices.Select(s => s.ServiceId).Append(service.Id);
+
+        try
         {
-            ErrorMessage = $"Dịch vụ \"{service.Code}\" đã có trong danh sách";
-            return;
+            ServiceSelectionValidator.Validate(wouldBeSelection, _servicesById);
+        }
+        catch (InvalidOperationException ex)
+        {
+            ErrorMessage = ex.Message;
+            return false;
         }
 
         SelectedServices.Add(new SelectedServiceViewModel(service, RemoveSelectedService));
         RefreshGroupPreview();
+        return true;
     }
 
     private void RemoveSelectedService(SelectedServiceViewModel item)

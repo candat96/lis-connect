@@ -69,7 +69,10 @@ public sealed class OrderService(Db db, TimeProvider clock)
         var specimenTypes = await _catalog.SpecimenTypesAsync();
         var specimenNameById = specimenTypes.ToDictionary(s => s.Id, s => s.Name);
 
-        var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
+        // Ngày trong barcode/mã người bệnh và ô đếm barcode_counter.day lấy theo giờ máy
+        // (múi giờ của TimeProvider), không theo UTC: ở Việt Nam (UTC+7) từ 00:00 đến 06:59
+        // ngày UTC vẫn là hôm qua, nếu dùng UTC thì tem in sáng sớm mang ngày hôm trước.
+        var today = DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
 
         return await db.InTransactionAsync(async (connection, transaction) =>
         {
@@ -180,6 +183,7 @@ public sealed class OrderService(Db db, TimeProvider clock)
             return (existingId, code);
         }
 
+        // Mode không có ý nghĩa với mã người bệnh (BarcodeComposer không dùng tới) — chỉ điền cho đủ record.
         var patientBarcodeFormat = new BarcodeFormat(PatientCodePrefix, PatientCodeDatePattern, PatientCodeSeqDigits, SampleGrouper.Single);
         var seq = await NextSeqAsync(connection, transaction, PatientCodePrefix, today);
         var patientCode = BarcodeComposer.Compose(patientBarcodeFormat, today, seq);
@@ -213,17 +217,18 @@ public sealed class OrderService(Db db, TimeProvider clock)
     /// Tách các panel đã chọn ra thành dòng cha (<c>parent_item_id = null</c>) + một dòng con
     /// cho mỗi chỉ số con (<c>parent_item_id</c> trỏ về dòng cha). Dịch vụ đơn (không phải
     /// panel) là một dòng, vừa là "cha" (không có con) vừa là lá (được gom mẫu).
+    /// Kiểm tra trước bằng <see cref="ServiceSelectionValidator"/>: dịch vụ phải có trong danh
+    /// mục, không chọn trùng, gói phải có chỉ số con — nên bên dưới tra thẳng không cần kiểm lại.
     /// </summary>
     private static List<ItemRow> BuildItemRows(IReadOnlyList<Guid> serviceIds, IReadOnlyDictionary<Guid, ServiceInfo> servicesById)
     {
+        ServiceSelectionValidator.Validate(serviceIds, servicesById);
+
         var rows = new List<ItemRow>();
 
         foreach (var serviceId in serviceIds)
         {
-            if (!servicesById.TryGetValue(serviceId, out var service))
-            {
-                throw new InvalidOperationException("Dịch vụ không tồn tại trong danh mục");
-            }
+            var service = servicesById[serviceId];
 
             if (!service.IsPanel)
             {
