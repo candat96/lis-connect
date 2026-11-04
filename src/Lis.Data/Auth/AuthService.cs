@@ -17,6 +17,11 @@ public sealed class AuthService(Db db, PasswordHasher hasher, TimeProvider clock
     private const int MaxFailedAttempts = 5;
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(15);
 
+    // Hash hợp lệ về định dạng nhưng không khớp mật khẩu nào — dùng để giữ thời gian xử lý
+    // ổn định khi tên đăng nhập không tồn tại (xem LoginAsync).
+    private static readonly string DummyHashForTimingSafety =
+        $"argon2id$65536$3$1${Convert.ToBase64String(new byte[16])}${Convert.ToBase64String(new byte[32])}";
+
     public async Task<LoginResult> LoginAsync(string username, string password)
     {
         await using var connection = await db.OpenAsync();
@@ -31,6 +36,9 @@ public sealed class AuthService(Db db, PasswordHasher hasher, TimeProvider clock
 
         if (row is null)
         {
+            // Vẫn chạy một lần Verify với hash giả để thời gian xử lý giống trường hợp
+            // tài khoản có thật — tránh lộ thông tin "tên đăng nhập không tồn tại" qua thời gian phản hồi.
+            hasher.Verify(password, DummyHashForTimingSafety);
             return InvalidCredentialsResult();
         }
 
@@ -59,16 +67,28 @@ public sealed class AuthService(Db db, PasswordHasher hasher, TimeProvider clock
         return new LoginResult(true, "ok", "Đăng nhập thành công", user);
     }
 
+    /// <summary>
+    /// Tăng failed_count và (nếu tới ngưỡng) đặt locked_until nguyên tử trong một câu UPDATE —
+    /// tránh lost-update khi nhiều máy trạm đăng nhập sai cùng lúc (đọc-tăng-ghi ở C# không an toàn
+    /// với tương tranh; UPDATE ... RETURNING dựa trên giá trị cột hiện tại của Postgres mới an toàn).
+    /// </summary>
     private async Task<LoginResult> RecordFailureAndBuildResultAsync(NpgsqlConnection connection, LoginRow row, DateTimeOffset now)
     {
-        var failedCount = row.FailedCount + 1;
-        DateTimeOffset? lockedUntil = failedCount >= MaxFailedAttempts ? now + LockDuration : null;
+        var lockedUntilCandidate = now + LockDuration;
 
-        await connection.ExecuteAsync(
-            "UPDATE app_user SET failed_count = @failedCount, locked_until = @lockedUntil WHERE id = @id",
-            new { row.Id, failedCount, lockedUntil });
+        var updated = await connection.QuerySingleAsync<FailureUpdateRow>(
+            """
+            UPDATE app_user
+            SET failed_count = failed_count + 1,
+                locked_until = CASE WHEN failed_count + 1 >= @maxFailedAttempts THEN @lockedUntilCandidate ELSE locked_until END
+            WHERE id = @id
+            RETURNING failed_count, locked_until
+            """,
+            new { row.Id, maxFailedAttempts = MaxFailedAttempts, lockedUntilCandidate });
 
-        return lockedUntil is { } newLockedUntil ? LockedResult(newLockedUntil, now) : InvalidCredentialsResult();
+        return updated.FailedCount >= MaxFailedAttempts && updated.LockedUntil is { } lockedUntil
+            ? LockedResult(lockedUntil, now)
+            : InvalidCredentialsResult();
     }
 
     private static LoginResult InvalidCredentialsResult() =>
@@ -89,6 +109,12 @@ public sealed class AuthService(Db db, PasswordHasher hasher, TimeProvider clock
         public string PasswordHash { get; init; } = "";
         public string[] Roles { get; init; } = [];
         public bool Active { get; init; }
+        public int FailedCount { get; init; }
+        public DateTimeOffset? LockedUntil { get; init; }
+    }
+
+    private sealed record FailureUpdateRow
+    {
         public int FailedCount { get; init; }
         public DateTimeOffset? LockedUntil { get; init; }
     }

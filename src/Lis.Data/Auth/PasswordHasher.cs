@@ -18,6 +18,12 @@ public sealed class PasswordHasher
     private const int Iterations = 3;
     private const int DegreeOfParallelism = 1;
 
+    // Giới hạn hợp lý để chặn hash lưu bị hỏng/giả mạo (0, âm, hoặc quá lớn) trước khi đưa
+    // vào Argon2id — tránh ném lỗi hoặc tốn tài nguyên bất thường khi Verify một hash hỏng.
+    private const int MaxMemoryKib = 1024 * 1024; // 1 GB
+    private const int MaxIterations = 100;
+    private const int MaxDegreeOfParallelism = 64;
+
     /// <summary>
     /// Băm mật khẩu với salt ngẫu nhiên mới.
     /// </summary>
@@ -55,6 +61,13 @@ public sealed class PasswordHasher
             return false;
         }
 
+        if (memoryKib <= 0 || memoryKib > MaxMemoryKib ||
+            iterations <= 0 || iterations > MaxIterations ||
+            degreeOfParallelism <= 0 || degreeOfParallelism > MaxDegreeOfParallelism)
+        {
+            return false;
+        }
+
         byte[] salt;
         byte[] expected;
         try
@@ -67,8 +80,22 @@ public sealed class PasswordHasher
             return false;
         }
 
-        var actual = ComputeHash(password, salt, memoryKib, iterations, degreeOfParallelism);
-        return CryptographicOperations.FixedTimeEquals(actual, expected);
+        if (salt.Length == 0 || expected.Length == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var actual = ComputeHash(password, salt, memoryKib, iterations, degreeOfParallelism);
+            return CryptographicOperations.FixedTimeEquals(actual, expected);
+        }
+        catch (Exception)
+        {
+            // Hash lưu có tham số hợp lệ về khoảng giá trị nhưng Argon2id vẫn có thể từ chối
+            // (vd salt quá ngắn) — xử lý như mật khẩu không khớp, không để lộ ngoại lệ.
+            return false;
+        }
     }
 
     private static byte[] ComputeHash(string password, byte[] salt, int memoryKib, int iterations, int degreeOfParallelism)

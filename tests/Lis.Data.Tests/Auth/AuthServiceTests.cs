@@ -109,4 +109,79 @@ public class AuthServiceTests(PostgresFixture fixture)
         resultAfterLockExpires.Ok.ShouldBeTrue();
         resultAfterLockExpires.Code.ShouldBe("ok");
     }
+
+    [Fact]
+    public async Task Login_ConcurrentFailures_StillLockAfterFive()
+    {
+        var connectionString = await fixture.NewDatabaseAsync();
+        var db = Db.Create(connectionString);
+        var store = new UserStore(db);
+        var user = await store.CreateAsync("ktv-dong-thoi", "Nguyễn Văn Thử", null, ValidPassword, [Roles.KyThuatVien]);
+
+        var clock = new FakeTimeProvider();
+        var service = new AuthService(db, new PasswordHasher(), clock);
+
+        var concurrentFailures = Enumerable.Range(0, 10)
+            .Select(_ => service.LoginAsync(user.Username, "sai-mat-khau"));
+        await Task.WhenAll(concurrentFailures);
+
+        var resultWithCorrectPassword = await service.LoginAsync(user.Username, ValidPassword);
+        resultWithCorrectPassword.Ok.ShouldBeFalse();
+        resultWithCorrectPassword.Code.ShouldBe("khoa");
+    }
+
+    [Fact]
+    public void Verify_MalformedHash_ReturnsFalse()
+    {
+        var hasher = new PasswordHasher();
+        var salt = Convert.ToBase64String(new byte[16]);
+        var digest = Convert.ToBase64String(new byte[32]);
+
+        string[] malformedHashes =
+        [
+            "khong-dung-dinh-dang",
+            $"argon2id$abc$3$1${salt}${digest}",
+            $"argon2id$0$3$1${salt}${digest}",
+            $"argon2id$65536$3$-1${salt}${digest}",
+            $"argon2id$65536$3$1$khong-phai-base64!!!${digest}",
+        ];
+
+        foreach (var malformedHash in malformedHashes)
+        {
+            hasher.Verify(ValidPassword, malformedHash).ShouldBeFalse();
+        }
+    }
+
+    [Fact]
+    public async Task Create_MultipleRoles_RoundTrip()
+    {
+        var connectionString = await fixture.NewDatabaseAsync();
+        var db = Db.Create(connectionString);
+        var store = new UserStore(db);
+        IReadOnlyList<string> roles = [Roles.QuanTri, Roles.TruongKhoa];
+        var user = await store.CreateAsync("quan-tri-truong-khoa", "Nguyễn Văn Thử", null, ValidPassword, roles);
+
+        var listed = await store.ListAsync();
+        var listedUser = listed.Single(u => u.Id == user.Id);
+        listedUser.Roles.ShouldBe(roles);
+
+        var service = new AuthService(db, new PasswordHasher(), new FakeTimeProvider());
+        var loginResult = await service.LoginAsync(user.Username, ValidPassword);
+        loginResult.Ok.ShouldBeTrue();
+        loginResult.User.ShouldNotBeNull();
+        loginResult.User.Roles.ShouldBe(roles);
+    }
+
+    [Fact]
+    public async Task Create_DuplicateUsername_FriendlyError()
+    {
+        var connectionString = await fixture.NewDatabaseAsync();
+        var store = new UserStore(Db.Create(connectionString));
+        await store.CreateAsync("ktv-trung", "Nguyễn Văn Thử", null, ValidPassword, [Roles.KyThuatVien]);
+
+        var exception = await Should.ThrowAsync<InvalidOperationException>(() =>
+            store.CreateAsync("ktv-trung", "Nguyễn Văn Thử Hai", null, ValidPassword, [Roles.KyThuatVien]));
+
+        exception.Message.ShouldBe("Tên đăng nhập đã tồn tại");
+    }
 }

@@ -1,4 +1,5 @@
 using Dapper;
+using Npgsql;
 
 namespace Lis.Data.Auth;
 
@@ -33,15 +34,22 @@ public sealed class UserStore(Db db)
         var rolesArray = roles.ToArray();
 
         await using var connection = await db.OpenAsync();
-        var row = await connection.QuerySingleAsync<UserRow>(
-            """
-            INSERT INTO app_user (username, full_name, title, password_hash, roles)
-            VALUES (@username, @fullName, @title, @passwordHash, @rolesArray)
-            RETURNING id, username, full_name, title, roles, active
-            """,
-            new { username, fullName, title, passwordHash, rolesArray });
+        try
+        {
+            var row = await connection.QuerySingleAsync<UserRow>(
+                """
+                INSERT INTO app_user (username, full_name, title, password_hash, roles)
+                VALUES (@username, @fullName, @title, @passwordHash, @rolesArray)
+                RETURNING id, username, full_name, title, roles, active
+                """,
+                new { username, fullName, title, passwordHash, rolesArray });
 
-        return row.ToUserInfo();
+            return row.ToUserInfo();
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new InvalidOperationException("Tên đăng nhập đã tồn tại", ex);
+        }
     }
 
     public async Task UpdateAsync(Guid id, string fullName, string? title, IReadOnlyList<string> roles, bool active, string? newPassword)
