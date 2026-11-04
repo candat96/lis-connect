@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lis.Core;
 using Lis.Core.Results;
 
 namespace Lis.App.ViewModels.Catalog;
@@ -166,6 +167,11 @@ public partial class ReferenceRangeRowViewModel : ObservableObject
         ParseDecimal(CriticalHighText, rowNumber, "nguy hiểm cao", errors),
         string.IsNullOrWhiteSpace(TextRange) ? null : TextRange);
 
+    /// <summary>
+    /// Parse ô số thập phân qua <see cref="DecimalInput"/> — chấp nhận dấu phẩy hoặc dấu chấm
+    /// làm dấu thập phân, không đoán ý dấu phân cách hàng nghìn (vd "130,5" hay "130.5" đều
+    /// thành 130.5; "1.234,5" là sai, không lặng lẽ thành 1234.5).
+    /// </summary>
     private static decimal? ParseDecimal(string? text, int rowNumber, string fieldLabel, List<string> errors)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -173,7 +179,7 @@ public partial class ReferenceRangeRowViewModel : ObservableObject
             return null;
         }
 
-        if (decimal.TryParse(text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
+        if (DecimalInput.TryParse(text, out var value))
         {
             return value;
         }
