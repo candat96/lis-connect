@@ -27,12 +27,24 @@ public sealed record CreatedSample(Guid SampleId, string Barcode, string Specime
 public sealed record OrderCreated(Guid OrderId, Guid PatientId, string PatientCode, IReadOnlyList<CreatedSample> Samples);
 
 /// <summary>
+/// Nghiệp vụ chỉ định mà màn Tiếp nhận cần: tìm người bệnh và tạo chỉ định. Cài đặt thật là
+/// <see cref="OrderService"/>; kiểm thử ViewModel dùng bản giả.
+/// </summary>
+public interface IOrderService
+{
+    /// <summary>Tìm người bệnh theo mã, họ tên hoặc số điện thoại — dùng cho gợi ý ở màn Tiếp nhận.</summary>
+    Task<IReadOnlyList<PatientHit>> FindPatientsAsync(string query);
+
+    Task<OrderCreated> CreateAsync(NewOrder order, Guid actorId);
+}
+
+/// <summary>
 /// Tạo chỉ định xét nghiệm: tạo người bệnh mới nếu cần, tách panel ra chỉ số con, gom mẫu
 /// theo loại mẫu bệnh phẩm (hoặc một mẫu duy nhất, theo <c>facility.barcode_mode</c>) và cấp
 /// barcode — tất cả trong một giao dịch, để hai máy trạm tạo chỉ định cùng lúc không bao giờ
 /// trùng barcode hay mã người bệnh (xem <see cref="NextSeqAsync"/>).
 /// </summary>
-public sealed class OrderService(Db db, TimeProvider clock)
+public sealed class OrderService(Db db, TimeProvider clock) : IOrderService
 {
     private const string PatientCodePrefix = "BN";
     private const string PatientCodeDatePattern = "yyMMdd";
@@ -42,7 +54,6 @@ public sealed class OrderService(Db db, TimeProvider clock)
     private readonly FacilityStore _facility = new(db);
     private readonly PatientStore _patients = new(db);
 
-    /// <summary>Tìm người bệnh theo mã, họ tên hoặc số điện thoại — dùng cho gợi ý ở màn Tiếp nhận.</summary>
     public Task<IReadOnlyList<PatientHit>> FindPatientsAsync(string query) => _patients.FindAsync(query);
 
     public async Task<OrderCreated> CreateAsync(NewOrder order, Guid actorId)

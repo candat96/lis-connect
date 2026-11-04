@@ -28,7 +28,7 @@ public sealed class NavItem(string label, Permission permission)
 public partial class MainViewModel : ObservableObject
 {
     public MainViewModel(
-        CurrentUser currentUser, CatalogStore catalogStore, OrderService orders, FacilityStore facility, ILabelPrinter labelPrinter,
+        CurrentUser currentUser, CatalogStore catalogStore, IOrderService orders, FacilityStore facility, ILabelPrinter labelPrinter,
         ISettingStore settings, IPrintService printService)
     {
         CurrentUser = currentUser;

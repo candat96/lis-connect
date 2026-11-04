@@ -1,7 +1,9 @@
 using Lis.App.ViewModels.Settings;
 using Lis.Data.Settings;
 using Lis.Reports.Printing;
+using Microsoft.Extensions.Time.Testing;
 using Shouldly;
+using UglyToad.PdfPig;
 using Xunit;
 
 namespace Lis.App.Tests;
@@ -81,9 +83,25 @@ public class PrinterSettingsViewModelTests
 
         viewModel.HasPrinters.ShouldBeFalse();
         viewModel.LabelPrinter.ShouldBe("Máy in tem cũ");
-        viewModel.PrinterListHint.ShouldBe("Không liệt kê được máy in trên hệ này");
+        viewModel.PrinterListHint.ShouldStartWith("Không liệt kê được máy in trên hệ này");
         viewModel.LabelWidthText.ShouldBe("40");
         viewModel.LabelHeightText.ShouldBe("20");
+    }
+
+    [Fact]
+    public async Task Load_SavedPrinterMissingFromList_IsStillSelected()
+    {
+        var viewModel = CreateViewModel(out var settings, out var printService);
+        printService.InstalledPrinters = ["HP LaserJet Thử"];
+        settings.Values[SettingKeys.LabelPrinter] = "Xprinter đã tháo";
+
+        await viewModel.LoadAsync();
+
+        viewModel.Printers.ShouldBe(["HP LaserJet Thử", "Xprinter đã tháo"]);
+        viewModel.LabelPrinter.ShouldBe("Xprinter đã tháo");
+
+        await viewModel.SaveCommand.ExecuteAsync(null);
+        settings.Values[SettingKeys.LabelPrinter].ShouldBe("Xprinter đã tháo");
     }
 
     [Fact]
@@ -111,6 +129,8 @@ public class PrinterSettingsViewModelTests
     [InlineData("abc", "25", "Chiều rộng tem phải là số lớn hơn 0 (mm)")]
     [InlineData("50", "-1", "Chiều cao tem phải là số lớn hơn 0 (mm)")]
     [InlineData("50", "", "Chiều cao tem phải là số lớn hơn 0 (mm)")]
+    [InlineData("9", "25", "Khổ tem phải từ 10 đến 300 mm")]
+    [InlineData("50", "301", "Khổ tem phải từ 10 đến 300 mm")]
     public async Task Save_InvalidLabelSize_SetsErrorAndDoesNotWrite(string width, string height, string expectedError)
     {
         var viewModel = CreateViewModel(out var settings, out _);
@@ -127,9 +147,14 @@ public class PrinterSettingsViewModelTests
     }
 
     [Fact]
-    public async Task PrintTestLabel_SendsOnePageToLabelPrinter()
+    public async Task PrintTestLabel_SendsOnePageToLabelPrinter_WithTodayLocalDate()
     {
-        var viewModel = CreateViewModel(out _, out var printService);
+        var settings = new InMemorySettingStore();
+        var printService = new FakePrintService();
+        // 23:30 UTC ngày 03/11 = 06:30 ngày 04/11 giờ Việt Nam — tem thử phải ghi ngày theo giờ máy.
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 3, 23, 30, 0, TimeSpan.Zero));
+        clock.SetLocalTimeZone(TimeZoneInfo.CreateCustomTimeZone("VN", TimeSpan.FromHours(7), "VN", "VN"));
+        var viewModel = new PrinterSettingsViewModel(settings, printService, clock);
         await viewModel.LoadAsync();
         viewModel.LabelPrinter = "Xprinter XP-350B";
 
@@ -139,7 +164,10 @@ public class PrinterSettingsViewModelTests
         viewModel.SuccessMessage.ShouldBe("Đã gửi tem thử tới máy in");
         var (pdf, printerName) = printService.Printed.ShouldHaveSingleItem();
         printerName.ShouldBe("Xprinter XP-350B");
-        pdf.Length.ShouldBeGreaterThan(0);
+
+        using var document = PdfDocument.Open(pdf);
+        document.NumberOfPages.ShouldBe(1);
+        document.GetPage(1).Text.ShouldContain("04/11/2026");
     }
 
     [Fact]

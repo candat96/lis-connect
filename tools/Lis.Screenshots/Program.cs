@@ -116,7 +116,7 @@ internal static class Program
         var unusedDb = Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused");
         var user = new UserInfo(Guid.NewGuid(), "ktv.thu", "Nguyễn Văn Thử", "Kỹ thuật viên trưởng", [Roles.QuanTri], true);
         var catalogStore = new CatalogStore(unusedDb);
-        var orders = new OrderService(unusedDb, TimeProvider.System);
+        var orders = new UnusedOrderService();
         var facilityStore = new FacilityStore(unusedDb);
         var viewModel = new MainViewModel(
             new CurrentUser(user), catalogStore, orders, facilityStore, new UnusedLabelPrinter(), new UnusedSettingStore(), new FakePrintService());
@@ -174,7 +174,7 @@ internal static class Program
     private static Window CreateReceptionWindow()
     {
         var unusedDb = Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused");
-        var orders = new OrderService(unusedDb, TimeProvider.System);
+        var orders = new UnusedOrderService();
         var catalogStore = new CatalogStore(unusedDb);
         var facilityStore = new FacilityStore(unusedDb);
         var user = new UserInfo(Guid.NewGuid(), "tiepnhan.thu", "Lê Thị Thử", "Tiếp nhận", [Roles.TiepNhan], true);
@@ -352,6 +352,16 @@ internal static class Program
 
         public Task CreateFirstAdminAsync(DbSettings settings, string username, string fullName, string password) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+    }
+
+    /// <summary>IOrderService giả — các màn chụp ảnh không tìm người bệnh/tạo chỉ định thật.</summary>
+    private sealed class UnusedOrderService : IOrderService
+    {
+        public Task<IReadOnlyList<PatientHit>> FindPatientsAsync(string query) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không tìm người bệnh thật.");
+
+        public Task<OrderCreated> CreateAsync(NewOrder order, Guid actorId) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không tạo chỉ định thật.");
     }
 
     /// <summary>ILabelPrinter giả — các màn chụp ảnh không in tem.</summary>

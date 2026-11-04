@@ -43,7 +43,7 @@ public sealed class AppServices
 
     public CatalogStore Catalog { get; }
 
-    public OrderService Orders { get; }
+    public IOrderService Orders { get; }
 
     public ISettingStore Settings { get; }
 

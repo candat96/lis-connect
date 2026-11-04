@@ -79,10 +79,13 @@ public class LabelPdfTests
     [Fact]
     public void Code128_DecodesBack()
     {
-        var modules = Code128Renderer.Modules(SampleBarcode);
-        modules.Length.ShouldBeGreaterThan(0);
+        // Hình học vạch lấy từ đúng bước sản xuất (Code128Renderer.Bars) rồi raster hóa ở tỉ lệ 10 px/đơn vị.
+        const double widthUnits = 60;
+        var bars = Code128Renderer.Bars(SampleBarcode, widthUnits);
+        bars.ShouldNotBeEmpty();
+        bars.All(b => b.X >= 0 && b.X + b.Width <= widthUnits).ShouldBeTrue();
 
-        var png = RenderModulesToPng(modules, moduleWidth: 4, height: 80, quietZone: 40);
+        var png = RenderBarsToPng(bars, widthUnits, scale: 10, height: 80);
 
         Decode(SKBitmap.Decode(png)).ShouldBe(SampleBarcode);
     }
@@ -123,20 +126,17 @@ public class LabelPdfTests
         new LabelSize(40.5, 20).ToSetting().ShouldBe("40.5x20");
     }
 
-    private static byte[] RenderModulesToPng(bool[] modules, int moduleWidth, int height, int quietZone)
+    private static byte[] RenderBarsToPng(IReadOnlyList<Bar> bars, double widthUnits, double scale, int height)
     {
-        var width = modules.Length * moduleWidth + quietZone * 2;
+        var width = (int)Math.Ceiling(widthUnits * scale);
         using var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
         using var canvas = new SKCanvas(bitmap);
         canvas.Clear(SKColors.White);
 
         using var paint = new SKPaint { Color = SKColors.Black, IsAntialias = false };
-        for (var i = 0; i < modules.Length; i++)
+        foreach (var bar in bars)
         {
-            if (modules[i])
-            {
-                canvas.DrawRect(quietZone + i * moduleWidth, 0, moduleWidth, height, paint);
-            }
+            canvas.DrawRect((float)(bar.X * scale), 0, (float)(bar.Width * scale), height, paint);
         }
 
         using var image = SKImage.FromBitmap(bitmap);

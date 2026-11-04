@@ -14,8 +14,14 @@ namespace Lis.App.ViewModels.Settings;
 /// (<see cref="SettingKeys.LabelSize"/>) và nút "In tem thử". Trên hệ không liệt kê được máy in
 /// (macOS/Linux) thì hiện ô nhập tên máy in thay cho danh sách chọn.
 /// </summary>
-public partial class PrinterSettingsViewModel(ISettingStore settings, IPrintService printService) : ObservableObject
+public partial class PrinterSettingsViewModel(ISettingStore settings, IPrintService printService, TimeProvider? clock = null) : ObservableObject
 {
+    /// <summary>Khổ tem hợp lệ (mm) cho mỗi cạnh — ngoài khoảng này gần như chắc là gõ nhầm đơn vị.</summary>
+    public const double MinLabelSideMm = 10;
+    public const double MaxLabelSideMm = 300;
+
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+
     /// <summary>Tem thử in từ nút "In tem thử" — dữ liệu giả theo quy ước (họ tên chứa "Mẫu").</summary>
     public static LabelData TestLabel(DateOnly day) => new("9261104001", "Nguyễn Văn Mẫu", 1980, 'M', "Máu EDTA", day);
 
@@ -46,18 +52,26 @@ public partial class PrinterSettingsViewModel(ISettingStore settings, IPrintServ
 
     public bool HasPrinters => Printers.Count > 0;
 
-    public string PrinterListHint => "Không liệt kê được máy in trên hệ này";
+    public string PrinterListHint =>
+        "Không liệt kê được máy in trên hệ này — tem và phiếu sẽ mở bằng ứng dụng xem PDF thay vì in";
 
-    /// <summary>Nạp danh sách máy in và giá trị đã lưu — gọi một lần khi mở màn Cài đặt.</summary>
+    /// <summary>
+    /// Nạp danh sách máy in và giá trị đã lưu — gọi một lần khi mở màn Cài đặt. Tên máy in đã
+    /// lưu mà không còn trong danh sách vẫn được thêm vào, để ComboBox giữ lựa chọn thay vì
+    /// đưa về trống (lần "Lưu" sau sẽ xóa mất cài đặt).
+    /// </summary>
     public async Task LoadAsync()
     {
         try
         {
             ErrorMessage = null;
-            Printers = printService.Printers();
+
+            // Liệt kê máy in có thể chậm (hỏi driver/spooler) — không chạy trên luồng giao diện.
+            var printers = await Task.Run(printService.Printers);
 
             LabelPrinter = await settings.GetAsync(SettingKeys.LabelPrinter);
             ReportPrinter = await settings.GetAsync(SettingKeys.ReportPrinter);
+            Printers = WithSavedPrinters(printers, LabelPrinter, ReportPrinter);
 
             var size = LabelSize.FromSetting(await settings.GetAsync(SettingKeys.LabelSize));
             LabelWidthText = FormatMm(size.WidthMm);
@@ -115,7 +129,7 @@ public partial class PrinterSettingsViewModel(ISettingStore settings, IPrintServ
         IsBusy = true;
         try
         {
-            var pdf = LabelPdf.Render([TestLabel(DateOnly.FromDateTime(DateTime.Now))], size);
+            var pdf = LabelPdf.Render([TestLabel(DateOnly.FromDateTime(_clock.GetLocalNow().DateTime))], size);
             await printService.PrintAsync(pdf, NullIfBlank(LabelPrinter));
             SuccessMessage = "Đã gửi tem thử tới máy in";
         }
@@ -145,9 +159,36 @@ public partial class PrinterSettingsViewModel(ISettingStore settings, IPrintServ
             return false;
         }
 
+        if (!IsSaneSide(width) || !IsSaneSide(height))
+        {
+            error = $"Khổ tem phải từ {MinLabelSideMm:0} đến {MaxLabelSideMm:0} mm";
+            return false;
+        }
+
         size = new LabelSize((double)width, (double)height);
         error = null;
         return true;
+    }
+
+    private static bool IsSaneSide(decimal mm) => mm >= (decimal)MinLabelSideMm && mm <= (decimal)MaxLabelSideMm;
+
+    private static IReadOnlyList<string> WithSavedPrinters(IReadOnlyList<string> printers, params string?[] saved)
+    {
+        if (printers.Count == 0)
+        {
+            return printers;
+        }
+
+        var list = printers.ToList();
+        foreach (var name in saved)
+        {
+            if (!string.IsNullOrWhiteSpace(name) && !list.Contains(name))
+            {
+                list.Add(name);
+            }
+        }
+
+        return list;
     }
 
     private static string? NullIfBlank(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();

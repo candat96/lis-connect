@@ -20,7 +20,7 @@ namespace Lis.App.ViewModels.Reception;
 /// </summary>
 public partial class ReceptionViewModel : ObservableObject
 {
-    private readonly OrderService _orders;
+    private readonly IOrderService _orders;
     private readonly CatalogStore _catalog;
     private readonly FacilityStore _facility;
     private readonly CurrentUser _currentUser;
@@ -33,7 +33,7 @@ public partial class ReceptionViewModel : ObservableObject
     private string _barcodeMode = SampleGrouper.PerSpecimen;
 
     public ReceptionViewModel(
-        OrderService orders, CatalogStore catalog, FacilityStore facility, CurrentUser currentUser, ILabelPrinter printer,
+        IOrderService orders, CatalogStore catalog, FacilityStore facility, CurrentUser currentUser, ILabelPrinter printer,
         TimeProvider? clock = null)
     {
         _orders = orders;
@@ -381,6 +381,11 @@ public partial class ReceptionViewModel : ObservableObject
             {
                 ErrorMessage = $"Đã lưu chỉ định nhưng in tem lỗi: {ex.Message}";
             }
+        }
+        catch (Exception ex)
+        {
+            // Lỗi ngoài hai bước trên (dựng tem, đặt lại form) — không để thoát khỏi lệnh async.
+            ErrorMessage = $"Lưu chỉ định gặp lỗi: {ex.Message}";
         }
         finally
         {
