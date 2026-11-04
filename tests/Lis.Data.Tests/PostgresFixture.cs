@@ -68,9 +68,13 @@ public sealed class PostgresFixture : IAsyncLifetime
             await command.ExecuteNonQueryAsync();
         }
 
+        // Mỗi test tạo một Db (một pool kết nối) riêng và không bao giờ dispose; kết nối nhàn rỗi
+        // trong pool giữ mở tới hết tiến trình, cộng dồn qua hàng chục test là vượt
+        // max_connections (100) của container. Tắt pool để kết nối đóng thật khi trả về.
         var connectionStringBuilder = new NpgsqlConnectionStringBuilder(adminConnectionString)
         {
             Database = databaseName,
+            Pooling = false,
         };
         return connectionStringBuilder.ConnectionString;
     }

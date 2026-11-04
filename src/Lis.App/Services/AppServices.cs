@@ -5,6 +5,7 @@ using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Local;
 using Lis.Data.Orders;
+using Lis.Data.Results;
 using Lis.Data.Settings;
 using Lis.Reports.Printing;
 
@@ -13,7 +14,7 @@ namespace Lis.App.Services;
 /// <summary>
 /// Các service của ứng dụng giao diện, khởi tạo từ <see cref="LocalConfig"/> đã lưu trên máy trạm:
 /// kết nối CSDL (<see cref="Db"/>) và các store/service dùng chung (tài khoản, đăng nhập, cơ sở,
-/// cài đặt, in ấn).
+/// cài đặt, in ấn, kết quả).
 /// </summary>
 public sealed class AppServices
 {
@@ -29,6 +30,8 @@ public sealed class AppServices
         Settings = new SettingStore(Db);
         PrintService = new PdfPrintService();
         LabelPrinter = new LabelPrinter(Settings, PrintService);
+        Results = new ResultService(Db, TimeProvider.System);
+        ReportPrinter = new NoOpReportPrinter();
     }
 
     public LocalConfig Config { get; }
@@ -50,6 +53,11 @@ public sealed class AppServices
     public IPrintService PrintService { get; }
 
     public ILabelPrinter LabelPrinter { get; }
+
+    public IResultService Results { get; }
+
+    /// <summary>In phiếu kết quả — bản chưa in gì cho tới Task 12 (xem <see cref="IReportPrinter"/>).</summary>
+    public IReportPrinter ReportPrinter { get; }
 
     /// <summary>
     /// Cập nhật máy trạm (<c>workstation.last_seen_at</c>) ngay sau khi đăng nhập thành công.

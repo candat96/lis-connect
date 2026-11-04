@@ -20,6 +20,13 @@
       <Color x:Key="ColorSuccess">#15803D</Color>
       <Color x:Key="ColorNavSelected">#E8EFFD</Color>
 
+      <!-- Màu cờ kết quả (màn Kết quả): cao, thấp, nguy hiểm, bất thường (định tính). -->
+      <Color x:Key="ColorFlagHigh">#B45309</Color>
+      <Color x:Key="ColorFlagLow">#1D4ED8</Color>
+      <Color x:Key="ColorFlagCritical">#B91C1C</Color>
+      <Color x:Key="ColorFlagAbnormal">#7E22CE</Color>
+      <Color x:Key="ColorPanelRow">#EEF2F7</Color>
+
       <SolidColorBrush x:Key="BrushPrimary" Color="{StaticResource ColorPrimary}" />
       <SolidColorBrush x:Key="BrushPrimaryHover" Color="{StaticResource ColorPrimaryHover}" />
       <SolidColorBrush x:Key="BrushBackground" Color="{StaticResource ColorBackground}" />
@@ -30,6 +37,11 @@
       <SolidColorBrush x:Key="BrushDanger" Color="{StaticResource ColorDanger}" />
       <SolidColorBrush x:Key="BrushSuccess" Color="{StaticResource ColorSuccess}" />
       <SolidColorBrush x:Key="BrushNavSelected" Color="{StaticResource ColorNavSelected}" />
+      <SolidColorBrush x:Key="BrushFlagHigh" Color="{StaticResource ColorFlagHigh}" />
+      <SolidColorBrush x:Key="BrushFlagLow" Color="{StaticResource ColorFlagLow}" />
+      <SolidColorBrush x:Key="BrushFlagCritical" Color="{StaticResource ColorFlagCritical}" />
+      <SolidColorBrush x:Key="BrushFlagAbnormal" Color="{StaticResource ColorFlagAbnormal}" />
+      <SolidColorBrush x:Key="BrushPanelRow" Color="{StaticResource ColorPanelRow}" />
 
       <x:Double x:Key="SpacingSmall">8</x:Double>
       <x:Double x:Key="SpacingMedium">16</x:Double>
@@ -79,6 +91,27 @@
 
   <Style Selector="TextBlock.success">
     <Setter Property="Foreground" Value="{StaticResource BrushSuccess}" />
+  </Style>
+
+  <!-- Cờ kết quả trên bảng chỉ số (màn Kết quả) — gắn class theo cờ, màu lấy từ bảng màu ở trên. -->
+  <Style Selector="TextBlock.flagHigh">
+    <Setter Property="Foreground" Value="{StaticResource BrushFlagHigh}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="TextBlock.flagLow">
+    <Setter Property="Foreground" Value="{StaticResource BrushFlagLow}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="TextBlock.flagCritical">
+    <Setter Property="Foreground" Value="{StaticResource BrushFlagCritical}" />
+    <Setter Property="FontWeight" Value="Bold" />
+  </Style>
+
+  <Style Selector="TextBlock.flagAbnormal">
+    <Setter Property="Foreground" Value="{StaticResource BrushFlagAbnormal}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
 
   <Style Selector="TextBox, NumericUpDown">

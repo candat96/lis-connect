@@ -9,10 +9,12 @@ using Lis.App.Services;
 using Lis.App.ViewModels;
 using Lis.App.ViewModels.Catalog;
 using Lis.App.ViewModels.Reception;
+using Lis.App.ViewModels.Results;
 using Lis.App.ViewModels.Settings;
 using Lis.App.Views;
 using Lis.App.Views.Catalog;
 using Lis.App.Views.Reception;
+using Lis.App.Views.Results;
 using Lis.App.Views.Settings;
 using Lis.Core.Auth;
 using Lis.Data;
@@ -21,6 +23,9 @@ using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Local;
 using Lis.Data.Orders;
+using Lis.Core.Patients;
+using Lis.Core.Results;
+using Lis.Data.Results;
 using Lis.Data.Settings;
 using Lis.Data.Setup;
 using Lis.Reports.Labels;
@@ -64,6 +69,7 @@ internal static class Program
 
         Capture(outputDirectory, "08-tiep-nhan-sau-khi-luu.png", CreateReceptionWindow());
         Capture(outputDirectory, "09-cai-dat-may-in.png", CreatePrinterSettingsWindow());
+        Capture(outputDirectory, "10-ket-qua.png", CreateResultsWindow());
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
 
@@ -119,8 +125,59 @@ internal static class Program
         var orders = new UnusedOrderService();
         var facilityStore = new FacilityStore(unusedDb);
         var viewModel = new MainViewModel(
-            new CurrentUser(user), catalogStore, orders, facilityStore, new UnusedLabelPrinter(), new UnusedSettingStore(), new FakePrintService());
+            new CurrentUser(user), catalogStore, orders, facilityStore, new UnusedLabelPrinter(), new UnusedSettingStore(), new FakePrintService(),
+            new SeededResultService(null, []), new NoOpReportPrinter());
         return new MainWindow { DataContext = viewModel };
+    }
+
+    /// <summary>
+    /// Màn Kết quả với dữ liệu giả: ba mẫu trong danh sách (một chờ kết quả, một chờ duyệt có
+    /// chỉ số bất thường, một đã duyệt), mẫu đang chọn của "Nguyễn Văn Mẫu" gồm panel Tổng
+    /// phân tích tế bào máu (WBC cao, RBC thấp, HGB bình thường) và Glucose. Dữ liệu đi qua
+    /// <see cref="SeededResultService"/> nên chọn mẫu trong danh sách nạp đúng bảng chỉ số
+    /// mà không cần CSDL.
+    /// </summary>
+    private static Window CreateResultsWindow()
+    {
+        var sampleId = Guid.NewGuid();
+        var orderedAt = new DateTimeOffset(2026, 11, 4, 7, 45, 0, TimeSpan.FromHours(7));
+
+        var panelItemId = Guid.NewGuid();
+        var rows = new List<ResultRow>
+        {
+            new(panelItemId, null, Guid.NewGuid(), "TPTTBM", "Tổng phân tích tế bào máu", true, 0, null, null, null, ResultFlag.None, null, null, null),
+            new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "WBC", "Bạch cầu", false, 1, "12.50", "G/L", "4.00 – 10.00", ResultFlag.High, "cho-duyet", null, "may"),
+            new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "RBC", "Hồng cầu", false, 1, "3.80", "T/L", "4.20 – 5.90", ResultFlag.Low, "cho-duyet", null, "may"),
+            new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "HGB", "Huyết sắc tố", false, 1, "142", "g/L", "130 – 170", ResultFlag.None, "cho-duyet", null, "may"),
+            new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "GLU", "Glucose", false, 0, "5.6", "mmol/L", "3.9 – 6.4", ResultFlag.None, "cho-duyet", null, "tay"),
+        };
+
+        var sample = new SampleResults(
+            sampleId, "9261104001", "Nguyễn Văn Mẫu", "BN2611040007", new PatientFacts('M', new DateOnly(1990, 5, 1), null),
+            null, null, rows);
+
+        var items = new List<SampleListItem>
+        {
+            new(Guid.NewGuid(), "9261104003", "Lê Thị Mẫu", orderedAt.AddMinutes(40), "Huyết thanh (hóa sinh, miễn dịch)", 3, 1, false, false, false),
+            new(sampleId, "9261104001", "Nguyễn Văn Mẫu", orderedAt, "Máu EDTA (huyết học)", 4, 4, false, true, false),
+            new(Guid.NewGuid(), "9261104002", "Trần Văn Mẫu", orderedAt.AddMinutes(-30), "Máu EDTA (huyết học)", 3, 3, true, false, false),
+        };
+
+        var user = new UserInfo(Guid.NewGuid(), "ktv.thu", "Nguyễn Văn Thử", "Kỹ thuật viên", [Roles.TruongKhoa], true);
+        var viewModel = new ResultsViewModel(new SeededResultService(sample, items), new CurrentUser(user), new NoOpReportPrinter());
+
+        viewModel.LoadAsync().GetAwaiter().GetResult();
+        viewModel.SelectedSample = viewModel.Samples.First(s => s.SampleId == sampleId);
+
+        var view = new ResultsView { DataContext = viewModel };
+
+        return new Window
+        {
+            Title = "LIS Connect — Kết quả",
+            Width = 1360,
+            Height = 820,
+            Content = view,
+        };
     }
 
     /// <summary>
@@ -362,6 +419,34 @@ internal static class Program
 
         public Task<OrderCreated> CreateAsync(NewOrder order, Guid actorId) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh, không tạo chỉ định thật.");
+    }
+
+    /// <summary>IResultService giả: trả danh sách mẫu và một mẫu đã dựng sẵn; không ghi gì.</summary>
+    private sealed class SeededResultService(SampleResults? sample, IReadOnlyList<SampleListItem> items) : IResultService
+    {
+        public Task<IReadOnlyList<SampleListItem>> ListAsync(DateOnly from, DateOnly to, string? status, string? query) =>
+            Task.FromResult(items);
+
+        public Task<SampleResults> GetAsync(Guid sampleId) =>
+            Task.FromResult(sample ?? throw new NotSupportedException("Chỉ dùng để chụp ảnh."));
+
+        public Task SetManualAsync(Guid orderItemId, string value, Guid actorId, string? reason) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không ghi kết quả thật.");
+
+        public Task ApproveAsync(Guid sampleId, Guid actorId) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task UnapproveAsync(Guid sampleId, Guid actorId, string reason) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task AcceptPendingAsync(Guid resultId, Guid actorId) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task RejectPendingAsync(Guid resultId, Guid actorId) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task<bool> TryAutoApproveAsync(Guid sampleId) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
     }
 
     /// <summary>ILabelPrinter giả — các màn chụp ảnh không in tem.</summary>

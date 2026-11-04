@@ -1,0 +1,162 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Results"
+             x:Class="Lis.App.Views.Results.ResultsView"
+             x:DataType="vm:ResultsViewModel">
+
+    <UserControl.Styles>
+        <!-- Dòng cha (panel) trên bảng chỉ số: nền nhạt, tên in đậm. -->
+        <Style Selector="Border.panelRow">
+            <Setter Property="Background" Value="{StaticResource BrushPanelRow}" />
+        </Style>
+        <Style Selector="TextBlock.panelHeader">
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid ColumnDefinitions="360,*" ColumnSpacing="16">
+
+        <!-- Trái: danh sách mẫu + bộ lọc -->
+        <Grid Grid.Column="0" RowDefinitions="Auto,Auto,Auto,*">
+
+            <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,8">
+                <TextBlock Classes="label" Text="Ngày chỉ định (dd/MM/yyyy)" />
+                <Grid ColumnDefinitions="*,Auto,*" ColumnSpacing="4">
+                    <TextBox Grid.Column="0" Text="{Binding FromText}" />
+                    <TextBlock Grid.Column="1" Text="–" VerticalAlignment="Center" Classes="muted" />
+                    <TextBox Grid.Column="2" Text="{Binding ToText}" />
+                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <Button Content="Hôm nay" Command="{Binding ShowTodayCommand}" Padding="10,4" />
+                    <Button Content="Hôm qua" Command="{Binding ShowYesterdayCommand}" Padding="10,4" />
+                    <Button Content="7 ngày" Command="{Binding ShowLastSevenDaysCommand}" Padding="10,4" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Grid.Row="1" Spacing="4" Margin="0,0,0,8">
+                <TextBlock Classes="label" Text="Trạng thái" />
+                <ComboBox ItemsSource="{Binding StatusOptions}" SelectedItem="{Binding SelectedStatus}" HorizontalAlignment="Stretch" />
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Spacing="4" Margin="0,0,0,8">
+                <TextBlock Classes="label" Text="Tìm barcode, mã hoặc họ tên — Enter để tìm" />
+                <TextBox Name="SearchBox" Text="{Binding SearchText}" PlaceholderText="Barcode / mã / họ tên..." />
+            </StackPanel>
+
+            <Border Grid.Row="3" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+                <ListBox ItemsSource="{Binding Samples}" SelectedItem="{Binding SelectedSample}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SampleListItemViewModel">
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" Margin="0,2">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Barcode}" FontWeight="Bold" FontFamily="Consolas,Menlo,monospace" />
+                                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="‼" Classes="flagCritical" IsVisible="{Binding HasAbnormal}" ToolTip.Tip="Có chỉ số bất thường" />
+                                    <TextBlock Text="⟳" Classes="flagAbnormal" IsVisible="{Binding HasPending}" ToolTip.Tip="Máy gửi lại kết quả — chờ xử lý" />
+                                    <TextBlock Text="{Binding StatusLabel}" Classes="muted" FontSize="12" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding PatientName}" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="{Binding OrderedAtText}" Classes="muted" FontSize="12" />
+                                    <TextBlock Text="{Binding Progress}" Classes="muted" FontSize="12" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+        </Grid>
+
+        <!-- Phải: bảng chỉ số + nút -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+
+            <StackPanel Grid.Row="0" Spacing="2" Margin="0,0,0,8">
+                <TextBlock Classes="heading" Text="{Binding HeaderText}" />
+                <TextBlock Classes="muted" Text="{Binding ApprovalText}" IsVisible="{Binding HasSample}" />
+            </StackPanel>
+
+            <TextBlock Grid.Row="1" Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+            <!-- Lý do sửa: chỉ hiện khi đang sửa một ô đã có giá trị -->
+            <StackPanel Grid.Row="2" Spacing="4" Margin="0,0,0,8" IsVisible="{Binding IsReasonVisible}">
+                <TextBlock Classes="label" Text="Lý do sửa kết quả (bắt buộc khi sửa ô đã có giá trị) — Enter để ghi" />
+                <TextBox Name="ReasonBox" Text="{Binding ReasonText}" />
+            </StackPanel>
+
+            <!-- Lý do hủy duyệt -->
+            <Border Grid.Row="3" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushDanger}" BorderThickness="1" Padding="12" Margin="0,0,0,8"
+                    IsVisible="{Binding IsUnapprovePromptVisible}">
+                <StackPanel Spacing="6">
+                    <TextBlock Classes="label" Text="Lý do hủy duyệt (bắt buộc)" />
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                        <TextBox Grid.Column="0" Name="UnapproveReasonBox" Text="{Binding UnapproveReason}" />
+                        <Button Grid.Column="1" Content="Xác nhận hủy duyệt" Command="{Binding ConfirmUnapproveCommand}" />
+                        <Button Grid.Column="2" Content="Không" Command="{Binding CancelUnapproveCommand}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="4" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+                <Grid RowDefinitions="Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="90,*,130,70,130,110,Auto" Margin="8,6" ColumnSpacing="8">
+                        <TextBlock Grid.Column="0" Classes="label" Text="Mã" Margin="0" />
+                        <TextBlock Grid.Column="1" Classes="label" Text="Chỉ số" Margin="0" />
+                        <TextBlock Grid.Column="2" Classes="label" Text="Giá trị" Margin="0" ToolTip.Tip="Enter ghi và xuống dòng, Esc hủy" />
+                        <TextBlock Grid.Column="3" Classes="label" Text="Đơn vị" Margin="0" />
+                        <TextBlock Grid.Column="4" Classes="label" Text="Tham chiếu" Margin="0" />
+                        <TextBlock Grid.Column="5" Classes="label" Text="Cờ" Margin="0" />
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1">
+                        <ItemsControl Name="RowsList" ItemsSource="{Binding Rows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ResultRowViewModel">
+                                    <Border BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,1,0,0" Padding="8,4"
+                                            Classes.panelRow="{Binding IsPanelHeader}">
+                                        <Grid ColumnDefinitions="90,*,130,70,130,110,Auto" ColumnSpacing="8">
+                                            <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" VerticalAlignment="Center" />
+
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Border Width="{Binding IndentWidth}" />
+                                                <TextBlock Text="{Binding Name}" Classes.panelHeader="{Binding IsPanelHeader}" />
+                                            </StackPanel>
+
+                                            <TextBox Grid.Column="2" Name="ValueBox" Text="{Binding EditText}"
+                                                     IsVisible="{Binding IsEditable}" KeyDown="OnValueKeyDown" MinHeight="30" Padding="6,4" />
+                                            <TextBlock Grid.Column="2" Text="{Binding Value}" IsVisible="{Binding !IsEditable}" VerticalAlignment="Center" FontWeight="SemiBold" />
+
+                                            <TextBlock Grid.Column="3" Text="{Binding Unit}" Classes="muted" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="4" Text="{Binding RefText}" Classes="muted" VerticalAlignment="Center" />
+
+                                            <TextBlock Grid.Column="5" Text="{Binding FlagText}" VerticalAlignment="Center"
+                                                       Classes.flagHigh="{Binding IsHigh}" Classes.flagLow="{Binding IsLow}"
+                                                       Classes.flagCritical="{Binding IsCritical}" Classes.flagAbnormal="{Binding IsAbnormal}" />
+
+                                            <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding StatusText}" Classes="success" FontSize="12" VerticalAlignment="Center" />
+                                                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasPending}">
+                                                    <TextBlock Text="{Binding PendingValue, StringFormat='Máy gửi lại: {0}'}" Classes="flagAbnormal" VerticalAlignment="Center" />
+                                                    <Button Content="Chấp nhận" Command="{Binding AcceptPendingCommand}" Padding="10,4" />
+                                                    <Button Content="Bỏ bản thay thế" Command="{Binding RejectPendingCommand}" Padding="10,4" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,12,0,0">
+                <Button Content="In phiếu (F11)" Command="{Binding PrintCommand}" IsEnabled="{Binding HasSample}" />
+                <Button Content="Hủy duyệt" Command="{Binding StartUnapproveCommand}" IsVisible="{Binding CanUnapprove}" IsEnabled="{Binding !IsBusy}" />
+                <Button Classes="primary" Content="Duyệt (F10)" Command="{Binding ApproveCommand}" IsVisible="{Binding CanApprove}" IsEnabled="{Binding !IsBusy}" />
+            </StackPanel>
+
+        </Grid>
+
+    </Grid>
+
+</UserControl>

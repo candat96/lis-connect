@@ -2,12 +2,14 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using Lis.App.Services;
 using Lis.App.ViewModels.Catalog;
 using Lis.App.ViewModels.Reception;
+using Lis.App.ViewModels.Results;
 using Lis.App.ViewModels.Settings;
 using Lis.Core.Auth;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Orders;
+using Lis.Data.Results;
 using Lis.Data.Settings;
 using Lis.Reports.Printing;
 
@@ -29,13 +31,14 @@ public partial class MainViewModel : ObservableObject
 {
     public MainViewModel(
         CurrentUser currentUser, CatalogStore catalogStore, IOrderService orders, FacilityStore facility, ILabelPrinter labelPrinter,
-        ISettingStore settings, IPrintService printService)
+        ISettingStore settings, IPrintService printService, IResultService results, IReportPrinter reportPrinter)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
 
         Catalog = new CatalogViewModel(catalogStore);
         Reception = new ReceptionViewModel(orders, catalogStore, facility, currentUser, labelPrinter);
+        Results = new ResultsViewModel(results, currentUser, reportPrinter);
         PrinterSettings = new PrinterSettingsViewModel(settings, printService);
 
         // Đặt sau khi các ViewModel con đã có — OnSelectedItemChanged có thể tải màn đầu tiên ngay.
@@ -52,6 +55,9 @@ public partial class MainViewModel : ObservableObject
     /// <summary>ViewModel của màn Tiếp nhận — tải khi người dùng mở mục "Tiếp nhận" lần đầu (xem <see cref="OnSelectedItemChanged"/>).</summary>
     public ReceptionViewModel Reception { get; }
 
+    /// <summary>ViewModel của màn Kết quả — tải khi người dùng mở mục "Kết quả" lần đầu.</summary>
+    public ResultsViewModel Results { get; }
+
     /// <summary>ViewModel của màn Cài đặt (mục Máy in) — tải khi người dùng mở mục "Cài đặt" lần đầu.</summary>
     public PrinterSettingsViewModel PrinterSettings { get; }
 
@@ -59,12 +65,15 @@ public partial class MainViewModel : ObservableObject
 
     private bool _receptionLoaded;
 
+    private bool _resultsLoaded;
+
     private bool _settingsLoaded;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PageTitle))]
     [NotifyPropertyChangedFor(nameof(IsCatalogSelected))]
     [NotifyPropertyChangedFor(nameof(IsReceptionSelected))]
+    [NotifyPropertyChangedFor(nameof(IsResultsSelected))]
     [NotifyPropertyChangedFor(nameof(IsSettingsSelected))]
     [NotifyPropertyChangedFor(nameof(IsPlaceholderSelected))]
     private NavItem? _selectedItem;
@@ -75,9 +84,11 @@ public partial class MainViewModel : ObservableObject
 
     public bool IsReceptionSelected => SelectedItem?.Label == "Tiếp nhận";
 
+    public bool IsResultsSelected => SelectedItem?.Label == "Kết quả";
+
     public bool IsSettingsSelected => SelectedItem?.Label == "Cài đặt";
 
-    public bool IsPlaceholderSelected => !IsCatalogSelected && !IsReceptionSelected && !IsSettingsSelected;
+    public bool IsPlaceholderSelected => !IsCatalogSelected && !IsReceptionSelected && !IsResultsSelected && !IsSettingsSelected;
 
     partial void OnSelectedItemChanged(NavItem? value)
     {
@@ -91,6 +102,12 @@ public partial class MainViewModel : ObservableObject
         {
             _receptionLoaded = true;
             _ = Reception.LoadAsync();
+        }
+
+        if (IsResultsSelected && !_resultsLoaded)
+        {
+            _resultsLoaded = true;
+            _ = Results.LoadAsync();
         }
 
         if (IsSettingsSelected && !_settingsLoaded)

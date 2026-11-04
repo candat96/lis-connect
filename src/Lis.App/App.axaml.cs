@@ -108,7 +108,8 @@ public partial class App : Application
     {
         var currentUser = new CurrentUser(user);
         var viewModel = new MainViewModel(
-            currentUser, services.Catalog, services.Orders, services.Facility, services.LabelPrinter, services.Settings, services.PrintService);
+            currentUser, services.Catalog, services.Orders, services.Facility, services.LabelPrinter, services.Settings, services.PrintService,
+            services.Results, services.ReportPrinter);
         var window = new MainWindow { DataContext = viewModel };
 
         _mainWindow = window;
