@@ -11,6 +11,18 @@ using Xunit;
 
 namespace Lis.App.Tests;
 
+/// <summary>Máy in tem giả: chỉ ghi lại các tem đã nhận.</summary>
+internal sealed class FakeLabelPrinter : ILabelPrinter
+{
+    public List<IReadOnlyList<Lis.Reports.Labels.LabelData>> Jobs { get; } = [];
+
+    public Task PrintAsync(IReadOnlyList<Lis.Reports.Labels.LabelData> labels)
+    {
+        Jobs.Add(labels);
+        return Task.CompletedTask;
+    }
+}
+
 /// <summary>
 /// Kiểm tra màn Tiếp nhận chặn chọn trùng chỉ số ngay lúc thêm dịch vụ (cùng quy tắc với
 /// <c>OrderService.CreateAsync</c>). Danh mục nạp qua <see cref="ReceptionViewModel.SeedCatalog"/>,
@@ -37,7 +49,7 @@ public class ReceptionViewModelTests
             new CatalogStore(unusedDb),
             new FacilityStore(unusedDb),
             new CurrentUser(user),
-            new NoOpLabelPrinter());
+            new FakeLabelPrinter());
 
         viewModel.SeedCatalog(services, new Dictionary<Guid, string> { [EdtaId] = "Máu EDTA (huyết học)" }, "per-specimen");
         return viewModel;

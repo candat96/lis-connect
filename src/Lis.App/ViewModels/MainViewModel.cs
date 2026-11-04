@@ -2,11 +2,14 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using Lis.App.Services;
 using Lis.App.ViewModels.Catalog;
 using Lis.App.ViewModels.Reception;
+using Lis.App.ViewModels.Settings;
 using Lis.Core.Auth;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Orders;
+using Lis.Data.Settings;
+using Lis.Reports.Printing;
 
 namespace Lis.App.ViewModels;
 
@@ -25,15 +28,17 @@ public sealed class NavItem(string label, Permission permission)
 public partial class MainViewModel : ObservableObject
 {
     public MainViewModel(
-        CurrentUser currentUser, CatalogStore catalogStore, OrderService orders, FacilityStore facility, ILabelPrinter labelPrinter)
+        CurrentUser currentUser, CatalogStore catalogStore, OrderService orders, FacilityStore facility, ILabelPrinter labelPrinter,
+        ISettingStore settings, IPrintService printService)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
 
         Catalog = new CatalogViewModel(catalogStore);
         Reception = new ReceptionViewModel(orders, catalogStore, facility, currentUser, labelPrinter);
+        PrinterSettings = new PrinterSettingsViewModel(settings, printService);
 
-        // Đặt sau khi Catalog/Reception đã có — OnSelectedItemChanged có thể tải màn đầu tiên ngay.
+        // Đặt sau khi các ViewModel con đã có — OnSelectedItemChanged có thể tải màn đầu tiên ngay.
         SelectedItem = NavItems.FirstOrDefault();
     }
 
@@ -47,14 +52,20 @@ public partial class MainViewModel : ObservableObject
     /// <summary>ViewModel của màn Tiếp nhận — tải khi người dùng mở mục "Tiếp nhận" lần đầu (xem <see cref="OnSelectedItemChanged"/>).</summary>
     public ReceptionViewModel Reception { get; }
 
+    /// <summary>ViewModel của màn Cài đặt (mục Máy in) — tải khi người dùng mở mục "Cài đặt" lần đầu.</summary>
+    public PrinterSettingsViewModel PrinterSettings { get; }
+
     private bool _catalogLoaded;
 
     private bool _receptionLoaded;
+
+    private bool _settingsLoaded;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PageTitle))]
     [NotifyPropertyChangedFor(nameof(IsCatalogSelected))]
     [NotifyPropertyChangedFor(nameof(IsReceptionSelected))]
+    [NotifyPropertyChangedFor(nameof(IsSettingsSelected))]
     [NotifyPropertyChangedFor(nameof(IsPlaceholderSelected))]
     private NavItem? _selectedItem;
 
@@ -64,7 +75,9 @@ public partial class MainViewModel : ObservableObject
 
     public bool IsReceptionSelected => SelectedItem?.Label == "Tiếp nhận";
 
-    public bool IsPlaceholderSelected => !IsCatalogSelected && !IsReceptionSelected;
+    public bool IsSettingsSelected => SelectedItem?.Label == "Cài đặt";
+
+    public bool IsPlaceholderSelected => !IsCatalogSelected && !IsReceptionSelected && !IsSettingsSelected;
 
     partial void OnSelectedItemChanged(NavItem? value)
     {
@@ -78,6 +91,12 @@ public partial class MainViewModel : ObservableObject
         {
             _receptionLoaded = true;
             _ = Reception.LoadAsync();
+        }
+
+        if (IsSettingsSelected && !_settingsLoaded)
+        {
+            _settingsLoaded = true;
+            _ = PrinterSettings.LoadAsync();
         }
     }
 

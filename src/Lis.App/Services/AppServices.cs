@@ -5,12 +5,15 @@ using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Local;
 using Lis.Data.Orders;
+using Lis.Data.Settings;
+using Lis.Reports.Printing;
 
 namespace Lis.App.Services;
 
 /// <summary>
 /// Các service của ứng dụng giao diện, khởi tạo từ <see cref="LocalConfig"/> đã lưu trên máy trạm:
-/// kết nối CSDL (<see cref="Db"/>) và các store/service dùng chung (tài khoản, đăng nhập, cơ sở).
+/// kết nối CSDL (<see cref="Db"/>) và các store/service dùng chung (tài khoản, đăng nhập, cơ sở,
+/// cài đặt, in ấn).
 /// </summary>
 public sealed class AppServices
 {
@@ -23,7 +26,9 @@ public sealed class AppServices
         Facility = new FacilityStore(Db);
         Catalog = new CatalogStore(Db);
         Orders = new OrderService(Db, TimeProvider.System);
-        LabelPrinter = new NoOpLabelPrinter();
+        Settings = new SettingStore(Db);
+        PrintService = new PdfPrintService();
+        LabelPrinter = new LabelPrinter(Settings, PrintService);
     }
 
     public LocalConfig Config { get; }
@@ -39,6 +44,10 @@ public sealed class AppServices
     public CatalogStore Catalog { get; }
 
     public OrderService Orders { get; }
+
+    public ISettingStore Settings { get; }
+
+    public IPrintService PrintService { get; }
 
     public ILabelPrinter LabelPrinter { get; }
 

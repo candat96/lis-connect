@@ -8,4 +8,22 @@
     <ProjectReference Include="..\Lis.Core\Lis.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="PDFsharp-MigraDoc" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+    <PackageReference Include="ZXing.Net" />
+    <PackageReference Include="PDFtoImage" />
+    <PackageReference Include="System.Drawing.Common" />
+  </ItemGroup>
+
+  <!--
+    Phông chữ Inter (giấy phép SIL OFL 1.1, xem Fonts/Inter-LICENSE.txt) nhúng vào assembly:
+    PDFsharp không tự tìm được phông hệ thống trên macOS/Linux, mà tem và phiếu in có tiếng
+    Việt có dấu nên cần một phông đủ glyph đi kèm. Đăng ký qua Fonts/EmbeddedFontResolver.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Fonts\Inter-Regular.ttf" LogicalName="Lis.Reports.Fonts.Inter-Regular.ttf" />
+    <EmbeddedResource Include="Fonts\Inter-Bold.ttf" LogicalName="Lis.Reports.Fonts.Inter-Bold.ttf" />
+  </ItemGroup>
+
 </Project>

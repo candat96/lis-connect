@@ -8,14 +8,15 @@ using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Orders;
+using Lis.Reports.Labels;
 
 namespace Lis.App.ViewModels.Reception;
 
 /// <summary>
 /// ViewModel cho màn Tiếp nhận: tìm/nhập người bệnh, chọn dịch vụ (gõ mã + Enter, gõ chữ thì
 /// gợi ý), xem trước nhóm mẫu theo loại mẫu bệnh phẩm, và "Lưu và in tem" (F9) — tạo chỉ
-/// định, cấp barcode (<see cref="OrderService.CreateAsync"/>) rồi hiện bảng barcode đã cấp.
-/// In tem thật chưa làm ở Task này — xem <see cref="ILabelPrinter"/>.
+/// định, cấp barcode (<see cref="OrderService.CreateAsync"/>), hiện bảng barcode đã cấp rồi
+/// in tem qua <see cref="ILabelPrinter"/>.
 /// </summary>
 public partial class ReceptionViewModel : ObservableObject
 {
@@ -24,19 +25,23 @@ public partial class ReceptionViewModel : ObservableObject
     private readonly FacilityStore _facility;
     private readonly CurrentUser _currentUser;
     private readonly ILabelPrinter _printer;
+    private readonly TimeProvider _clock;
 
     private List<ServiceInfo> _allServices = [];
     private Dictionary<Guid, ServiceInfo> _servicesById = [];
     private Dictionary<Guid, string> _specimenNameById = [];
     private string _barcodeMode = SampleGrouper.PerSpecimen;
 
-    public ReceptionViewModel(OrderService orders, CatalogStore catalog, FacilityStore facility, CurrentUser currentUser, ILabelPrinter printer)
+    public ReceptionViewModel(
+        OrderService orders, CatalogStore catalog, FacilityStore facility, CurrentUser currentUser, ILabelPrinter printer,
+        TimeProvider? clock = null)
     {
         _orders = orders;
         _catalog = catalog;
         _facility = facility;
         _currentUser = currentUser;
         _printer = printer;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public ObservableCollection<PatientHit> PatientSearchResults { get; } = [];
@@ -306,7 +311,11 @@ public partial class ReceptionViewModel : ObservableObject
         }
     }
 
-    /// <summary>"Lưu và in tem" (F9): tạo chỉ định, cấp barcode, rồi gọi <see cref="ILabelPrinter"/> (chưa in thật ở Task 8).</summary>
+    /// <summary>
+    /// "Lưu và in tem" (F9): tạo chỉ định, cấp barcode, rồi in tem qua <see cref="ILabelPrinter"/>.
+    /// Chỉ định đã lưu xong trước khi in, nên in lỗi chỉ báo lỗi chứ không làm mất chỉ định —
+    /// người dùng in lại tem sau.
+    /// </summary>
     [RelayCommand]
     private async Task SaveAsync()
     {
@@ -341,7 +350,16 @@ public partial class ReceptionViewModel : ObservableObject
                 string.IsNullOrWhiteSpace(OrderingDept) ? null : OrderingDept,
                 string.IsNullOrWhiteSpace(Diagnosis) ? null : Diagnosis);
 
-            var created = await _orders.CreateAsync(order, _currentUser.User.Id);
+            OrderCreated created;
+            try
+            {
+                created = await _orders.CreateAsync(order, _currentUser.User.Id);
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Lưu chỉ định thất bại: {ex.Message}";
+                return;
+            }
 
             IssuedSamples.Clear();
             foreach (var sample in created.Samples)
@@ -349,20 +367,35 @@ public partial class ReceptionViewModel : ObservableObject
                 IssuedSamples.Add(sample);
             }
 
-            _printer.PrintLabels(created.Samples);
+            var labels = BuildLabels(SelectedPatientHit, newPatient, created.Samples);
 
             SelectedServices.Clear();
             GroupPreview.Clear();
             StartNewPatient();
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Lưu chỉ định thất bại: {ex.Message}";
+
+            try
+            {
+                await _printer.PrintAsync(labels);
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Đã lưu chỉ định nhưng in tem lỗi: {ex.Message}";
+            }
         }
         finally
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>Nội dung tem cho các mẫu vừa cấp — họ tên/năm sinh/giới tính lấy từ người bệnh đã chọn hoặc vừa nhập, ngày theo giờ máy.</summary>
+    private IReadOnlyList<LabelData> BuildLabels(PatientHit? existing, NewPatient? created, IReadOnlyList<CreatedSample> samples)
+    {
+        var day = DateOnly.FromDateTime(_clock.GetLocalNow().DateTime);
+
+        return existing is not null
+            ? LabelDataBuilder.Build(existing.FullName, existing.Dob, existing.BirthYear, existing.Sex, samples, day)
+            : LabelDataBuilder.Build(created!.FullName, created.Dob, created.BirthYear, created.Sex, samples, day);
     }
 
     private bool TryBuildNewPatient(out NewPatient? patient, out string? error)

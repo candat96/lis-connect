@@ -1,0 +1,64 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Settings"
+             x:Class="Lis.App.Views.Settings.PrinterSettingsView"
+             x:DataType="vm:PrinterSettingsViewModel">
+
+    <StackPanel Spacing="12">
+
+        <!-- Máy in -->
+        <Border Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+            <StackPanel Spacing="12">
+                <TextBlock Classes="heading" Text="Máy in" />
+
+                <!-- Hệ liệt kê được máy in (Windows): chọn trong danh sách -->
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="16" IsVisible="{Binding HasPrinters}">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Máy in tem" />
+                        <ComboBox ItemsSource="{Binding Printers}" SelectedItem="{Binding LabelPrinter}" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Máy in phiếu kết quả" />
+                        <ComboBox ItemsSource="{Binding Printers}" SelectedItem="{Binding ReportPrinter}" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Hệ không liệt kê được (macOS/Linux): hiện giá trị đã lưu, cho gõ tên -->
+                <StackPanel Spacing="12" IsVisible="{Binding !HasPrinters}">
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Classes="label" Text="Máy in tem (tên)" />
+                            <TextBox Text="{Binding LabelPrinter}" PlaceholderText="Để trống: máy in mặc định" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Classes="label" Text="Máy in phiếu kết quả (tên)" />
+                            <TextBox Text="{Binding ReportPrinter}" PlaceholderText="Để trống: máy in mặc định" />
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Classes="muted" Text="{Binding PrinterListHint}" />
+                </StackPanel>
+
+                <Grid ColumnDefinitions="160,160" ColumnSpacing="16">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Chiều rộng tem (mm)" />
+                        <TextBox Text="{Binding LabelWidthText}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Chiều cao tem (mm)" />
+                        <TextBox Text="{Binding LabelHeightText}" />
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <TextBlock Classes="success" Text="{Binding SuccessMessage}" IsVisible="{Binding SuccessMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Classes="primary" Content="Lưu" Command="{Binding SaveCommand}" />
+                    <Button Content="In tem thử" Command="{Binding PrintTestLabelCommand}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+    </StackPanel>
+
+</UserControl>

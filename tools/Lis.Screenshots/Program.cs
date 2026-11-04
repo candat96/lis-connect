@@ -9,9 +9,11 @@ using Lis.App.Services;
 using Lis.App.ViewModels;
 using Lis.App.ViewModels.Catalog;
 using Lis.App.ViewModels.Reception;
+using Lis.App.ViewModels.Settings;
 using Lis.App.Views;
 using Lis.App.Views.Catalog;
 using Lis.App.Views.Reception;
+using Lis.App.Views.Settings;
 using Lis.Core.Auth;
 using Lis.Data;
 using Lis.Data.Auth;
@@ -19,7 +21,11 @@ using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Local;
 using Lis.Data.Orders;
+using Lis.Data.Settings;
 using Lis.Data.Setup;
+using Lis.Reports.Labels;
+using Lis.Reports.Printing;
+using PDFtoImage;
 
 namespace Lis.Screenshots;
 
@@ -27,12 +33,15 @@ namespace Lis.Screenshots;
 /// Công cụ dòng lệnh dựng từng View của LIS Connect với một ViewModel đã nạp dữ liệu giả,
 /// dùng Avalonia.Headless (+ Avalonia.Skia để có pixel thật) để chụp ảnh PNG kiểm tra giao
 /// diện mà không cần máy có màn hình. Ảnh lưu ở <c>artifacts/screenshots/</c> (đã gitignore).
+/// Ngoài ra raster hóa một PDF tem mẫu (<see cref="LabelPdf"/>) ra <c>artifacts/labels/</c> để
+/// kiểm bố cục tem.
 /// </summary>
 internal static class Program
 {
     public static void Main()
     {
-        var outputDirectory = Path.Combine(FindRepoRoot(), "artifacts", "screenshots");
+        var repoRoot = FindRepoRoot();
+        var outputDirectory = Path.Combine(repoRoot, "artifacts", "screenshots");
         Directory.CreateDirectory(outputDirectory);
 
         AppBuilder.Configure<ScreenshotApp>()
@@ -54,8 +63,14 @@ internal static class Program
         Capture(outputDirectory, "07-danh-muc-khoang-tham-chieu.png", catalogRangesWindow, () => ClearDetailErrors(catalogRangesViewModel));
 
         Capture(outputDirectory, "08-tiep-nhan-sau-khi-luu.png", CreateReceptionWindow());
+        Capture(outputDirectory, "09-cai-dat-may-in.png", CreatePrinterSettingsWindow());
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
+
+        var labelDirectory = Path.Combine(repoRoot, "artifacts", "labels");
+        Directory.CreateDirectory(labelDirectory);
+        SaveSampleLabel(Path.Combine(labelDirectory, "09-tem-mau.png"));
+        Console.WriteLine($"Đã lưu ảnh tem mẫu vào {labelDirectory}");
     }
 
     private static Window CreateWizardWindow(SetupWizardStep step, bool withConnectionOk)
@@ -103,8 +118,51 @@ internal static class Program
         var catalogStore = new CatalogStore(unusedDb);
         var orders = new OrderService(unusedDb, TimeProvider.System);
         var facilityStore = new FacilityStore(unusedDb);
-        var viewModel = new MainViewModel(new CurrentUser(user), catalogStore, orders, facilityStore, new NoOpLabelPrinter());
+        var viewModel = new MainViewModel(
+            new CurrentUser(user), catalogStore, orders, facilityStore, new UnusedLabelPrinter(), new UnusedSettingStore(), new FakePrintService());
         return new MainWindow { DataContext = viewModel };
+    }
+
+    /// <summary>
+    /// Màn Cài đặt — mục Máy in, như trên Windows có hai máy in đã cài: máy in tem đã chọn,
+    /// máy in phiếu đã chọn, kích thước tem mặc định 50 × 25. Giá trị gán thẳng vào ViewModel,
+    /// không gọi <c>LoadAsync</c> (không có CSDL).
+    /// </summary>
+    private static Window CreatePrinterSettingsWindow()
+    {
+        var printService = new FakePrintService();
+        var viewModel = new PrinterSettingsViewModel(new UnusedSettingStore(), printService)
+        {
+            Printers = printService.Printers(),
+            LabelPrinter = "Xprinter XP-350B",
+            ReportPrinter = "HP LaserJet Thử",
+            SuccessMessage = "Đã lưu cài đặt máy in",
+        };
+
+        var view = new PrinterSettingsView { DataContext = viewModel };
+
+        return new Window
+        {
+            Title = "LIS Connect — Cài đặt",
+            Width = 900,
+            Height = 420,
+            Content = view,
+        };
+    }
+
+    /// <summary>Raster hóa tem mẫu 50 × 25 mm (300 DPI) bằng PDFtoImage — PDFium chỉ có bản native cho Windows/Linux/macOS.</summary>
+    private static void SaveSampleLabel(string path)
+    {
+        var pdf = LabelPdf.Render([PrinterSettingsViewModel.TestLabel(new DateOnly(2026, 11, 4))], LabelSize.Default);
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        {
+            using var stream = File.Create(path);
+            Conversion.SavePng(stream, pdf, options: new RenderOptions(Dpi: 300));
+            return;
+        }
+
+        throw new PlatformNotSupportedException("PDFium chỉ có bản cho Windows, Linux và macOS");
     }
 
     /// <summary>
@@ -121,7 +179,7 @@ internal static class Program
         var facilityStore = new FacilityStore(unusedDb);
         var user = new UserInfo(Guid.NewGuid(), "tiepnhan.thu", "Lê Thị Thử", "Tiếp nhận", [Roles.TiepNhan], true);
 
-        var viewModel = new ReceptionViewModel(orders, catalogStore, facilityStore, new CurrentUser(user), new NoOpLabelPrinter());
+        var viewModel = new ReceptionViewModel(orders, catalogStore, facilityStore, new CurrentUser(user), new UnusedLabelPrinter());
 
         var edtaId = Guid.NewGuid();
         var serumId = Guid.NewGuid();
@@ -294,6 +352,32 @@ internal static class Program
 
         public Task CreateFirstAdminAsync(DbSettings settings, string username, string fullName, string password) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+    }
+
+    /// <summary>ILabelPrinter giả — các màn chụp ảnh không in tem.</summary>
+    private sealed class UnusedLabelPrinter : ILabelPrinter
+    {
+        public Task PrintAsync(IReadOnlyList<LabelData> labels) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không in tem.");
+    }
+
+    /// <summary>ISettingStore giả — các màn chụp ảnh không đọc/ghi bảng setting.</summary>
+    private sealed class UnusedSettingStore : ISettingStore
+    {
+        public Task<string?> GetAsync(string key) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không đọc cài đặt thật.");
+
+        public Task SetAsync(string key, string? value) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không ghi cài đặt thật.");
+    }
+
+    /// <summary>IPrintService giả: liệt kê hai máy in giả như trên Windows, không in thật.</summary>
+    private sealed class FakePrintService : IPrintService
+    {
+        public Task PrintAsync(byte[] pdf, string? printerName, CancellationToken ct = default) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không in thật.");
+
+        public IReadOnlyList<string> Printers() => ["Xprinter XP-350B", "HP LaserJet Thử"];
     }
 }
 

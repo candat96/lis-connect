@@ -38,6 +38,22 @@
 
     <!-- Tài khoản, đăng nhập -->
     <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
+
+    <!--
+      Tem barcode, phiếu in (Lis.Reports). PDFsharp giữ ở 6.2.x: bản 6.5.0 trở đi đổi sang
+      giấy phép AGPL-3.0, 6.2.4 là bản MIT cuối cùng. PDFtoImage giữ ở 5.2.x vì 5.3.0 trở đi
+      cần SkiaSharp 4.x, trong khi Avalonia 12 dùng SkiaSharp 3.119.x.
+    -->
+    <PackageVersion Include="PDFsharp-MigraDoc" Version="6.2.4" />
+    <!-- PDFsharp 6.2.4 kéo theo System.Security.Cryptography.Pkcs 8.0.1 có lỗ hổng đã công bố — nâng tường minh lên bản đã vá. -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
+    <PackageVersion Include="ZXing.Net" Version="0.16.11" />
+    <PackageVersion Include="PDFtoImage" Version="5.2.1" />
+    <PackageVersion Include="SkiaSharp" Version="3.119.4" />
+    <PackageVersion Include="System.Drawing.Common" Version="10.0.14" />
+
+    <!-- Đọc lại PDF trong kiểm thử (tests/Lis.Reports.Tests) -->
+    <PackageVersion Include="PdfPig" Version="0.1.16" />
   </ItemGroup>
 
 </Project>

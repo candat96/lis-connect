@@ -3,6 +3,7 @@
         xmlns:vm="using:Lis.App.ViewModels"
         xmlns:catalog="using:Lis.App.Views.Catalog"
         xmlns:reception="using:Lis.App.Views.Reception"
+        xmlns:settings="using:Lis.App.Views.Settings"
         x:Class="Lis.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Icon="avares://Lis.App/Assets/app-icon.ico"
@@ -38,13 +39,17 @@
         <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="24">
             <TextBlock Grid.Row="0" Classes="title" Text="{Binding PageTitle}" Margin="0,0,0,16" />
 
-            <!-- Panel giữ DataContext=MainViewModel cho IsVisible; CatalogView/ReceptionView bên trong tự đổi DataContext. -->
+            <!-- Panel giữ DataContext=MainViewModel cho IsVisible; View bên trong tự đổi DataContext. -->
             <Panel Grid.Row="1" IsVisible="{Binding IsCatalogSelected}">
                 <catalog:CatalogView DataContext="{Binding Catalog}" />
             </Panel>
 
             <Panel Grid.Row="1" IsVisible="{Binding IsReceptionSelected}">
                 <reception:ReceptionView DataContext="{Binding Reception}" />
+            </Panel>
+
+            <Panel Grid.Row="1" IsVisible="{Binding IsSettingsSelected}">
+                <settings:PrinterSettingsView DataContext="{Binding PrinterSettings}" />
             </Panel>
 
             <StackPanel Grid.Row="1" IsVisible="{Binding IsPlaceholderSelected}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
