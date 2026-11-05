@@ -75,34 +75,43 @@
 
             <TextBlock Grid.Row="0" Classes="heading" Text="Map kênh" Margin="0,0,0,8" />
 
+            <!--
+                Tiêu đề và từng dòng dùng CHUNG một chuỗi ColumnDefinitions cố định bằng pixel
+                (không "*") để cột luôn thẳng hàng — mỗi Grid (tiêu đề, mỗi dòng trong ListBox) tự
+                tính độ rộng cột riêng, "*" sẽ co giãn độc lập giữa các Grid và làm lệch cột. Bọc
+                trong ScrollViewer cuộn ngang: khi cửa sổ hẹp hơn tổng độ rộng cột, bảng cuộn thay
+                vì co cột "Chỉ số" về 0.
+            -->
             <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
-                <Grid RowDefinitions="Auto,*">
-                    <Grid Grid.Row="0" ColumnDefinitions="60,*,46,46,60,60,Auto,Auto" Margin="8,6" ColumnSpacing="6">
-                        <TextBlock Grid.Column="0" Classes="label" Text="Mã kênh" Margin="0" TextWrapping="Wrap" />
-                        <TextBlock Grid.Column="1" Classes="label" Text="Chỉ số" Margin="0" />
-                        <TextBlock Grid.Column="2" Classes="label" Text="Số lẻ" Margin="0" TextWrapping="Wrap" />
-                        <TextBlock Grid.Column="3" Classes="label" Text="Hệ số" Margin="0" TextWrapping="Wrap" />
-                        <TextBlock Grid.Column="4" Classes="label" Text="Giữ dấu so sánh" Margin="0" TextWrapping="Wrap" />
-                        <TextBlock Grid.Column="5" Classes="label" Text="Gửi khi máy hỏi" Margin="0" TextWrapping="Wrap" />
-                    </Grid>
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <Grid RowDefinitions="Auto,*" MinWidth="560">
+                        <Grid Grid.Row="0" ColumnDefinitions="56,150,42,42,64,64,48,48" Margin="8,6" ColumnSpacing="6">
+                            <TextBlock Grid.Column="0" Classes="label" Text="Mã kênh" Margin="0" TextWrapping="Wrap" />
+                            <TextBlock Grid.Column="1" Classes="label" Text="Chỉ số" Margin="0" />
+                            <TextBlock Grid.Column="2" Classes="label" Text="Số lẻ" Margin="0" TextWrapping="Wrap" />
+                            <TextBlock Grid.Column="3" Classes="label" Text="Hệ số" Margin="0" TextWrapping="Wrap" />
+                            <TextBlock Grid.Column="4" Classes="label" Text="Giữ dấu so sánh" Margin="0" TextWrapping="Wrap" />
+                            <TextBlock Grid.Column="5" Classes="label" Text="Gửi khi máy hỏi" Margin="0" TextWrapping="Wrap" />
+                        </Grid>
 
-                    <ListBox Grid.Row="1" Name="ChannelList" ItemsSource="{Binding Channels}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ChannelRowViewModel">
-                                <Grid ColumnDefinitions="60,*,46,46,60,60,Auto,Auto" ColumnSpacing="6" Margin="0,2">
-                                    <TextBlock Grid.Column="0" Text="{Binding ChannelCode}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" />
-                                    <TextBlock Grid.Column="1" Text="{Binding ServiceText}" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="2" Text="{Binding DecimalsText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="3" Text="{Binding FactorText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="4" Text="{Binding KeepComparatorText}" Classes="muted" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                                    <TextBlock Grid.Column="5" Text="{Binding SendOnQueryText}" Classes="muted" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                                    <Button Grid.Column="6" Content="Sửa" Command="{Binding EditCommand}" Padding="8,2" />
-                                    <Button Grid.Column="7" Content="Xóa" Command="{Binding RemoveCommand}" Padding="8,2" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </Grid>
+                        <ListBox Grid.Row="1" Name="ChannelList" ItemsSource="{Binding Channels}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ChannelRowViewModel">
+                                    <Grid ColumnDefinitions="56,150,42,42,64,64,48,48" ColumnSpacing="6" Margin="0,2">
+                                        <TextBlock Grid.Column="0" Text="{Binding ChannelCode}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Column="1" Text="{Binding ServiceText}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding DecimalsText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="3" Text="{Binding FactorText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="4" Text="{Binding KeepComparatorText}" Classes="muted" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                        <TextBlock Grid.Column="5" Text="{Binding SendOnQueryText}" Classes="muted" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                        <Button Grid.Column="6" Content="Sửa" Command="{Binding EditCommand}" Padding="6,2" />
+                                        <Button Grid.Column="7" Content="Xóa" Command="{Binding RemoveCommand}" Padding="6,2" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </ScrollViewer>
             </Border>
 
             <TextBlock Grid.Row="2" Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" Margin="0,8,0,0" />

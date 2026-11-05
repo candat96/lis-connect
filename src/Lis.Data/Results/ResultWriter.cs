@@ -49,6 +49,7 @@ internal sealed record ItemContext
     public Guid? PendingInstrumentId { get; init; }
     public string? PendingRawRef { get; init; }
     public string? PendingInstrumentFlag { get; init; }
+    public string? PendingFlag { get; init; }
 
     public PatientFacts Patient => new(Sex[0], Dob, BirthYear);
 
@@ -123,36 +124,45 @@ internal sealed class ResultWriter(Db db)
 
     /// <summary>
     /// Dùng khi giá trị đã tính xong rồi (<c>pending_value</c> đã qua <see cref="ComputeAsync"/>
-    /// lúc ghi bản chờ thay thế — xem R22/<c>InstrumentValuePipeline</c>): với kiểu <c>so</c> chỉ
-    /// tính lại khoảng tham chiếu/cờ, KHÔNG làm tròn lại — nếu không, "Chấp nhận bản thay thế" có
-    /// thể ra khác giá trị lúc mới đến khi số lẻ của map máy khác số lẻ của chỉ số (vd map 1 số
-    /// lẻ ra "40.5", làm tròn lại theo chỉ số 2 số lẻ sẽ thành "40.50"). Kiểu khác không có khái
-    /// niệm làm tròn nên tính lại bình thường.
+    /// lúc ghi bản chờ thay thế — xem R22/<c>InstrumentValuePipeline</c>). Kiểu <c>so</c>: không
+    /// làm tròn lại (chỉ tính lại khoảng tham chiếu/cờ qua <see cref="FlagCalculator"/>) — nếu
+    /// không, "Chấp nhận bản thay thế" có thể ra khác giá trị lúc mới đến khi số lẻ của map máy
+    /// khác số lẻ của chỉ số (vd map 1 số lẻ ra "40.5", làm tròn lại theo chỉ số 2 số lẻ sẽ thành
+    /// "40.50"). Kiểu <c>dinh-tinh</c>: KHÔNG chạy lại <see cref="QualitativeMapper"/> — pending_value
+    /// đã là chữ hiển thị ("Dương tính"), không phải giá trị thô của máy ("pos") nữa, nên tra luật
+    /// theo raw_value sẽ không khớp và mất cờ ghi đè; dùng thẳng <paramref name="pendingFlag"/>
+    /// (cờ đã tính lúc ghi bản chờ thay thế, lưu ở <c>result.pending_flag</c>).
     /// </summary>
     public async Task<ComputedValue> ComputeFromFinalValueAsync(
-        ServiceRow service, PatientFacts patient, DateOnly at, Guid? instrumentId, string? finalValue)
+        ServiceRow service, PatientFacts patient, DateOnly at, Guid? instrumentId, string? finalValue, ResultFlag pendingFlag)
     {
         if (string.IsNullOrEmpty(finalValue))
         {
             return new ComputedValue(null, service.Unit, null, null, null, ResultFlag.None);
         }
 
-        if (service.ValueType != "so")
+        if (service.ValueType == "so")
         {
-            return await ComputeAsync(service, patient, at, instrumentId, finalValue);
+            var parsed = ResultValue.Parse(finalValue);
+            if (parsed.IsEmpty)
+            {
+                // Phòng khi pending_value không phải số hợp lệ (dữ liệu cũ trước bản sửa này, hoặc
+                // kiểm thử ghi thẳng) — không có giá trị, không phải "0", giống ComputeAsync.
+                return new ComputedValue(null, service.Unit, null, null, null, ResultFlag.None);
+            }
+
+            var numericRange = ReferenceRangeSelector.Select(await _catalog.RangesAsync(service.Id), patient, at, instrumentId);
+            var flag = FlagCalculator.Compute(parsed, numericRange);
+            return new ComputedValue(finalValue, service.Unit, numericRange?.Low, numericRange?.High, numericRange?.TextRange, flag);
         }
 
-        var parsed = ResultValue.Parse(finalValue);
-        if (parsed.IsEmpty)
+        if (service.ValueType == "dinh-tinh")
         {
-            // Phòng khi pending_value không phải số hợp lệ (dữ liệu cũ trước bản sửa này, hoặc
-            // kiểm thử ghi thẳng) — không có giá trị, không phải "0", giống ComputeAsync.
-            return new ComputedValue(null, service.Unit, null, null, null, ResultFlag.None);
+            var range = ReferenceRangeSelector.Select(await _catalog.RangesAsync(service.Id), patient, at, instrumentId);
+            return new ComputedValue(finalValue, service.Unit, range?.Low, range?.High, range?.TextRange, pendingFlag);
         }
 
-        var range = ReferenceRangeSelector.Select(await _catalog.RangesAsync(service.Id), patient, at, instrumentId);
-        var flag = FlagCalculator.Compute(parsed, range);
-        return new ComputedValue(finalValue, service.Unit, range?.Low, range?.High, range?.TextRange, flag);
+        return new ComputedValue(finalValue, service.Unit, null, null, null, ResultFlag.None);
     }
 
     /// <summary>
@@ -227,22 +237,34 @@ internal sealed class ResultWriter(Db db)
     /// <summary>
     /// Máy gửi (lại) kết quả cho mẫu đã duyệt: không ghi đè giá trị chính thức, chỉ ghi bản chờ
     /// thay thế (<c>pending_*</c>) và dòng lịch sử <c>thay-the</c>. Mẫu giữ nguyên trạng thái
-    /// đã duyệt. <paramref name="actorId"/> null khi máy gửi.
+    /// đã duyệt. <paramref name="actorId"/> null khi máy gửi. <paramref name="pendingValue"/> là
+    /// giá trị ĐÃ TÍNH (lưu vào cột, dùng khi "Chấp nhận" — R22); <paramref name="historyNewValue"/>
+    /// là chuỗi để ghi vào lịch sử, có thể là chuỗi thô khi giá trị không đọc được (vd "***.*")
+    /// để còn dấu vết trong lịch sử dù cột giá trị lưu rỗng.
     /// </summary>
     public static async Task MarkPendingAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, Guid resultId, string? currentValue,
-        string pendingValue, Guid instrumentId, string? rawRef, string? instrumentFlag, string reason, Guid? actorId, DateTimeOffset now)
+        string pendingValue, string historyNewValue, ResultFlag pendingFlag, Guid instrumentId, string? rawRef, string? instrumentFlag,
+        string reason, Guid? actorId, DateTimeOffset now)
     {
         await connection.ExecuteAsync(
             """
             UPDATE result SET pending_value = @pendingValue, pending_instrument_id = @instrumentId, pending_raw_ref = @rawRef,
-                pending_instrument_flag = @instrumentFlag
+                pending_instrument_flag = @instrumentFlag, pending_flag = @pendingFlag
             WHERE id = @resultId
             """,
-            new { resultId, pendingValue, instrumentId, rawRef, instrumentFlag = string.IsNullOrEmpty(instrumentFlag) ? null : instrumentFlag },
+            new
+            {
+                resultId,
+                pendingValue,
+                instrumentId,
+                rawRef,
+                instrumentFlag = string.IsNullOrEmpty(instrumentFlag) ? null : instrumentFlag,
+                pendingFlag = pendingFlag.ToString(),
+            },
             transaction);
 
-        await InsertHistoryAsync(connection, transaction, resultId, "thay-the", currentValue, pendingValue, reason, actorId, now);
+        await InsertHistoryAsync(connection, transaction, resultId, "thay-the", currentValue, historyNewValue, reason, actorId, now);
     }
 
     public static async Task InsertHistoryAsync(
@@ -283,7 +305,7 @@ internal sealed class ResultWriter(Db db)
         SELECT oi.id AS order_item_id, oi.sample_id, oi.service_id, s.approved_at,
                p.sex, p.dob, p.birth_year, o.created_at AS order_created_at,
                r.id AS result_id, r.value, r.status, r.pending_value, r.pending_instrument_id, r.pending_raw_ref,
-               r.pending_instrument_flag
+               r.pending_instrument_flag, r.pending_flag
         FROM order_item oi
         JOIN sample s ON s.id = oi.sample_id
         JOIN lab_order o ON o.id = oi.order_id

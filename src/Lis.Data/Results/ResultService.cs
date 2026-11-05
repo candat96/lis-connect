@@ -222,11 +222,13 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
 
             var service = await ResultWriter.LoadServiceAsync(connection, transaction, item.ServiceId);
             // pending_value đã là giá trị tính xong lúc ghi (R22, qua ResultWriter/InstrumentValuePipeline)
-            // — không tính lại số lẻ/định tính ở đây, chỉ tính lại cờ/khoảng tham chiếu, để "Chấp
-            // nhận" luôn ra đúng giá trị như lúc mới đến (số lẻ của map máy có thể khác số lẻ của
-            // chỉ số, tính lại qua ComputeAsync bình thường sẽ làm tròn sai lần hai).
+            // — không tính lại số lẻ/định tính ở đây. Kiểu "so" tính lại cờ/khoảng tham chiếu qua
+            // FlagCalculator (không đổi dù tính lại); kiểu "dinh-tinh" dùng thẳng pending_flag đã
+            // lưu — pending_value là chữ hiển thị ("Dương tính"), chạy lại QualitativeMapper trên
+            // đó sẽ không tìm thấy luật (luật tra theo giá trị thô "pos") và mất cờ ghi đè.
+            var pendingFlag = item.PendingFlag is null ? ResultFlag.None : Enum.Parse<ResultFlag>(item.PendingFlag);
             var computed = await _writer.ComputeFromFinalValueAsync(
-                service, item.Patient, item.OrderedLocalDate(clock), item.PendingInstrumentId, item.PendingValue);
+                service, item.Patient, item.OrderedLocalDate(clock), item.PendingInstrumentId, item.PendingValue, pendingFlag);
             var now = clock.GetUtcNow();
 
             // Cờ máy gửi kèm bản thay thế (pending_instrument_flag) chuyển thành cờ chính thức —
@@ -239,6 +241,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                     flag = @flag, source = @source, instrument_id = pending_instrument_id, raw_ref = pending_raw_ref,
                     instrument_flag = @instrumentFlag, status = @status,
                     pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL, pending_instrument_flag = NULL,
+                    pending_flag = NULL,
                     updated_at = @now, updated_by = @actorId
                 WHERE id = @resultId
                 """,
@@ -281,7 +284,11 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             }
 
             await connection.ExecuteAsync(
-                "UPDATE result SET pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL, pending_instrument_flag = NULL WHERE id = @resultId",
+                """
+                UPDATE result SET pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL,
+                    pending_instrument_flag = NULL, pending_flag = NULL
+                WHERE id = @resultId
+                """,
                 new { resultId }, transaction);
 
             await ResultWriter.InsertHistoryAsync(

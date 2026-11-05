@@ -6,12 +6,18 @@ using Npgsql;
 
 namespace Lis.Data.Ingest;
 
-/// <summary>Kết cục của một lần ghi giá trị máy: ghi chính thức, thành bản chờ thay thế, hoặc không đổi gì (máy gửi lại đúng giá trị đã duyệt).</summary>
+/// <summary>
+/// Kết cục của một lần ghi giá trị máy: ghi chính thức, thành bản chờ thay thế, không đổi gì
+/// (máy gửi lại đúng giá trị đã duyệt, không có bản chờ thay thế nào đang treo), hoặc bỏ một
+/// bản chờ thay thế cũ không còn đúng nữa (máy gửi lại đúng giá trị đã duyệt trong khi đang có
+/// bản chờ thay thế từ lần gửi trước).
+/// </summary>
 internal enum InstrumentWriteKind
 {
     Stored,
     PendingReplacement,
     Unchanged,
+    PendingCleared,
 }
 
 /// <summary>
@@ -41,7 +47,7 @@ internal static class InstrumentValuePipeline
         // Đọc lại và khóa kết quả hiện có *sau khi* đã giữ khóa mẫu — bản LEFT JOIN trong
         // ItemContext có thể cũ khi một máy trạm khác vừa ghi/duyệt xong.
         var existing = await connection.QuerySingleOrDefaultAsync<ExistingResultRow>(
-            "SELECT id, value, status FROM result WHERE order_item_id = @orderItemId FOR UPDATE",
+            "SELECT id, value, status, pending_value FROM result WHERE order_item_id = @orderItemId FOR UPDATE",
             new { orderItemId = item.OrderItemId }, transaction);
 
         // Map kênh (hệ số/số lẻ/giữ dấu so sánh) chỉ áp khi nó thật sự trỏ tới đúng chỉ số của
@@ -59,7 +65,26 @@ internal static class InstrumentValuePipeline
         {
             if (existing is { Status: ResultWriter.StatusApproved } && existing.Value == computed.Value)
             {
-                // Máy gửi lại đúng giá trị đã duyệt: không tạo thêm bản chờ thay thế/dòng lịch sử trùng lặp.
+                if (existing.PendingValue is not null)
+                {
+                    // Máy gửi lại đúng giá trị đã duyệt trong khi đang có bản chờ thay thế từ lần
+                    // gửi trước (vd lần đó đọc lỗi) — bản chờ thay thế đó không còn đúng nữa, bỏ đi
+                    // thay vì để treo một bản thay thế sai gợi ý người dùng xem lại nhầm.
+                    await connection.ExecuteAsync(
+                        """
+                        UPDATE result SET pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL,
+                            pending_instrument_flag = NULL, pending_flag = NULL
+                        WHERE id = @resultId
+                        """,
+                        new { resultId = existing.Id }, transaction);
+
+                    await ResultWriter.InsertHistoryAsync(
+                        connection, transaction, existing.Id, "bo-thay-the", existing.PendingValue, existing.Value,
+                        "Máy gửi lại giá trị đã duyệt", actorId: null, now);
+                    return InstrumentWriteKind.PendingCleared;
+                }
+
+                // Không có bản chờ thay thế nào đang treo: không tạo thêm pending/lịch sử trùng lặp.
                 return InstrumentWriteKind.Unchanged;
             }
 
@@ -75,9 +100,11 @@ internal static class InstrumentValuePipeline
                 new { orderItemId = item.OrderItemId, unit = service.Unit, status = ResultWriter.StatusPending, now, actorId },
                 transaction);
 
+            // historyNewValue dùng chuỗi thô đã áp map (adjusted) — giữ lại dấu vết ngay cả khi
+            // không đọc được thành giá trị ("***.*" → computed.Value null, pending_value lưu "").
             await ResultWriter.MarkPendingAsync(
-                connection, transaction, resultId, existing?.Value, computed.Value ?? "", instrumentId, rawRef, reading.InstrumentFlag,
-                pendingReason, actorId, now);
+                connection, transaction, resultId, existing?.Value, computed.Value ?? "", adjusted, computed.Flag, instrumentId, rawRef,
+                reading.InstrumentFlag, pendingReason, actorId, now);
             return InstrumentWriteKind.PendingReplacement;
         }
 
@@ -92,5 +119,6 @@ internal static class InstrumentValuePipeline
         public Guid Id { get; init; }
         public string? Value { get; init; }
         public string Status { get; init; } = "";
+        public string? PendingValue { get; init; }
     }
 }
