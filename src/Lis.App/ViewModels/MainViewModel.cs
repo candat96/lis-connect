@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Lis.App.Services;
+using Lis.App.ViewModels.Admin;
 using Lis.App.ViewModels.Catalog;
 using Lis.App.ViewModels.Instruments;
 using Lis.App.ViewModels.Reception;
@@ -36,7 +37,7 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(
         CurrentUser currentUser, CatalogStore catalogStore, IOrderService orders, FacilityStore facility, ILabelPrinter labelPrinter,
         ISettingStore settings, IPrintService printService, IResultService results, IReportPrinter reportPrinter,
-        IUnmatchedService unmatched, IInstrumentStore instruments)
+        IUnmatchedService unmatched, IInstrumentStore instruments, UserStore users)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
@@ -47,6 +48,7 @@ public partial class MainViewModel : ObservableObject
         PrinterSettings = new PrinterSettingsViewModel(settings, printService);
         Unmatched = new UnmatchedViewModel(unmatched, currentUser);
         Instruments = new InstrumentsViewModel(instruments, catalogStore, currentUser);
+        Users = new UsersViewModel(users);
 
         // Đặt sau khi các ViewModel con đã có — OnSelectedItemChanged có thể tải màn đầu tiên ngay.
         SelectedItem = NavItems.FirstOrDefault();
@@ -74,6 +76,9 @@ public partial class MainViewModel : ObservableObject
     /// <summary>ViewModel của màn "Máy &amp; map" — tải khi người dùng mở mục "Máy &amp; map" lần đầu.</summary>
     public InstrumentsViewModel Instruments { get; }
 
+    /// <summary>ViewModel của màn "Tài khoản" — tải khi người dùng mở mục "Tài khoản" lần đầu.</summary>
+    public UsersViewModel Users { get; }
+
     private bool _catalogLoaded;
 
     private bool _receptionLoaded;
@@ -86,6 +91,8 @@ public partial class MainViewModel : ObservableObject
 
     private bool _instrumentsLoaded;
 
+    private bool _usersLoaded;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PageTitle))]
     [NotifyPropertyChangedFor(nameof(IsCatalogSelected))]
@@ -94,6 +101,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsSettingsSelected))]
     [NotifyPropertyChangedFor(nameof(IsUnmatchedSelected))]
     [NotifyPropertyChangedFor(nameof(IsInstrumentsSelected))]
+    [NotifyPropertyChangedFor(nameof(IsUsersSelected))]
     [NotifyPropertyChangedFor(nameof(IsPlaceholderSelected))]
     private NavItem? _selectedItem;
 
@@ -111,9 +119,11 @@ public partial class MainViewModel : ObservableObject
 
     public bool IsInstrumentsSelected => SelectedItem?.Label == "Máy & map";
 
+    public bool IsUsersSelected => SelectedItem?.Label == "Tài khoản";
+
     public bool IsPlaceholderSelected =>
         !IsCatalogSelected && !IsReceptionSelected && !IsResultsSelected && !IsSettingsSelected
-        && !IsUnmatchedSelected && !IsInstrumentsSelected;
+        && !IsUnmatchedSelected && !IsInstrumentsSelected && !IsUsersSelected;
 
     partial void OnSelectedItemChanged(NavItem? value)
     {
@@ -151,6 +161,12 @@ public partial class MainViewModel : ObservableObject
         {
             _instrumentsLoaded = true;
             _ = Instruments.LoadAsync();
+        }
+
+        if (IsUsersSelected && !_usersLoaded)
+        {
+            _usersLoaded = true;
+            _ = Users.LoadUsersCommand.ExecuteAsync(null);
         }
     }
 

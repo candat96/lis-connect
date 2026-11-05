@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Lis.App.ViewModels"
+        xmlns:admin="using:Lis.App.Views.Admin"
         xmlns:catalog="using:Lis.App.Views.Catalog"
         xmlns:instruments="using:Lis.App.Views.Instruments"
         xmlns:reception="using:Lis.App.Views.Reception"
@@ -65,6 +66,10 @@
 
             <Panel Grid.Row="1" IsVisible="{Binding IsInstrumentsSelected}">
                 <instruments:InstrumentsView DataContext="{Binding Instruments}" />
+            </Panel>
+
+            <Panel Grid.Row="1" IsVisible="{Binding IsUsersSelected}">
+                <admin:UsersView DataContext="{Binding Users}" />
             </Panel>
 
             <StackPanel Grid.Row="1" IsVisible="{Binding IsPlaceholderSelected}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
