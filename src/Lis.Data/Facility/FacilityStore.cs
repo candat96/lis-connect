@@ -17,9 +17,18 @@ public record FacilityInfo(
     string BarcodeMode);
 
 /// <summary>
+/// Phần đọc của <see cref="FacilityStore"/> cần cho phiếu in (Task 12) — tách interface để
+/// <see cref="Lis.App.Services.ReportPrinter"/> kiểm thử được bằng bản giả, không cần CSDL.
+/// </summary>
+public interface IFacilityStore
+{
+    Task<FacilityInfo?> GetAsync();
+}
+
+/// <summary>
 /// Truy cập thông tin cơ sở (bảng <c>facility</c>, id luôn là 1).
 /// </summary>
-public sealed class FacilityStore(Db db)
+public sealed class FacilityStore(Db db) : IFacilityStore
 {
     public async Task<FacilityInfo?> GetAsync()
     {

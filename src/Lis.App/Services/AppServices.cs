@@ -33,7 +33,7 @@ public sealed class AppServices
         PrintService = new PdfPrintService();
         LabelPrinter = new LabelPrinter(Settings, PrintService);
         Results = new ResultService(Db, TimeProvider.System);
-        ReportPrinter = new NoOpReportPrinter();
+        ReportPrinter = new ReportPrinter(Results, Facility, Settings, PrintService, TimeProvider.System);
         Unmatched = new UnmatchedService(Db, TimeProvider.System);
         Instruments = new InstrumentStore(Db);
     }
@@ -60,7 +60,6 @@ public sealed class AppServices
 
     public IResultService Results { get; }
 
-    /// <summary>In phiếu kết quả — bản chưa in gì cho tới Task 12 (xem <see cref="IReportPrinter"/>).</summary>
     public IReportPrinter ReportPrinter { get; }
 
     public IUnmatchedService Unmatched { get; }

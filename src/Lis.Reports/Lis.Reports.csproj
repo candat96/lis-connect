@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Lis.Core\Lis.Core.csproj" />
+    <ProjectReference Include="..\Lis.Data\Lis.Data.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -153,6 +153,41 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
             sample.ApprovedAt, approvedBy, rows);
     }
 
+    /// <summary>Thông tin phiếu chỉ định của mẫu — đầu phiếu kết quả (Task 12).</summary>
+    public async Task<OrderHeader> GetOrderHeaderAsync(Guid sampleId)
+    {
+        await using var connection = await db.OpenAsync();
+        var row = await connection.QuerySingleOrDefaultAsync<OrderHeaderRow>(
+            """
+            SELECT o.id AS order_id, p.address, o.ordering_doctor, o.ordering_dept, o.diagnosis, o.ordered_at
+            FROM sample s
+            JOIN lab_order o ON o.id = s.order_id
+            JOIN patient p ON p.id = o.patient_id
+            WHERE s.id = @sampleId
+            """,
+            new { sampleId })
+            ?? throw new InvalidOperationException("Không tìm thấy mẫu");
+
+        return row.ToHeader();
+    }
+
+    /// <summary>Id mọi mẫu (kể cả <paramref name="sampleId"/>) thuộc cùng phiếu chỉ định — gộp phiếu in (Task 12).</summary>
+    public async Task<IReadOnlyList<Guid>> GetOrderSampleIdsAsync(Guid sampleId)
+    {
+        await using var connection = await db.OpenAsync();
+        var ids = await connection.QueryAsync<Guid>(
+            """
+            SELECT s2.id
+            FROM sample s
+            JOIN sample s2 ON s2.order_id = s.order_id
+            WHERE s.id = @sampleId
+            ORDER BY s2.barcode
+            """,
+            new { sampleId });
+
+        return ids.ToList();
+    }
+
     /// <summary>Khoảng tham chiếu để hiển thị: <c>ref_text</c> nếu có, không thì "thấp – cao" theo số lẻ của chỉ số.</summary>
     public static string? FormatRefText(string? refText, decimal? low, decimal? high, int? decimals)
     {
@@ -172,6 +207,18 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
         string Format(decimal value) => decimals is { } d
             ? value.ToString("F" + d, CultureInfo.InvariantCulture)
             : value.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+
+    private sealed record OrderHeaderRow
+    {
+        public Guid OrderId { get; init; }
+        public string? Address { get; init; }
+        public string? OrderingDoctor { get; init; }
+        public string? OrderingDept { get; init; }
+        public string? Diagnosis { get; init; }
+        public DateTimeOffset OrderedAt { get; init; }
+
+        public OrderHeader ToHeader() => new(OrderId, Address, OrderingDoctor, OrderingDept, Diagnosis, OrderedAt);
     }
 
     private sealed record ListRow

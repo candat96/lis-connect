@@ -43,6 +43,12 @@ internal sealed class FakeResultService : IResultService
         return Task.FromResult(Sample ?? throw new InvalidOperationException("Không tìm thấy mẫu"));
     }
 
+    public Task<OrderHeader> GetOrderHeaderAsync(Guid sampleId) =>
+        Task.FromResult(new OrderHeader(Guid.NewGuid(), null, null, null, null, DateTimeOffset.UtcNow));
+
+    public Task<IReadOnlyList<Guid>> GetOrderSampleIdsAsync(Guid sampleId) =>
+        Task.FromResult<IReadOnlyList<Guid>>([sampleId]);
+
     public Task SetManualAsync(Guid orderItemId, string value, Guid actorId, string? reason)
     {
         SetManualCalls.Add((orderItemId, value, actorId, reason));

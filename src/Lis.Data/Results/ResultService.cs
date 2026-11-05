@@ -37,6 +37,18 @@ public sealed record SampleResults(
     string? ApprovedBy,
     IReadOnlyList<ResultRow> Rows);
 
+/// <summary>
+/// Thông tin phiếu chỉ định cần cho đầu phiếu kết quả: địa chỉ người bệnh, bác sĩ/khoa chỉ
+/// định, chẩn đoán và thời điểm chỉ định. Lấy theo một mẫu bất kỳ của phiếu chỉ định đó.
+/// </summary>
+public sealed record OrderHeader(
+    Guid OrderId,
+    string? Address,
+    string? OrderingDoctor,
+    string? OrderingDept,
+    string? Diagnosis,
+    DateTimeOffset OrderedAt);
+
 /// <summary>Một dòng trong danh sách mẫu của màn Kết quả. <see cref="Total"/>/<see cref="WithValue"/> đếm chỉ số lá (không tính dòng panel).</summary>
 public sealed record SampleListItem(
     Guid SampleId,
@@ -60,6 +72,12 @@ public interface IResultService
     Task<IReadOnlyList<SampleListItem>> ListAsync(DateOnly from, DateOnly to, string? status, string? query);
 
     Task<SampleResults> GetAsync(Guid sampleId);
+
+    /// <summary>Thông tin phiếu chỉ định của mẫu — dùng để in đầu phiếu kết quả (Task 12).</summary>
+    Task<OrderHeader> GetOrderHeaderAsync(Guid sampleId);
+
+    /// <summary>Id các mẫu khác thuộc cùng phiếu chỉ định với <paramref name="sampleId"/> — dùng để gộp phiếu in (Task 12).</summary>
+    Task<IReadOnlyList<Guid>> GetOrderSampleIdsAsync(Guid sampleId);
 
     /// <summary>Nhập tay một giá trị. Ô đã có giá trị thì bắt buộc <paramref name="reason"/>.</summary>
     Task SetManualAsync(Guid orderItemId, string value, Guid actorId, string? reason);
@@ -95,6 +113,10 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
         _query.ListAsync(from, to, status, query);
 
     public Task<SampleResults> GetAsync(Guid sampleId) => _query.GetAsync(sampleId);
+
+    public Task<OrderHeader> GetOrderHeaderAsync(Guid sampleId) => _query.GetOrderHeaderAsync(sampleId);
+
+    public Task<IReadOnlyList<Guid>> GetOrderSampleIdsAsync(Guid sampleId) => _query.GetOrderSampleIdsAsync(sampleId);
 
     public async Task SetManualAsync(Guid orderItemId, string value, Guid actorId, string? reason)
     {

@@ -135,7 +135,7 @@ internal static class Program
         var facilityStore = new FacilityStore(unusedDb);
         var viewModel = new MainViewModel(
             new CurrentUser(user), catalogStore, orders, facilityStore, new UnusedLabelPrinter(), new UnusedSettingStore(), new FakePrintService(),
-            new SeededResultService(null, []), new NoOpReportPrinter(), new UnusedUnmatchedService(), new UnusedInstrumentStore());
+            new SeededResultService(null, []), new UnusedReportPrinter(), new UnusedUnmatchedService(), new UnusedInstrumentStore());
         return new MainWindow { DataContext = viewModel };
     }
 
@@ -173,7 +173,7 @@ internal static class Program
         };
 
         var user = new UserInfo(Guid.NewGuid(), "ktv.thu", "Nguyễn Văn Thử", "Kỹ thuật viên", [Roles.TruongKhoa], true);
-        var viewModel = new ResultsViewModel(new SeededResultService(sample, items), new CurrentUser(user), new NoOpReportPrinter());
+        var viewModel = new ResultsViewModel(new SeededResultService(sample, items), new CurrentUser(user), new UnusedReportPrinter());
 
         viewModel.LoadAsync().GetAwaiter().GetResult();
         viewModel.SelectedSample = viewModel.Samples.First(s => s.SampleId == sampleId);
@@ -508,6 +508,12 @@ internal static class Program
         public Task<SampleResults> GetAsync(Guid sampleId) =>
             Task.FromResult(sample ?? throw new NotSupportedException("Chỉ dùng để chụp ảnh."));
 
+        public Task<OrderHeader> GetOrderHeaderAsync(Guid sampleId) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task<IReadOnlyList<Guid>> GetOrderSampleIdsAsync(Guid sampleId) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
         public Task SetManualAsync(Guid orderItemId, string value, Guid actorId, string? reason) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh, không ghi kết quả thật.");
 
@@ -532,6 +538,13 @@ internal static class Program
     {
         public Task PrintAsync(IReadOnlyList<LabelData> labels) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh, không in tem.");
+    }
+
+    /// <summary>IReportPrinter giả — các màn chụp ảnh không in phiếu kết quả.</summary>
+    private sealed class UnusedReportPrinter : IReportPrinter
+    {
+        public Task PrintAsync(Guid sampleId) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không in phiếu.");
     }
 
     /// <summary>ISettingStore giả — các màn chụp ảnh không đọc/ghi bảng setting.</summary>
