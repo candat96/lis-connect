@@ -71,12 +71,15 @@ public sealed class CatalogExcelImporter(Db db)
         var catalogStore = new CatalogStore(_db);
         var instrumentStore = new InstrumentStore(_db);
 
-        // Lấy danh sách loại mẫu
+        // Lấy danh sách loại mẫu — LoaiMau trong sheet DichVu chấp nhận mã loại mẫu
+        // (vd "EDTA", xem specimen_type.code) để tệp mẫu dùng được trên mọi CSDL (id là
+        // uuidv7 sinh ngẫu nhiên lúc migrate, không cố định); vẫn chấp nhận GUID trực tiếp
+        // để không phá các workbook cũ đã dùng id.
         var specimenTypes = await catalogStore.SpecimenTypesAsync();
-        var specimenTypeMap = specimenTypes.ToDictionary(x => x.Id.ToString());
+        var specimenTypeMap = specimenTypes.ToDictionary(x => x.Code, x => x.Id, StringComparer.OrdinalIgnoreCase);
 
         // Import DichVu sheet
-        var serviceMap = await ImportDichVuAsync(workbook, catalogStore, dryRun);
+        var serviceMap = await ImportDichVuAsync(workbook, catalogStore, specimenTypeMap, dryRun);
         if (_errors.Any())
             return;
 
@@ -97,6 +100,7 @@ public sealed class CatalogExcelImporter(Db db)
     private async Task<Dictionary<string, Guid>> ImportDichVuAsync(
         XLWorkbook workbook,
         CatalogStore catalogStore,
+        IReadOnlyDictionary<string, Guid> specimenTypeMap,
         bool dryRun)
     {
         var serviceMap = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
@@ -128,7 +132,11 @@ public sealed class CatalogExcelImporter(Db db)
                 if (string.IsNullOrEmpty(name))
                     throw new InvalidOperationException("thiếu Tên");
 
-                if (string.IsNullOrEmpty(specimenTypeIdStr) || !Guid.TryParse(specimenTypeIdStr, out var specimenTypeId))
+                if (string.IsNullOrEmpty(specimenTypeIdStr))
+                    throw new InvalidOperationException("LoaiMau không hợp lệ");
+
+                if (!Guid.TryParse(specimenTypeIdStr, out var specimenTypeId)
+                    && !specimenTypeMap.TryGetValue(specimenTypeIdStr, out specimenTypeId))
                     throw new InvalidOperationException("LoaiMau không hợp lệ");
 
                 if (string.IsNullOrEmpty(valueTypeStr) || !IsValidValueType(valueTypeStr))

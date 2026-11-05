@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Lis.Core\Lis.Core.csproj" />
+    <ProjectReference Include="..\..\src\Lis.Data\Lis.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <!--
+    Công cụ dòng lệnh: "make-seed-xlsx" dựng tệp danh mục mẫu (tools/seed/mau-danh-muc.xlsx)
+    theo đúng khuôn CatalogExcelImporter; "seed-demo" tạo người bệnh/chỉ định/kết quả giả trên
+    một CSDL dev để thử luồng — không bao giờ dùng dữ liệu người bệnh thật (xem global-constraints).
+  -->
+
+</Project>
