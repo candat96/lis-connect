@@ -33,9 +33,8 @@ public sealed class ReportPrinter(IResultService results, IFacilityStore facilit
             ?? throw new InvalidOperationException("Chưa cài đặt thông tin cơ sở");
 
         var approved = mainSample.ApprovedAt is not null && otherSamples.All(s => s.ApprovedAt is not null);
-        var approverName = approved ? mainSample.ApprovedBy : null;
 
-        var data = new ReportData(facilityInfo, mainSample, otherSamples, approved, approverName, clock.GetUtcNow(), header);
+        var data = new ReportData(facilityInfo, mainSample, otherSamples, approved, clock.GetUtcNow(), header);
         var pdf = ResultReportPdf.Render(data);
 
         var printerName = await settings.GetAsync(SettingKeys.ReportPrinter);

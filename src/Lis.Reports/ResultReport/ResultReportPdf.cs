@@ -14,12 +14,15 @@ namespace Lis.Reports.ResultReport;
 /// Dựng PDF phiếu kết quả xét nghiệm, khổ A4 dọc: đầu phiếu (logo/tên/địa chỉ cơ sở), tiêu đề,
 /// thông tin người bệnh và phiếu chỉ định, rồi bảng kết quả của từng mẫu — gộp mọi mẫu của cùng
 /// một phiếu chỉ định vào một phiếu in (<see cref="ReportData.Sample"/> và
-/// <see cref="ReportData.OtherSamplesSameOrder"/>). Mỗi bảng: dịch vụ cha (panel) đứng trước,
-/// chỉ số con thụt vào; giá trị bất thường in đậm kèm ↑ (cao/cao nguy hiểm), ↓ (thấp/thấp nguy
-/// hiểm) hoặc "*" (định tính bất thường). Cuối phiếu là người duyệt và thời điểm duyệt. Khi còn
-/// mẫu nào của phiếu chưa duyệt, dòng "CHƯA DUYỆT — KHÔNG CÓ GIÁ TRỊ TRẢ KẾT QUẢ" in ở cả đầu và
-/// cuối phiếu (xem <see cref="ReportData.Approved"/>) — đây là bản chính thức duy nhất được coi
-/// là có giá trị trả kết quả khi không có dòng này.
+/// <see cref="ReportData.OtherSamplesSameOrder"/>, luôn sắp theo barcode tăng dần bất kể mẫu nào
+/// được bấm "In phiếu" — R31). Mỗi bảng: dòng tiêu đề cột lặp lại ở mọi trang (bảng dài tràn
+/// trang), dịch vụ cha (panel) đứng trước, chỉ số con thụt vào; giá trị bất thường in đậm kèm ↑
+/// (cao/cao nguy hiểm), ↓ (thấp/thấp nguy hiểm) hoặc "*" (định tính bất thường). Mỗi mục mẫu ghi
+/// rõ người duyệt/thời điểm duyệt của riêng mẫu đó (hoặc "Chưa duyệt"); cuối phiếu gộp tên người
+/// duyệt khác nhau của các mẫu đã duyệt (cách nhau bởi ", ") và thời điểm duyệt muộn nhất (R31).
+/// Khi còn mẫu nào của phiếu chưa duyệt, dòng "CHƯA DUYỆT — KHÔNG CÓ GIÁ TRỊ TRẢ KẾT QUẢ" in ở cả
+/// đầu và cuối phiếu (xem <see cref="ReportData.Approved"/>) — đây là bản chính thức duy nhất
+/// được coi là có giá trị trả kết quả khi không có dòng này.
 /// </summary>
 public static class ResultReportPdf
 {
@@ -70,15 +73,12 @@ public static class ResultReportPdf
         return stream.ToArray();
     }
 
-    /// <summary>Mẫu chính rồi các mẫu khác của cùng phiếu chỉ định, theo đúng thứ tự in.</summary>
-    private static IEnumerable<SampleResults> AllSamples(ReportData d)
-    {
-        yield return d.Sample;
-        foreach (var other in d.OtherSamplesSameOrder)
-        {
-            yield return other;
-        }
-    }
+    /// <summary>Mọi mẫu gộp vào phiếu, sắp theo barcode tăng dần — không phụ thuộc mẫu nào được
+    /// bấm "In phiếu" (R31).</summary>
+    private static IReadOnlyList<SampleResults> AllSamples(ReportData d) =>
+        new[] { d.Sample }.Concat(d.OtherSamplesSameOrder)
+            .OrderBy(s => s.Barcode, StringComparer.Ordinal)
+            .ToList();
 
     private static void AddHeader(Section section, FacilityInfo facility)
     {
@@ -125,7 +125,7 @@ public static class ResultReportPdf
         var sample = d.Sample;
         var patient = sample.Patient;
 
-        section.AddParagraph($"Họ tên: {sample.PatientName}   ·   Giới: {SexText(patient.Sex)}   ·   Năm sinh: {BirthText(patient)}");
+        section.AddParagraph($"Họ tên: {sample.PatientName}   ·   Giới: {SexText(patient.Sex)}   ·   {BirthLabel(patient)}");
         section.AddParagraph($"Mã bệnh nhân: {sample.PatientCode}");
 
         if (!string.IsNullOrWhiteSpace(d.Header.Address))
@@ -155,18 +155,21 @@ public static class ResultReportPdf
         _ => "Khác",
     };
 
-    private static string BirthText(PatientFacts patient) => patient.Dob is { } dob
-        ? dob.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)
-        : patient.BirthYear is { } year ? year.ToString(CultureInfo.InvariantCulture) : "—";
+    /// <summary>"Ngày sinh: dd/MM/yyyy" khi biết đủ ngày sinh, "Năm sinh: yyyy" khi chỉ biết năm.</summary>
+    private static string BirthLabel(PatientFacts patient) => patient.Dob is { } dob
+        ? $"Ngày sinh: {dob.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)}"
+        : patient.BirthYear is { } year ? $"Năm sinh: {year.ToString(CultureInfo.InvariantCulture)}" : "Năm sinh: —";
 
     /// <summary>
     /// Bảng kết quả của một mẫu: cột Xét nghiệm | Kết quả | Đơn vị | Khoảng tham chiếu. Dòng
     /// panel (cha) không có giá trị, đứng trước các chỉ số con — chỉ số con thụt vào bằng
-    /// <c>LeftIndent</c> trên đoạn văn của ô tên.
+    /// <c>LeftIndent</c> trên đoạn văn của ô tên. Tiêu đề mẫu ghi rõ người duyệt/thời điểm duyệt
+    /// của riêng mẫu này (R31) — mỗi mẫu gộp vào phiếu có thể do người khác nhau duyệt. Dòng tiêu
+    /// đề cột (<c>HeadingFormat</c>) lặp lại ở đầu mỗi trang khi bảng dài tràn trang.
     /// </summary>
     private static void AddSampleTable(Section section, SampleResults sample)
     {
-        var header = section.AddParagraph($"Mẫu {sample.Barcode}");
+        var header = section.AddParagraph($"Mẫu {sample.Barcode} — {SampleApprovalText(sample)}");
         header.Format.Font.Bold = true;
         header.Format.SpaceBefore = Unit.FromMillimeter(2);
         header.Format.SpaceAfter = Unit.FromMillimeter(1);
@@ -181,6 +184,7 @@ public static class ResultReportPdf
         table.AddColumn(Unit.FromMillimeter(45));
 
         var head = table.AddRow();
+        head.HeadingFormat = true;
         head.Shading.Color = new Color(230, 230, 230);
         AddHeaderCell(head.Cells[0], "Xét nghiệm");
         AddHeaderCell(head.Cells[1], "Kết quả");
@@ -192,6 +196,11 @@ public static class ResultReportPdf
             AddResultRow(table, row);
         }
     }
+
+    /// <summary>"Duyệt: {người duyệt}, {thời điểm}" hoặc "Chưa duyệt" — gắn vào tiêu đề mỗi mẫu (R31).</summary>
+    private static string SampleApprovalText(SampleResults sample) => sample.ApprovedAt is { } at
+        ? $"Duyệt: {sample.ApprovedBy}, {TimeZoneInfo.ConvertTime(at, TimeZoneInfo.Local).ToString(DateTimeFormat, CultureInfo.InvariantCulture)}"
+        : "Chưa duyệt";
 
     private static void AddResultRow(Table table, ResultRow row)
     {
@@ -247,6 +256,11 @@ public static class ResultReportPdf
         _ => null,
     };
 
+    /// <summary>
+    /// "Người duyệt" gộp tên khác nhau của mọi mẫu đã duyệt (cách nhau bởi ", ", tự duyệt đã sẵn
+    /// là "Tự duyệt" từ <see cref="SampleResultsQuery"/>); "Thời điểm duyệt" là thời điểm muộn
+    /// nhất trong các mẫu đã duyệt (R31) — không chỉ lấy theo mẫu chính đang in.
+    /// </summary>
     private static void AddFooter(Section section, ReportData d)
     {
         var spacer = section.AddParagraph();
@@ -254,10 +268,11 @@ public static class ResultReportPdf
 
         if (d.Approved)
         {
-            var approvedAt = d.Sample.ApprovedAt is { } at
-                ? TimeZoneInfo.ConvertTime(at, TimeZoneInfo.Local).ToString(DateTimeFormat, CultureInfo.InvariantCulture)
-                : "—";
-            section.AddParagraph($"Người duyệt: {d.ApproverName ?? "—"}   ·   Thời điểm duyệt: {approvedAt}");
+            var approvedSamples = AllSamples(d).Where(s => s.ApprovedAt is not null).ToList();
+            var names = string.Join(", ", approvedSamples.Select(s => s.ApprovedBy).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct());
+            var latest = approvedSamples.Max(s => s.ApprovedAt)!.Value;
+            var approvedAt = TimeZoneInfo.ConvertTime(latest, TimeZoneInfo.Local).ToString(DateTimeFormat, CultureInfo.InvariantCulture);
+            section.AddParagraph($"Người duyệt: {(names.Length > 0 ? names : "—")}   ·   Thời điểm duyệt: {approvedAt}");
         }
         else
         {
