@@ -40,11 +40,14 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
+    private LocalConfigStore? _configStore;
+
     private void StartUp(IClassicDesktopStyleApplicationLifetime desktop)
     {
         var directory = LocalPaths.DataDirectory;
         var protector = SecretProtectors.ForCurrentOs(directory);
         var configStore = new LocalConfigStore(directory, protector);
+        _configStore = configStore;
         var config = configStore.Load();
 
         if (config is null)
@@ -96,7 +99,7 @@ public partial class App : Application
                 return;
             }
 
-            ShowMain(desktop, services, user);
+            ShowMain(desktop, services, user, config);
             window.Close();
         };
 
@@ -104,13 +107,25 @@ public partial class App : Application
         window.Show();
     }
 
-    private void ShowMain(IClassicDesktopStyleApplicationLifetime desktop, AppServices services, UserInfo user)
+    private void ShowMain(IClassicDesktopStyleApplicationLifetime desktop, AppServices services, UserInfo user, LocalConfig config)
     {
         var currentUser = new CurrentUser(user);
+        var configStore = _configStore ?? new LocalConfigStore(LocalPaths.DataDirectory, SecretProtectors.ForCurrentOs(LocalPaths.DataDirectory));
         var viewModel = new MainViewModel(
             currentUser, services.Catalog, services.Orders, services.Facility, services.LabelPrinter, services.Settings, services.PrintService,
-            services.Results, services.ReportPrinter, services.Unmatched, services.Instruments, services.Users);
+            services.Results, services.ReportPrinter, services.Unmatched, services.Instruments, services.Users,
+            new SetupService(), configStore, config);
         var window = new MainWindow { DataContext = viewModel };
+
+        // Lưu cấu hình CSDL mới ở tab "Kết nối CSDL" -> đăng xuất: mở màn đăng nhập với cấu
+        // hình mới trước, rồi mới đóng MainWindow qua AllowClose (cùng lý do như ShowSetupWizard:
+        // tránh khoảnh khắc không còn cửa sổ nào mở khiến ứng dụng tự thoát).
+        viewModel.ConfigSaved += (_, newConfig) =>
+        {
+            ShowLogin(desktop, newConfig);
+            window.AllowClose = true;
+            window.Close();
+        };
 
         _mainWindow = window;
         desktop.MainWindow = window;

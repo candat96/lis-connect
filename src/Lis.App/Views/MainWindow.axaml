@@ -57,7 +57,7 @@
             </Panel>
 
             <Panel Grid.Row="1" IsVisible="{Binding IsSettingsSelected}">
-                <settings:PrinterSettingsView DataContext="{Binding PrinterSettings}" />
+                <settings:SettingsView DataContext="{Binding Settings}" />
             </Panel>
 
             <Panel Grid.Row="1" IsVisible="{Binding IsUnmatchedSelected}">

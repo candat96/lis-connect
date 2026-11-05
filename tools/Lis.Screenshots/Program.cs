@@ -133,9 +133,14 @@ internal static class Program
         var catalogStore = new CatalogStore(unusedDb);
         var orders = new UnusedOrderService();
         var facilityStore = new FacilityStore(unusedDb);
+        var users = new UserStore(unusedDb);
+        var localConfig = new LocalConfig(new DbSettings("localhost", 5432, "unused", "unused", "unused", false), "XN-01");
+        var screenshotsConfigDir = Path.Combine(Path.GetTempPath(), "lis-screenshots-unused");
+        var configStore = new LocalConfigStore(screenshotsConfigDir, new DevKeySecretProtector(screenshotsConfigDir));
         var viewModel = new MainViewModel(
             new CurrentUser(user), catalogStore, orders, facilityStore, new UnusedLabelPrinter(), new UnusedSettingStore(), new FakePrintService(),
-            new SeededResultService(null, []), new UnusedReportPrinter(), new UnusedUnmatchedService(), new UnusedInstrumentStore());
+            new SeededResultService(null, []), new UnusedReportPrinter(), new UnusedUnmatchedService(), new UnusedInstrumentStore(), users,
+            new UnusedSetupService(), configStore, localConfig);
         return new MainWindow { DataContext = viewModel };
     }
 

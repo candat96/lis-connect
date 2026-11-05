@@ -1,0 +1,47 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Settings"
+             x:Class="Lis.App.Views.Settings.FacilityInfoView"
+             x:DataType="vm:FacilitySettingsViewModel">
+
+    <StackPanel Spacing="12">
+
+        <Border Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+            <StackPanel Spacing="12">
+                <TextBlock Classes="heading" Text="Thông tin cơ sở" />
+
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Tên cơ sở" />
+                    <TextBox Text="{Binding Name}" />
+                </StackPanel>
+
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Địa chỉ" />
+                    <TextBox Text="{Binding Address}" />
+                </StackPanel>
+
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Số điện thoại" />
+                    <TextBox Text="{Binding Phone}" />
+                </StackPanel>
+
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Logo" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="PickLogoButton" Content="Chọn ảnh logo..." />
+                        <Button Content="Xóa logo" Command="{Binding ClearLogoCommand}" IsVisible="{Binding HasLogo}" />
+                        <TextBlock Classes="muted" Text="{Binding LogoFileName}" VerticalAlignment="Center" IsVisible="{Binding HasLogo}" />
+                        <TextBlock Classes="muted" Text="Chưa có logo" VerticalAlignment="Center" IsVisible="{Binding !HasLogo}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <TextBlock Classes="success" Text="{Binding SuccessMessage}" IsVisible="{Binding SuccessMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+                <Button Classes="primary" Content="Lưu" Command="{Binding SaveCommand}" HorizontalAlignment="Left" />
+            </StackPanel>
+        </Border>
+
+    </StackPanel>
+
+</UserControl>

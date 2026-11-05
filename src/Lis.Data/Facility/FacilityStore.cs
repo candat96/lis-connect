@@ -23,12 +23,15 @@ public record FacilityInfo(
 public interface IFacilityStore
 {
     Task<FacilityInfo?> GetAsync();
+
+    Task SaveAsync(FacilityInfo facility);
 }
 
 /// <summary>
 /// Truy cập thông tin cơ sở (bảng <c>facility</c>, id luôn là 1).
 /// </summary>
 public sealed class FacilityStore(Db db) : IFacilityStore
+
 {
     public async Task<FacilityInfo?> GetAsync()
     {

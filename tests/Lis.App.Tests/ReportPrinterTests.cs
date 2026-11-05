@@ -15,6 +15,8 @@ namespace Lis.App.Tests;
 internal sealed class FakeFacilityStore(FacilityInfo? facility) : IFacilityStore
 {
     public Task<FacilityInfo?> GetAsync() => Task.FromResult(facility);
+
+    public Task SaveAsync(FacilityInfo facility) => Task.CompletedTask;
 }
 
 /// <summary>

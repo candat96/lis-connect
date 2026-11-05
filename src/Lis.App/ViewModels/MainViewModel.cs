@@ -13,9 +13,11 @@ using Lis.Data.Catalog;
 using Lis.Data.Facility;
 using Lis.Data.Ingest;
 using Lis.Data.Instruments;
+using Lis.Data.Local;
 using Lis.Data.Orders;
 using Lis.Data.Results;
 using Lis.Data.Settings;
+using Lis.Data.Setup;
 using Lis.Reports.Printing;
 
 namespace Lis.App.ViewModels;
@@ -37,7 +39,8 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(
         CurrentUser currentUser, CatalogStore catalogStore, IOrderService orders, FacilityStore facility, ILabelPrinter labelPrinter,
         ISettingStore settings, IPrintService printService, IResultService results, IReportPrinter reportPrinter,
-        IUnmatchedService unmatched, IInstrumentStore instruments, UserStore users)
+        IUnmatchedService unmatched, IInstrumentStore instruments, UserStore users,
+        ISetupService setupService, LocalConfigStore configStore, LocalConfig localConfig)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
@@ -45,14 +48,26 @@ public partial class MainViewModel : ObservableObject
         Catalog = new CatalogViewModel(catalogStore);
         Reception = new ReceptionViewModel(orders, catalogStore, facility, currentUser, labelPrinter);
         Results = new ResultsViewModel(results, currentUser, reportPrinter);
-        PrinterSettings = new PrinterSettingsViewModel(settings, printService);
         Unmatched = new UnmatchedViewModel(unmatched, currentUser);
         Instruments = new InstrumentsViewModel(instruments, catalogStore, currentUser);
         Users = new UsersViewModel(users);
 
+        var dbConnection = currentUser.Can(Permission.QuanTri)
+            ? new DbConnectionViewModel(setupService, configStore, localConfig)
+            : null;
+        if (dbConnection is not null)
+        {
+            dbConnection.ConfigSaved += (_, config) => ConfigSaved?.Invoke(this, config);
+        }
+
+        Settings = new SettingsViewModel(new FacilitySettingsViewModel(facility), new PrinterSettingsViewModel(settings, printService), dbConnection);
+
         // Đặt sau khi các ViewModel con đã có — OnSelectedItemChanged có thể tải màn đầu tiên ngay.
         SelectedItem = NavItems.FirstOrDefault();
     }
+
+    /// <summary>Báo đã lưu cấu hình CSDL mới ở tab "Kết nối CSDL" — App cần đăng xuất và mở lại màn đăng nhập.</summary>
+    public event EventHandler<LocalConfig>? ConfigSaved;
 
     public CurrentUser CurrentUser { get; }
 
@@ -67,8 +82,8 @@ public partial class MainViewModel : ObservableObject
     /// <summary>ViewModel của màn Kết quả — tải khi người dùng mở mục "Kết quả" lần đầu.</summary>
     public ResultsViewModel Results { get; }
 
-    /// <summary>ViewModel của màn Cài đặt (mục Máy in) — tải khi người dùng mở mục "Cài đặt" lần đầu.</summary>
-    public PrinterSettingsViewModel PrinterSettings { get; }
+    /// <summary>ViewModel của màn Cài đặt (các tab con) — tải khi người dùng mở mục "Cài đặt" lần đầu.</summary>
+    public SettingsViewModel Settings { get; }
 
     /// <summary>ViewModel của màn Chưa ghép — tải khi người dùng mở mục "Chưa ghép" lần đầu.</summary>
     public UnmatchedViewModel Unmatched { get; }
@@ -148,7 +163,7 @@ public partial class MainViewModel : ObservableObject
         if (IsSettingsSelected && !_settingsLoaded)
         {
             _settingsLoaded = true;
-            _ = PrinterSettings.LoadAsync();
+            _ = Settings.LoadAsync();
         }
 
         if (IsUnmatchedSelected && !_unmatchedLoaded)

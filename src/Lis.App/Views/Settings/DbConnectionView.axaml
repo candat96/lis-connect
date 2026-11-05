@@ -1,0 +1,64 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Settings"
+             x:Class="Lis.App.Views.Settings.DbConnectionView"
+             x:DataType="vm:DbConnectionViewModel">
+
+    <StackPanel Spacing="12">
+
+        <Border Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+            <StackPanel Spacing="12">
+                <TextBlock Classes="heading" Text="Kết nối CSDL" />
+                <TextBlock Classes="muted" Text="Đổi thông tin kết nối sẽ đăng xuất và mở lại màn đăng nhập sau khi lưu." TextWrapping="Wrap" />
+
+                <Grid ColumnDefinitions="*,100" ColumnSpacing="16">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Máy chủ" />
+                        <TextBox Text="{Binding Host}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Cổng" />
+                        <TextBox Text="{Binding PortText}" />
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Tên CSDL" />
+                    <TextBox Text="{Binding Database}" />
+                </StackPanel>
+
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Tên đăng nhập CSDL" />
+                        <TextBox Text="{Binding Username}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Mật khẩu" />
+                        <TextBox Text="{Binding Password}" PasswordChar="*" />
+                        <TextBlock FontSize="10" Classes="muted" Text="Để trống nếu không đổi mật khẩu" />
+                    </StackPanel>
+                </Grid>
+
+                <CheckBox Content="Bắt buộc TLS (SSL)" IsChecked="{Binding RequireSsl}" />
+
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Mã máy trạm" />
+                    <TextBox Text="{Binding WorkstationCode}" />
+                </StackPanel>
+
+                <TextBlock Text="{Binding TestMessage}" TextWrapping="Wrap"
+                           Classes.success="{Binding TestOk}"
+                           Classes.error="{Binding !TestOk}"
+                           IsVisible="{Binding TestMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Thử kết nối" Command="{Binding TestConnectionCommand}" />
+                    <Button Classes="primary" Content="Lưu" Command="{Binding SaveCommand}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+    </StackPanel>
+
+</UserControl>

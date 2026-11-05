@@ -1,0 +1,28 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Settings"
+             xmlns:settings="using:Lis.App.Views.Settings"
+             x:Class="Lis.App.Views.Settings.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+    <TabControl Name="Tabs">
+
+        <TabItem Header="Thông tin cơ sở">
+            <settings:FacilityInfoView DataContext="{Binding Facility}" />
+        </TabItem>
+
+        <TabItem Header="Barcode &amp; tem">
+            <settings:BarcodeSettingsView DataContext="{Binding Facility}" />
+        </TabItem>
+
+        <TabItem Header="Máy in">
+            <settings:PrinterSettingsView DataContext="{Binding Printer}" />
+        </TabItem>
+
+        <TabItem Header="Kết nối CSDL" IsVisible="{Binding ShowDbConnection}">
+            <settings:DbConnectionView DataContext="{Binding DbConnection}" />
+        </TabItem>
+
+    </TabControl>
+
+</UserControl>

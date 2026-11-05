@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Settings"
+             x:Class="Lis.App.Views.Settings.BarcodeSettingsView"
+             x:DataType="vm:FacilitySettingsViewModel">
+
+    <StackPanel Spacing="12">
+
+        <Border Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+            <StackPanel Spacing="12">
+                <TextBlock Classes="heading" Text="Barcode &amp; tem" />
+
+                <Grid ColumnDefinitions="140,160,160" ColumnSpacing="16">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Tiền tố" />
+                        <TextBox Text="{Binding BarcodePrefix}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Mẫu ngày" />
+                        <TextBox Text="{Binding BarcodeDatePattern}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Classes="label" Text="Số chữ số thứ tự" />
+                        <TextBox Text="{Binding BarcodeSeqDigitsText}" />
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Cách gán barcode cho một phiếu" />
+                    <StackPanel Spacing="4">
+                        <RadioButton GroupName="BarcodeMode" Content="Mỗi loại mẫu một barcode (mặc định)" IsChecked="{Binding !BarcodeModeSingle}" />
+                        <RadioButton GroupName="BarcodeMode" Content="Cả phiếu một barcode" IsChecked="{Binding BarcodeModeSingle}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Xem trước barcode mẫu (số thứ tự 1 trong ngày)" />
+                    <TextBlock Text="{Binding BarcodePreview}" FontFamily="monospace" FontSize="16" />
+                </StackPanel>
+
+                <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <TextBlock Classes="success" Text="{Binding SuccessMessage}" IsVisible="{Binding SuccessMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+                <Button Classes="primary" Content="Lưu" Command="{Binding SaveCommand}" HorizontalAlignment="Left" />
+            </StackPanel>
+        </Border>
+
+    </StackPanel>
+
+</UserControl>
