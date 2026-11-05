@@ -1,0 +1,129 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Instruments"
+             xmlns:instruments="using:Lis.Data.Instruments"
+             x:Class="Lis.App.Views.Instruments.InstrumentsView"
+             x:DataType="vm:InstrumentsViewModel">
+
+    <Grid ColumnDefinitions="280,*,420" ColumnSpacing="16">
+
+        <!-- Trái: danh sách máy -->
+        <Grid Grid.Column="0" RowDefinitions="*,Auto">
+            <Border Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+                <ListBox Name="InstrumentList" ItemsSource="{Binding Instruments}" SelectedItem="{Binding SelectedInstrument}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="instruments:InstrumentInfo">
+                            <StackPanel Margin="0,2">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding ProtocolFamily}" Classes="muted" FontSize="12" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+            <Button Grid.Row="1" Content="+ Máy mới" Command="{Binding NewInstrumentCommand}" Margin="0,8,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+        </Grid>
+
+        <!-- Giữa: form sửa máy -->
+        <Border Grid.Column="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16" VerticalAlignment="Top">
+            <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
+
+                <Grid ColumnDefinitions="*,*" Margin="0,0,0,8">
+                    <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                        <TextBlock Classes="label" Text="Tên máy" />
+                        <TextBox Text="{Binding EditName}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Model" />
+                        <TextBox Text="{Binding EditModel}" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid ColumnDefinitions="*,*" Margin="0,0,0,8">
+                    <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                        <TextBlock Classes="label" Text="Họ giao thức" />
+                        <ComboBox ItemsSource="{Binding ProtocolFamilyOptions}" SelectedItem="{Binding EditProtocolFamily}" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Mã máy trạm" />
+                        <TextBox Text="{Binding EditWorkstationCode}" />
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel Spacing="4" Margin="0,0,0,8">
+                    <TextBlock Classes="label" Text="Cấu hình driver (JSON thô — đợt 2 thay bằng form theo họ giao thức)" />
+                    <TextBox Text="{Binding EditDriverConfig}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace" MinHeight="70" />
+                </StackPanel>
+
+                <StackPanel Spacing="4" Margin="0,0,0,8">
+                    <TextBlock Classes="label" Text="Kết nối (JSON thô)" />
+                    <TextBox Text="{Binding EditConnection}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace" MinHeight="70" />
+                </StackPanel>
+
+                <CheckBox Content="Đang dùng" IsChecked="{Binding EditActive}" Margin="0,0,0,8" />
+
+                <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" />
+                <TextBlock Classes="success" Text="{Binding SuccessMessage}" TextWrapping="Wrap" />
+
+                <Button Classes="primary" Content="Lưu máy" Command="{Binding SaveCommand}" HorizontalAlignment="Right" Margin="0,8,0,0" />
+
+            </StackPanel>
+        </Border>
+
+        <!-- Phải: bảng map kênh -->
+        <Grid Grid.Column="2" DataContext="{Binding ChannelEditor}" x:DataType="vm:ChannelMapEditorViewModel" RowDefinitions="Auto,*,Auto,Auto" IsEnabled="{Binding HasInstrument}">
+
+            <TextBlock Grid.Row="0" Classes="heading" Text="Map kênh" Margin="0,0,0,8" />
+
+            <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+                <ListBox Name="ChannelList" ItemsSource="{Binding Channels}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ChannelRowViewModel">
+                            <Grid ColumnDefinitions="70,*,50,50,Auto" ColumnSpacing="6" Margin="0,2">
+                                <TextBlock Grid.Column="0" Text="{Binding ChannelCode}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="{Binding ServiceText}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{Binding DecimalsText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="3" Text="{Binding FactorText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
+                                <Button Grid.Column="4" Content="Xóa" Command="{Binding RemoveCommand}" Padding="8,2" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <TextBlock Grid.Row="2" Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" Margin="0,8,0,0" />
+
+            <!-- Thêm map kênh mới -->
+            <StackPanel Grid.Row="3" Spacing="6" Margin="0,8,0,0">
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Mã kênh" />
+                        <TextBox Text="{Binding NewChannelCode}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Mã chỉ số — Enter để thêm" />
+                        <TextBox Name="NewServiceCodeBox" Text="{Binding NewServiceCode}" />
+                    </StackPanel>
+                </Grid>
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Classes="label" Text="Số lẻ (bỏ trống = theo chỉ số)" />
+                        <TextBox Text="{Binding NewDecimalsText}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Classes="label" Text="Hệ số (bỏ trống = không nhân)" />
+                        <TextBox Text="{Binding NewFactorText}" />
+                    </StackPanel>
+                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <CheckBox Content="Giữ dấu so sánh" IsChecked="{Binding NewKeepComparator}" />
+                    <CheckBox Content="Gửi khi máy hỏi" IsChecked="{Binding NewSendOnQuery}" />
+                </StackPanel>
+                <Button Classes="primary" Content="+ Thêm kênh" Command="{Binding AddChannelCommand}" HorizontalAlignment="Right" />
+            </StackPanel>
+
+        </Grid>
+
+    </Grid>
+
+</UserControl>

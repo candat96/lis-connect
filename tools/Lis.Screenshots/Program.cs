@@ -8,19 +8,25 @@ using Avalonia.Threading;
 using Lis.App.Services;
 using Lis.App.ViewModels;
 using Lis.App.ViewModels.Catalog;
+using Lis.App.ViewModels.Instruments;
 using Lis.App.ViewModels.Reception;
 using Lis.App.ViewModels.Results;
 using Lis.App.ViewModels.Settings;
+using Lis.App.ViewModels.Unmatched;
 using Lis.App.Views;
 using Lis.App.Views.Catalog;
+using Lis.App.Views.Instruments;
 using Lis.App.Views.Reception;
 using Lis.App.Views.Results;
 using Lis.App.Views.Settings;
+using Lis.App.Views.Unmatched;
 using Lis.Core.Auth;
 using Lis.Data;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
+using Lis.Data.Ingest;
+using Lis.Data.Instruments;
 using Lis.Data.Local;
 using Lis.Data.Orders;
 using Lis.Core.Patients;
@@ -70,6 +76,8 @@ internal static class Program
         Capture(outputDirectory, "08-tiep-nhan-sau-khi-luu.png", CreateReceptionWindow());
         Capture(outputDirectory, "09-cai-dat-may-in.png", CreatePrinterSettingsWindow());
         Capture(outputDirectory, "10-ket-qua.png", CreateResultsWindow());
+        Capture(outputDirectory, "11-chua-ghep.png", CreateUnmatchedWindow());
+        Capture(outputDirectory, "12-may-va-map.png", CreateInstrumentsWindow());
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
 
@@ -126,7 +134,7 @@ internal static class Program
         var facilityStore = new FacilityStore(unusedDb);
         var viewModel = new MainViewModel(
             new CurrentUser(user), catalogStore, orders, facilityStore, new UnusedLabelPrinter(), new UnusedSettingStore(), new FakePrintService(),
-            new SeededResultService(null, []), new NoOpReportPrinter());
+            new SeededResultService(null, []), new NoOpReportPrinter(), new UnusedUnmatchedService(), new UnusedInstrumentStore());
         return new MainWindow { DataContext = viewModel };
     }
 
@@ -174,6 +182,72 @@ internal static class Program
         return new Window
         {
             Title = "LIS Connect — Kết quả",
+            Width = 1360,
+            Height = 820,
+            Content = view,
+        };
+    }
+
+    /// <summary>
+    /// Màn Chưa ghép với 3 dòng, mỗi dòng một lý do khác nhau (sinh bằng test seed, không
+    /// qua CSDL): "261103005" chỉ trùng đuôi với một mẫu có thật → không có barcode; kênh
+    /// "MCV" chưa map tới chỉ số nào; kênh "PLT" đã map nhưng mẫu không có chỉ định tiểu cầu.
+    /// </summary>
+    private static Window CreateUnmatchedWindow()
+    {
+        var receivedAt = new DateTimeOffset(2026, 11, 4, 9, 15, 0, TimeSpan.FromHours(7));
+        var items = new List<UnmatchedItem>
+        {
+            new(Guid.NewGuid(), "Máy thử XN-1000", "261103005", "HGB", "140", "g/L", UnmatchedReason.NoBarcode, receivedAt, null, null),
+            new(Guid.NewGuid(), "Máy thử XN-1000", "9261104002", "MCV", "88.1", "fL", UnmatchedReason.ChannelUnmapped, receivedAt.AddMinutes(5), null, null),
+            new(Guid.NewGuid(), "Máy thử XN-1000", "9261104003", "PLT", "250", "G/L", UnmatchedReason.NotOrdered, receivedAt.AddMinutes(10), "PLT", "Tiểu cầu"),
+        };
+
+        var user = new UserInfo(Guid.NewGuid(), "ktv.thu", "Nguyễn Văn Thử", "Kỹ thuật viên", [Roles.KyThuatVien], true);
+        var viewModel = new UnmatchedViewModel(new SeededUnmatchedService(items), new CurrentUser(user));
+        viewModel.LoadAsync().GetAwaiter().GetResult();
+        viewModel.SelectedRow = viewModel.Rows.First();
+
+        var view = new UnmatchedView { DataContext = viewModel };
+
+        return new Window
+        {
+            Title = "LIS Connect — Chưa ghép",
+            Width = 1360,
+            Height = 820,
+            Content = view,
+        };
+    }
+
+    /// <summary>
+    /// Màn "Máy &amp; map" với một máy giả "Máy thử XN-1000" (JSON cấu hình driver/kết nối thô)
+    /// đã chọn, bảng map kênh gồm WBC# (hệ số 0.001, gửi khi máy hỏi) và HGB (theo số lẻ chỉ số).
+    /// </summary>
+    private static Window CreateInstrumentsWindow()
+    {
+        var instrumentId = Guid.NewGuid();
+        var instrument = new InstrumentInfo(
+            instrumentId, "Máy thử XN-1000", "XN-1000", "astm", """{"frame": "lis2a2"}""", """{"port": "COM3", "baud": 9600}""", "XN-01", true);
+
+        var wbcId = Guid.NewGuid();
+        var hgbId = Guid.NewGuid();
+        var channels = new List<ChannelMapItem>
+        {
+            new(new ChannelMap(Guid.NewGuid(), instrumentId, "WBC#", wbcId, 1, 0.001m, false, true), "WBC", "Bạch cầu"),
+            new(new ChannelMap(Guid.NewGuid(), instrumentId, "HGB", hgbId, null, null, false, false), "HGB", "Huyết sắc tố"),
+        };
+
+        var user = new UserInfo(Guid.NewGuid(), "quantri.thu", "Nguyễn Văn Thử", "Quản trị", [Roles.QuanTri], true);
+        var viewModel = new InstrumentsViewModel(new SeededInstrumentStore(instrument, channels), new UnusedServiceLookup(), new CurrentUser(user));
+        viewModel.LoadAsync().GetAwaiter().GetResult();
+        viewModel.SelectedInstrument = viewModel.Instruments.First();
+        viewModel.ChannelEditor.LoadAsync(instrumentId).GetAwaiter().GetResult();
+
+        var view = new InstrumentsView { DataContext = viewModel };
+
+        return new Window
+        {
+            Title = "LIS Connect — Máy & map",
             Width = 1360,
             Height = 820,
             Content = view,
@@ -473,6 +547,71 @@ internal static class Program
             throw new NotSupportedException("Chỉ dùng để chụp ảnh, không in thật.");
 
         public IReadOnlyList<string> Printers() => ["Xprinter XP-350B", "HP LaserJet Thử"];
+    }
+
+    /// <summary>IUnmatchedService giả dùng cho ảnh màn chính (placeholder) — không gọi tới thật.</summary>
+    private sealed class UnusedUnmatchedService : IUnmatchedService
+    {
+        public Task<IReadOnlyList<UnmatchedItem>> ListOpenAsync(DateOnly from, DateOnly to) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task<IReadOnlyList<SampleLeafItem>> SampleItemsAsync(string barcode) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid actorId) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task DismissAsync(Guid unmatchedId, Guid actorId, string reason) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+    }
+
+    /// <summary>IUnmatchedService giả: trả danh sách đã dựng sẵn (xem <see cref="CreateUnmatchedWindow"/>); không ghi gì.</summary>
+    private sealed class SeededUnmatchedService(IReadOnlyList<UnmatchedItem> items) : IUnmatchedService
+    {
+        public Task<IReadOnlyList<UnmatchedItem>> ListOpenAsync(DateOnly from, DateOnly to) => Task.FromResult(items);
+
+        public Task<IReadOnlyList<SampleLeafItem>> SampleItemsAsync(string barcode) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không tra mẫu thật.");
+
+        public Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid actorId) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không gán thật.");
+
+        public Task DismissAsync(Guid unmatchedId, Guid actorId, string reason) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh, không bỏ qua thật.");
+    }
+
+    /// <summary>IInstrumentStore giả dùng cho ảnh màn chính (placeholder) — không gọi tới thật.</summary>
+    private sealed class UnusedInstrumentStore : IInstrumentStore
+    {
+        public Task<IReadOnlyList<InstrumentInfo>> ListAsync() => throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task<Guid> SaveAsync(InstrumentInfo instrument) => throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task<IReadOnlyList<ChannelMapItem>> ChannelsAsync(Guid instrumentId) => throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task<Guid> SaveChannelAsync(ChannelMap channel) => throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
+        public Task DeleteChannelAsync(Guid channelId) => throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+    }
+
+    /// <summary>IInstrumentStore giả: một máy và bảng map kênh dựng sẵn (xem <see cref="CreateInstrumentsWindow"/>); không ghi gì.</summary>
+    private sealed class SeededInstrumentStore(InstrumentInfo instrument, IReadOnlyList<ChannelMapItem> channels) : IInstrumentStore
+    {
+        public Task<IReadOnlyList<InstrumentInfo>> ListAsync() => Task.FromResult<IReadOnlyList<InstrumentInfo>>([instrument]);
+
+        public Task<Guid> SaveAsync(InstrumentInfo instrument) => throw new NotSupportedException("Chỉ dùng để chụp ảnh, không lưu máy thật.");
+
+        public Task<IReadOnlyList<ChannelMapItem>> ChannelsAsync(Guid instrumentId) => Task.FromResult(channels);
+
+        public Task<Guid> SaveChannelAsync(ChannelMap channel) => throw new NotSupportedException("Chỉ dùng để chụp ảnh, không lưu map kênh thật.");
+
+        public Task DeleteChannelAsync(Guid channelId) => throw new NotSupportedException("Chỉ dùng để chụp ảnh, không xóa map kênh thật.");
+    }
+
+    /// <summary>IServiceLookup giả — các màn chụp ảnh không tra chỉ số theo mã qua CSDL thật.</summary>
+    private sealed class UnusedServiceLookup : IServiceLookup
+    {
+        public Task<ServiceInfo?> FindByCodeAsync(string code) => throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
     }
 }
 

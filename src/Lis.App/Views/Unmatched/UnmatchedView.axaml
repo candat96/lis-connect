@@ -1,0 +1,119 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Unmatched"
+             x:Class="Lis.App.Views.Unmatched.UnmatchedView"
+             x:DataType="vm:UnmatchedViewModel">
+
+    <Grid ColumnDefinitions="*,380" ColumnSpacing="16">
+
+        <!-- Trái: bộ lọc ngày + bảng các dòng chưa ghép -->
+        <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
+
+            <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,8">
+                <TextBlock Classes="label" Text="Ngày nhận (dd/MM/yyyy)" />
+                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*" ColumnSpacing="4">
+                    <TextBox Grid.Column="0" Width="110" Text="{Binding FromText}" />
+                    <TextBlock Grid.Column="1" Text="–" VerticalAlignment="Center" Classes="muted" Margin="0,0,0,0" />
+                    <TextBox Grid.Column="2" Width="110" Text="{Binding ToText}" />
+                    <Button Grid.Column="3" Content="Hôm nay" Command="{Binding ShowTodayCommand}" Padding="10,4" Margin="8,0,0,0" />
+                    <Button Grid.Column="4" Content="Hôm qua" Command="{Binding ShowYesterdayCommand}" Padding="10,4" Margin="4,0,0,0" />
+                    <Button Grid.Column="5" Content="7 ngày" Command="{Binding ShowLastSevenDaysCommand}" Padding="10,4" Margin="4,0,0,0" HorizontalAlignment="Left" />
+                </Grid>
+            </StackPanel>
+
+            <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                <TextBlock Grid.Column="0" Classes="muted" Text="{Binding CountText}" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Content="Tải lại" Command="{Binding RefreshCommand}" Padding="10,4" />
+            </Grid>
+
+            <Border Grid.Row="2" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+                <Grid RowDefinitions="Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="130,110,*,110,130,130" Margin="8,6" ColumnSpacing="8">
+                        <TextBlock Grid.Column="0" Classes="label" Text="Máy" Margin="0" />
+                        <TextBlock Grid.Column="1" Classes="label" Text="Barcode" Margin="0" />
+                        <TextBlock Grid.Column="2" Classes="label" Text="Kênh → chỉ số" Margin="0" />
+                        <TextBlock Grid.Column="3" Classes="label" Text="Giá trị" Margin="0" />
+                        <TextBlock Grid.Column="4" Classes="label" Text="Lý do" Margin="0" />
+                        <TextBlock Grid.Column="5" Classes="label" Text="Nhận lúc" Margin="0" />
+                    </Grid>
+
+                    <ListBox Grid.Row="1" Name="RowsList" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:UnmatchedRowViewModel">
+                                <Grid ColumnDefinitions="130,110,*,110,130,130" ColumnSpacing="8" Margin="0,2">
+                                    <TextBlock Grid.Column="0" Text="{Binding InstrumentName}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Barcode}" FontFamily="Consolas,Menlo,monospace" />
+                                    <TextBlock Grid.Column="2" Text="{Binding ChannelText}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Column="3" Text="{Binding ValueText}" />
+                                    <TextBlock Grid.Column="4" Text="{Binding ReasonLabel}" Classes="flagAbnormal" />
+                                    <TextBlock Grid.Column="5" Text="{Binding ReceivedAtText}" Classes="muted" FontSize="12" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+        </Grid>
+
+        <!-- Phải: thao tác trên dòng đang chọn -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,*">
+
+            <TextBlock Grid.Row="0" Classes="heading" Text="Xử lý dòng chưa ghép" Margin="0,0,0,8" />
+
+            <TextBlock Grid.Row="1" Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,12" IsVisible="{Binding HasSelection}">
+                <Button Classes="primary" Content="Gán vào mẫu…" Command="{Binding StartAssignCommand}" IsEnabled="{Binding CanAct}" />
+                <Button Content="Bỏ qua" Command="{Binding StartDismissCommand}" IsEnabled="{Binding CanAct}" />
+            </StackPanel>
+
+            <!-- Ô "Gán vào mẫu…" -->
+            <Border Grid.Row="3" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="12" Margin="0,0,0,12"
+                    IsVisible="{Binding AssignPanel.IsVisible}">
+                <Grid DataContext="{Binding AssignPanel}" x:DataType="vm:AssignPanelViewModel" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                    <TextBlock Grid.Row="0" Classes="label" Text="{Binding Title}" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                    <StackPanel Grid.Row="1" Spacing="4" Margin="0,0,0,8">
+                        <TextBlock Classes="label" Text="Barcode mẫu — Enter để tra" />
+                        <TextBox Name="AssignBarcodeBox" Text="{Binding BarcodeText}" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="2" Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                    <ListBox Grid.Row="3" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}" MaxHeight="220" Margin="0,0,0,8">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SampleLeafItemViewModel">
+                                <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                    <TextBlock Grid.Column="0" Text="{Binding Label}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding CurrentValueText}" Classes="muted" FontSize="12" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8">
+                        <Button Classes="primary" Content="Gán" Command="{Binding ConfirmCommand}" IsEnabled="{Binding CanConfirm}" />
+                        <Button Content="Đóng" Command="{Binding CloseCommand}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Hộp lý do bỏ qua -->
+            <Border Grid.Row="4" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushDanger}" BorderThickness="1" Padding="12" VerticalAlignment="Top"
+                    IsVisible="{Binding IsDismissPromptVisible}">
+                <StackPanel Spacing="6">
+                    <TextBlock Classes="label" Text="Lý do bỏ qua (bắt buộc) — Enter để xác nhận" />
+                    <TextBox Name="DismissReasonBox" Text="{Binding DismissReason}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Classes="primary" Content="Xác nhận bỏ qua" Command="{Binding ConfirmDismissCommand}" IsEnabled="{Binding !IsBusy}" />
+                        <Button Content="Không" Command="{Binding CancelDismissCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+        </Grid>
+
+    </Grid>
+
+</UserControl>

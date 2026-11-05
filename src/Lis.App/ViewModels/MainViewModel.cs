@@ -1,13 +1,17 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Lis.App.Services;
 using Lis.App.ViewModels.Catalog;
+using Lis.App.ViewModels.Instruments;
 using Lis.App.ViewModels.Reception;
 using Lis.App.ViewModels.Results;
 using Lis.App.ViewModels.Settings;
+using Lis.App.ViewModels.Unmatched;
 using Lis.Core.Auth;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
+using Lis.Data.Ingest;
+using Lis.Data.Instruments;
 using Lis.Data.Orders;
 using Lis.Data.Results;
 using Lis.Data.Settings;
@@ -31,7 +35,8 @@ public partial class MainViewModel : ObservableObject
 {
     public MainViewModel(
         CurrentUser currentUser, CatalogStore catalogStore, IOrderService orders, FacilityStore facility, ILabelPrinter labelPrinter,
-        ISettingStore settings, IPrintService printService, IResultService results, IReportPrinter reportPrinter)
+        ISettingStore settings, IPrintService printService, IResultService results, IReportPrinter reportPrinter,
+        IUnmatchedService unmatched, IInstrumentStore instruments)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
@@ -40,6 +45,8 @@ public partial class MainViewModel : ObservableObject
         Reception = new ReceptionViewModel(orders, catalogStore, facility, currentUser, labelPrinter);
         Results = new ResultsViewModel(results, currentUser, reportPrinter);
         PrinterSettings = new PrinterSettingsViewModel(settings, printService);
+        Unmatched = new UnmatchedViewModel(unmatched, currentUser);
+        Instruments = new InstrumentsViewModel(instruments, catalogStore, currentUser);
 
         // Đặt sau khi các ViewModel con đã có — OnSelectedItemChanged có thể tải màn đầu tiên ngay.
         SelectedItem = NavItems.FirstOrDefault();
@@ -61,6 +68,12 @@ public partial class MainViewModel : ObservableObject
     /// <summary>ViewModel của màn Cài đặt (mục Máy in) — tải khi người dùng mở mục "Cài đặt" lần đầu.</summary>
     public PrinterSettingsViewModel PrinterSettings { get; }
 
+    /// <summary>ViewModel của màn Chưa ghép — tải khi người dùng mở mục "Chưa ghép" lần đầu.</summary>
+    public UnmatchedViewModel Unmatched { get; }
+
+    /// <summary>ViewModel của màn "Máy &amp; map" — tải khi người dùng mở mục "Máy &amp; map" lần đầu.</summary>
+    public InstrumentsViewModel Instruments { get; }
+
     private bool _catalogLoaded;
 
     private bool _receptionLoaded;
@@ -69,12 +82,18 @@ public partial class MainViewModel : ObservableObject
 
     private bool _settingsLoaded;
 
+    private bool _unmatchedLoaded;
+
+    private bool _instrumentsLoaded;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PageTitle))]
     [NotifyPropertyChangedFor(nameof(IsCatalogSelected))]
     [NotifyPropertyChangedFor(nameof(IsReceptionSelected))]
     [NotifyPropertyChangedFor(nameof(IsResultsSelected))]
     [NotifyPropertyChangedFor(nameof(IsSettingsSelected))]
+    [NotifyPropertyChangedFor(nameof(IsUnmatchedSelected))]
+    [NotifyPropertyChangedFor(nameof(IsInstrumentsSelected))]
     [NotifyPropertyChangedFor(nameof(IsPlaceholderSelected))]
     private NavItem? _selectedItem;
 
@@ -88,7 +107,13 @@ public partial class MainViewModel : ObservableObject
 
     public bool IsSettingsSelected => SelectedItem?.Label == "Cài đặt";
 
-    public bool IsPlaceholderSelected => !IsCatalogSelected && !IsReceptionSelected && !IsResultsSelected && !IsSettingsSelected;
+    public bool IsUnmatchedSelected => SelectedItem?.Label == "Chưa ghép";
+
+    public bool IsInstrumentsSelected => SelectedItem?.Label == "Máy & map";
+
+    public bool IsPlaceholderSelected =>
+        !IsCatalogSelected && !IsReceptionSelected && !IsResultsSelected && !IsSettingsSelected
+        && !IsUnmatchedSelected && !IsInstrumentsSelected;
 
     partial void OnSelectedItemChanged(NavItem? value)
     {
@@ -114,6 +139,18 @@ public partial class MainViewModel : ObservableObject
         {
             _settingsLoaded = true;
             _ = PrinterSettings.LoadAsync();
+        }
+
+        if (IsUnmatchedSelected && !_unmatchedLoaded)
+        {
+            _unmatchedLoaded = true;
+            _ = Unmatched.LoadAsync();
+        }
+
+        if (IsInstrumentsSelected && !_instrumentsLoaded)
+        {
+            _instrumentsLoaded = true;
+            _ = Instruments.LoadAsync();
         }
     }
 

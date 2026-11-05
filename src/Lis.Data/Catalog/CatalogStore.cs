@@ -26,12 +26,19 @@ public sealed record ServiceInfo(
     string? HisCode,
     IReadOnlyList<Guid> ChildIds);
 
+/// <summary>Tra dịch vụ theo mã — phần nhỏ của <see cref="CatalogStore"/> mà màn "Máy &amp; map" cần; kiểm thử ViewModel dùng bản giả.</summary>
+public interface IServiceLookup
+{
+    /// <summary>Tìm dịch vụ theo mã, không phân biệt hoa thường; null khi không có.</summary>
+    Task<ServiceInfo?> FindByCodeAsync(string code);
+}
+
 /// <summary>
 /// Truy cập danh mục dịch vụ xét nghiệm: dịch vụ/chỉ số, quan hệ dịch vụ cha (panel) - chỉ số
 /// con, khoảng tham chiếu và quy đổi định tính. Xem bảng <c>service</c>, <c>service_child</c>,
 /// <c>reference_range</c>, <c>qualitative_rule</c> trong <c>0001_khoi_tao.sql</c>.
 /// </summary>
-public sealed class CatalogStore(Db db)
+public sealed class CatalogStore(Db db) : IServiceLookup
 {
     private const string ServiceColumns = """
         id, code, name, group_name, specimen_type_id, unit, value_type, decimals,

@@ -35,9 +35,7 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
     /// </summary>
     public async Task<IReadOnlyList<SampleListItem>> ListAsync(DateOnly from, DateOnly to, string? status, string? query)
     {
-        var timeZone = clock.LocalTimeZone;
-        var fromUtc = TimeZoneInfo.ConvertTimeToUtc(from.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified), timeZone);
-        var toUtcExclusive = TimeZoneInfo.ConvertTimeToUtc(to.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified), timeZone);
+        var (fromUtc, toUtcExclusive) = LocalDay.UtcRange(clock, from, to);
 
         var conditions = new List<string> { "o.created_at >= @fromUtc AND o.created_at < @toUtcExclusive" };
 

@@ -190,13 +190,13 @@ internal sealed class ResultWriter(Db db)
     }
 
     /// <summary>
-    /// Máy gửi lại kết quả cho mẫu đã duyệt: không ghi đè giá trị chính thức, chỉ ghi bản chờ
-    /// thay thế (<c>pending_*</c>) và dòng lịch sử <c>thay-the</c> của hệ thống. Mẫu giữ nguyên
-    /// trạng thái đã duyệt.
+    /// Máy gửi (lại) kết quả cho mẫu đã duyệt: không ghi đè giá trị chính thức, chỉ ghi bản chờ
+    /// thay thế (<c>pending_*</c>) và dòng lịch sử <c>thay-the</c>. Mẫu giữ nguyên trạng thái
+    /// đã duyệt. <paramref name="actorId"/> null khi máy gửi.
     /// </summary>
     public static async Task MarkPendingAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, Guid resultId, string? currentValue,
-        string pendingValue, Guid instrumentId, string? rawRef, string reason, DateTimeOffset now)
+        string pendingValue, Guid instrumentId, string? rawRef, string reason, Guid? actorId, DateTimeOffset now)
     {
         await connection.ExecuteAsync(
             """
@@ -205,7 +205,7 @@ internal sealed class ResultWriter(Db db)
             """,
             new { resultId, pendingValue, instrumentId, rawRef }, transaction);
 
-        await InsertHistoryAsync(connection, transaction, resultId, "thay-the", currentValue, pendingValue, reason, actorId: null, now);
+        await InsertHistoryAsync(connection, transaction, resultId, "thay-the", currentValue, pendingValue, reason, actorId, now);
     }
 
     public static async Task InsertHistoryAsync(

@@ -3,6 +3,8 @@ using Lis.Data;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
+using Lis.Data.Ingest;
+using Lis.Data.Instruments;
 using Lis.Data.Local;
 using Lis.Data.Orders;
 using Lis.Data.Results;
@@ -32,6 +34,8 @@ public sealed class AppServices
         LabelPrinter = new LabelPrinter(Settings, PrintService);
         Results = new ResultService(Db, TimeProvider.System);
         ReportPrinter = new NoOpReportPrinter();
+        Unmatched = new UnmatchedService(Db, TimeProvider.System);
+        Instruments = new InstrumentStore(Db);
     }
 
     public LocalConfig Config { get; }
@@ -58,6 +62,10 @@ public sealed class AppServices
 
     /// <summary>In phiếu kết quả — bản chưa in gì cho tới Task 12 (xem <see cref="IReportPrinter"/>).</summary>
     public IReportPrinter ReportPrinter { get; }
+
+    public IUnmatchedService Unmatched { get; }
+
+    public IInstrumentStore Instruments { get; }
 
     /// <summary>
     /// Cập nhật máy trạm (<c>workstation.last_seen_at</c>) ngay sau khi đăng nhập thành công.
