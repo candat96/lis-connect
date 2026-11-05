@@ -100,6 +100,20 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
     {
         await db.InTransactionAsync(async (connection, transaction) =>
         {
+            // Khóa mẫu TRƯỚC, bằng một câu lệnh riêng — không gộp vào câu SELECT đọc chỉ định:
+            // Postgres có thể khóa order_item trước sample khi FOR UPDATE OF liệt kê cả hai trong
+            // cùng một JOIN (JOIN bắt đầu từ order_item), đảo ngược thứ tự khóa dùng chung toàn hệ
+            // thống (mẫu → chỉ định → kết quả) và có thể gây deadlock với đường máy gửi.
+            var sampleId = await connection.ExecuteScalarAsync<Guid?>(
+                "SELECT sample_id FROM order_item WHERE id = @orderItemId", new { orderItemId }, transaction)
+                ?? throw new InvalidOperationException("Không tìm thấy dòng chỉ định");
+
+            var approvedAt = await ResultWriter.LockSampleAsync(connection, transaction, sampleId);
+            if (approvedAt is not null)
+            {
+                throw new InvalidOperationException("Mẫu đã duyệt — hủy duyệt trước khi sửa");
+            }
+
             var item = await connection.QuerySingleOrDefaultAsync<ItemContext>(
                 $"""
                 {ResultWriter.ItemContextSelect("LEFT JOIN")}
@@ -108,11 +122,6 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                 """,
                 new { orderItemId }, transaction)
                 ?? throw new InvalidOperationException("Không tìm thấy dòng chỉ định");
-
-            if (item.ApprovedAt is not null)
-            {
-                throw new InvalidOperationException("Mẫu đã duyệt — hủy duyệt trước khi sửa");
-            }
 
             var service = await ResultWriter.LoadServiceAsync(connection, transaction, item.ServiceId);
             if (service.IsPanel)
@@ -212,18 +221,24 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             }
 
             var service = await ResultWriter.LoadServiceAsync(connection, transaction, item.ServiceId);
-            var computed = await _writer.ComputeAsync(service, item.Patient, item.OrderedLocalDate(clock), item.PendingInstrumentId, item.PendingValue);
+            // pending_value đã là giá trị tính xong lúc ghi (R22, qua ResultWriter/InstrumentValuePipeline)
+            // — không tính lại số lẻ/định tính ở đây, chỉ tính lại cờ/khoảng tham chiếu, để "Chấp
+            // nhận" luôn ra đúng giá trị như lúc mới đến (số lẻ của map máy có thể khác số lẻ của
+            // chỉ số, tính lại qua ComputeAsync bình thường sẽ làm tròn sai lần hai).
+            var computed = await _writer.ComputeFromFinalValueAsync(
+                service, item.Patient, item.OrderedLocalDate(clock), item.PendingInstrumentId, item.PendingValue);
             var now = clock.GetUtcNow();
 
-            // Cờ máy gửi kèm bản thay thế không được lưu (không có cột pending_instrument_flag),
-            // nên instrument_flag về NULL — cờ cũ thuộc về giá trị cũ, không giữ lại.
+            // Cờ máy gửi kèm bản thay thế (pending_instrument_flag) chuyển thành cờ chính thức —
+            // một giá trị có cờ máy không được "sạch cờ" chỉ vì đi qua bản chờ thay thế rồi được
+            // chấp nhận (nếu không, tự duyệt sau đó có thể duyệt nhầm một giá trị máy đã gắn cờ).
             await connection.ExecuteAsync(
                 """
                 UPDATE result SET
                     value = @value, unit = @unit, ref_low = @refLow, ref_high = @refHigh, ref_text = @refText,
                     flag = @flag, source = @source, instrument_id = pending_instrument_id, raw_ref = pending_raw_ref,
-                    instrument_flag = NULL, status = @status,
-                    pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL,
+                    instrument_flag = @instrumentFlag, status = @status,
+                    pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL, pending_instrument_flag = NULL,
                     updated_at = @now, updated_by = @actorId
                 WHERE id = @resultId
                 """,
@@ -237,6 +252,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                     refText = computed.RefText,
                     flag = computed.Flag.ToString(),
                     source = ResultWriter.SourceInstrument,
+                    instrumentFlag = item.PendingInstrumentFlag,
                     status = StatusPending,
                     now,
                     actorId,
@@ -265,7 +281,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             }
 
             await connection.ExecuteAsync(
-                "UPDATE result SET pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL WHERE id = @resultId",
+                "UPDATE result SET pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL, pending_instrument_flag = NULL WHERE id = @resultId",
                 new { resultId }, transaction);
 
             await ResultWriter.InsertHistoryAsync(
@@ -379,11 +395,20 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
     /// </summary>
     private static async Task<ItemContext> LockResultAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid resultId)
     {
+        // Khóa mẫu TRƯỚC, bằng một câu lệnh riêng — JOIN bắt đầu từ order_item nên một câu
+        // FOR UPDATE OF duy nhất không đảm bảo mẫu bị khóa trước chỉ định/kết quả (xem SetManualAsync).
+        var sampleId = await connection.ExecuteScalarAsync<Guid?>(
+            "SELECT oi.sample_id FROM result r JOIN order_item oi ON oi.id = r.order_item_id WHERE r.id = @resultId",
+            new { resultId }, transaction)
+            ?? throw new InvalidOperationException("Không tìm thấy kết quả");
+
+        await ResultWriter.LockSampleAsync(connection, transaction, sampleId);
+
         return await connection.QuerySingleOrDefaultAsync<ItemContext>(
             $"""
             {ResultWriter.ItemContextSelect("JOIN")}
             WHERE r.id = @resultId
-            FOR UPDATE OF s, r
+            FOR UPDATE OF oi, s, r
             """,
             new { resultId }, transaction)
             ?? throw new InvalidOperationException("Không tìm thấy kết quả");

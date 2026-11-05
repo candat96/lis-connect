@@ -96,7 +96,7 @@ public sealed class UnmatchedService(Db db, TimeProvider clock) : IUnmatchedServ
         await db.InTransactionAsync(async (connection, transaction) =>
         {
             var unmatched = await connection.QuerySingleOrDefaultAsync<UnmatchedRow>(
-                "SELECT id, instrument_id, channel_code, value, unit, raw_ref, resolved_at FROM unmatched_result WHERE id = @unmatchedId FOR UPDATE",
+                "SELECT id, instrument_id, channel_code, value, unit, instrument_flag, raw_ref, resolved_at FROM unmatched_result WHERE id = @unmatchedId FOR UPDATE",
                 new { unmatchedId }, transaction)
                 ?? throw new InvalidOperationException("Không tìm thấy dòng Chưa ghép");
 
@@ -105,7 +105,16 @@ public sealed class UnmatchedService(Db db, TimeProvider clock) : IUnmatchedServ
                 throw new InvalidOperationException(AlreadyResolved);
             }
 
-            // Khóa mẫu trước (FOR UPDATE OF s), kết quả sau (trong pipeline) — cùng thứ tự với mọi đường ghi khác.
+            // Khóa mẫu TRƯỚC, bằng một câu lệnh riêng — không gộp vào câu SELECT đọc chỉ định:
+            // Postgres có thể khóa order_item trước sample khi FOR UPDATE OF liệt kê cả hai trong
+            // cùng một JOIN (JOIN bắt đầu từ order_item), đảo ngược thứ tự khóa dùng chung toàn hệ
+            // thống (mẫu → chỉ định → kết quả) và có thể gây deadlock với đường máy gửi.
+            var sampleId = await connection.ExecuteScalarAsync<Guid?>(
+                "SELECT sample_id FROM order_item WHERE id = @orderItemId", new { orderItemId }, transaction)
+                ?? throw new InvalidOperationException("Không tìm thấy dòng chỉ định");
+
+            var sampleApprovedAt = await ResultWriter.LockSampleAsync(connection, transaction, sampleId);
+
             var item = await connection.QuerySingleOrDefaultAsync<ItemContext>(
                 $"""
                 {ResultWriter.ItemContextSelect("LEFT JOIN")}
@@ -116,10 +125,10 @@ public sealed class UnmatchedService(Db db, TimeProvider clock) : IUnmatchedServ
                 ?? throw new InvalidOperationException("Không tìm thấy dòng chỉ định");
 
             var channel = await InstrumentStore.FindChannelAsync(connection, transaction, unmatched.InstrumentId, unmatched.ChannelCode);
-            var reading = new ReadingItem(unmatched.ChannelCode, unmatched.Value, unmatched.Unit, InstrumentFlag: null);
+            var reading = new ReadingItem(unmatched.ChannelCode, unmatched.Value, unmatched.Unit, unmatched.InstrumentFlag);
 
             await InstrumentValuePipeline.WriteAsync(
-                connection, transaction, _writer, clock, item, channel, unmatched.InstrumentId, reading, unmatched.RawRef,
+                connection, transaction, _writer, clock, item, sampleApprovedAt, channel, unmatched.InstrumentId, reading, unmatched.RawRef,
                 ReasonAssigned, ReasonAssigned, actorId);
 
             await connection.ExecuteAsync(
@@ -183,6 +192,7 @@ public sealed class UnmatchedService(Db db, TimeProvider clock) : IUnmatchedServ
         public string ChannelCode { get; init; } = "";
         public string Value { get; init; } = "";
         public string? Unit { get; init; }
+        public string? InstrumentFlag { get; init; }
         public string? RawRef { get; init; }
         public DateTimeOffset? ResolvedAt { get; init; }
     }

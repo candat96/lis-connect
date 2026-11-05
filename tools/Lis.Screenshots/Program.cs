@@ -36,6 +36,7 @@ using Lis.Data.Settings;
 using Lis.Data.Setup;
 using Lis.Reports.Labels;
 using Lis.Reports.Printing;
+using Microsoft.Extensions.Time.Testing;
 using PDFtoImage;
 
 namespace Lis.Screenshots;
@@ -204,7 +205,10 @@ internal static class Program
         };
 
         var user = new UserInfo(Guid.NewGuid(), "ktv.thu", "Nguyễn Văn Thử", "Kỹ thuật viên", [Roles.KyThuatVien], true);
-        var viewModel = new UnmatchedViewModel(new SeededUnmatchedService(items), new CurrentUser(user));
+        // Giờ máy khớp với receivedAt ở trên — bộ lọc ngày mặc định ("hôm nay") phải ra đúng 3 dòng.
+        var clock = new FakeTimeProvider(receivedAt);
+        clock.SetLocalTimeZone(TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"));
+        var viewModel = new UnmatchedViewModel(new SeededUnmatchedService(items), new CurrentUser(user), clock);
         viewModel.LoadAsync().GetAwaiter().GetResult();
         viewModel.SelectedRow = viewModel.Rows.First();
 

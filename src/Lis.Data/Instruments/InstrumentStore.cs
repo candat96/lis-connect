@@ -135,6 +135,11 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
             throw new ArgumentException("Nhập mã kênh");
         }
 
+        if (channel.Factor is <= 0)
+        {
+            throw new ArgumentException("Hệ số phải lớn hơn 0");
+        }
+
         try
         {
             return await db.InTransactionAsync(async (connection, transaction) =>

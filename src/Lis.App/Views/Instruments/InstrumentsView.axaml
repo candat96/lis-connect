@@ -76,24 +76,38 @@
             <TextBlock Grid.Row="0" Classes="heading" Text="Map kênh" Margin="0,0,0,8" />
 
             <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
-                <ListBox Name="ChannelList" ItemsSource="{Binding Channels}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:ChannelRowViewModel">
-                            <Grid ColumnDefinitions="70,*,50,50,Auto" ColumnSpacing="6" Margin="0,2">
-                                <TextBlock Grid.Column="0" Text="{Binding ChannelCode}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Text="{Binding ServiceText}" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="2" Text="{Binding DecimalsText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="3" Text="{Binding FactorText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
-                                <Button Grid.Column="4" Content="Xóa" Command="{Binding RemoveCommand}" Padding="8,2" />
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                <Grid RowDefinitions="Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="60,*,46,46,60,60,Auto,Auto" Margin="8,6" ColumnSpacing="6">
+                        <TextBlock Grid.Column="0" Classes="label" Text="Mã kênh" Margin="0" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="1" Classes="label" Text="Chỉ số" Margin="0" />
+                        <TextBlock Grid.Column="2" Classes="label" Text="Số lẻ" Margin="0" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="3" Classes="label" Text="Hệ số" Margin="0" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="4" Classes="label" Text="Giữ dấu so sánh" Margin="0" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="5" Classes="label" Text="Gửi khi máy hỏi" Margin="0" TextWrapping="Wrap" />
+                    </Grid>
+
+                    <ListBox Grid.Row="1" Name="ChannelList" ItemsSource="{Binding Channels}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ChannelRowViewModel">
+                                <Grid ColumnDefinitions="60,*,46,46,60,60,Auto,Auto" ColumnSpacing="6" Margin="0,2">
+                                    <TextBlock Grid.Column="0" Text="{Binding ChannelCode}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Column="1" Text="{Binding ServiceText}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="2" Text="{Binding DecimalsText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="3" Text="{Binding FactorText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="4" Text="{Binding KeepComparatorText}" Classes="muted" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                    <TextBlock Grid.Column="5" Text="{Binding SendOnQueryText}" Classes="muted" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                    <Button Grid.Column="6" Content="Sửa" Command="{Binding EditCommand}" Padding="8,2" />
+                                    <Button Grid.Column="7" Content="Xóa" Command="{Binding RemoveCommand}" Padding="8,2" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
             </Border>
 
             <TextBlock Grid.Row="2" Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" Margin="0,8,0,0" />
 
-            <!-- Thêm map kênh mới -->
+            <!-- Thêm/sửa map kênh -->
             <StackPanel Grid.Row="3" Spacing="6" Margin="0,8,0,0">
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
                     <StackPanel Grid.Column="0">
@@ -119,7 +133,10 @@
                     <CheckBox Content="Giữ dấu so sánh" IsChecked="{Binding NewKeepComparator}" />
                     <CheckBox Content="Gửi khi máy hỏi" IsChecked="{Binding NewSendOnQuery}" />
                 </StackPanel>
-                <Button Classes="primary" Content="+ Thêm kênh" Command="{Binding AddChannelCommand}" HorizontalAlignment="Right" />
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                    <Button Content="Hủy sửa" Command="{Binding CancelEditCommand}" IsVisible="{Binding IsEditingExisting}" />
+                    <Button Classes="primary" Content="{Binding SaveButtonLabel}" Command="{Binding AddChannelCommand}" />
+                </StackPanel>
             </StackPanel>
 
         </Grid>

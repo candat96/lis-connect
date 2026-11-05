@@ -15,6 +15,7 @@ public partial class UnmatchedView : UserControl
     {
         InitializeComponent();
         AssignBarcodeBox.KeyDown += OnAssignBarcodeKeyDown;
+        AssignItemsList.KeyDown += OnAssignItemsKeyDown;
         DismissReasonBox.KeyDown += OnDismissReasonKeyDown;
     }
 
@@ -28,6 +29,18 @@ public partial class UnmatchedView : UserControl
         }
 
         viewModel.AssignPanel.LookupCommand.Execute(null);
+        e.Handled = true;
+    }
+
+    /// <summary>Enter trên danh sách chỉ số của ô "Gán vào mẫu…" xác nhận gán luôn dòng đang chọn (tối ưu bàn phím: mũi tên chọn rồi Enter).</summary>
+    private void OnAssignItemsKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || ViewModel is not { } viewModel || viewModel.AssignPanel.SelectedItem is null)
+        {
+            return;
+        }
+
+        viewModel.AssignPanel.ConfirmCommand.Execute(null);
         e.Handled = true;
     }
 

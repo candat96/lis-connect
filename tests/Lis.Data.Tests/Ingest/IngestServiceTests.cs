@@ -1,6 +1,8 @@
+using System.Globalization;
 using Dapper;
 using Lis.Core.Ingest;
 using Lis.Core.Results;
+using Lis.Data.Catalog;
 using Lis.Data.Ingest;
 using Lis.Data.Instruments;
 using Lis.Data.Results;
@@ -78,7 +80,8 @@ public class IngestServiceTests(PostgresFixture fixture)
 
         var stored = await StoredAsync(env.Db, items[wbcId]);
         stored.Value.ShouldBe("12.5");
-        stored.Unit.ShouldBe("10^9/L");
+        // Luôn lưu đơn vị của danh mục, không lấy đơn vị máy gửi kèm — đơn vị máy chỉ còn trong raw_ref/lịch sử.
+        stored.Unit.ShouldBe("G/L");
         stored.Flag.ShouldBe("High");
         stored.RefLow.ShouldBe(4m);
         stored.RefHigh.ShouldBe(10m);
@@ -147,7 +150,7 @@ public class IngestServiceTests(PostgresFixture fixture)
         unmatched.Reason.ShouldBe("kenh-chua-map");
         unmatched.Barcode.ShouldBe(barcode);
 
-        var today = DateOnly.FromDateTime(DateTime.Now);
+        var today = DateOnly.FromDateTime(env.Base.Clock.GetLocalNow().DateTime);
         var listed = (await env.Unmatched.ListOpenAsync(new DateOnly(2026, 11, 4), new DateOnly(2026, 11, 4))).Single();
         listed.InstrumentName.ShouldBe("Máy thử XN-1000");
         listed.ChannelCode.ShouldBe("MCV");
@@ -214,6 +217,210 @@ public class IngestServiceTests(PostgresFixture fixture)
         history[2].NewValue.ShouldBe("135");
         history[2].Reason.ShouldBe("Máy gửi lại kết quả cho mẫu đã duyệt");
         history[2].ActorId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Ingest_ApprovedSample_NewItemGoesPending_NotDirect()
+    {
+        // Sự cố thực tế: mẫu đã duyệt (vì chỉ số khác có giá trị) nhưng một chỉ số chưa từng có
+        // kết quả — máy gửi lần đầu cho chỉ số đó vẫn phải vào bản chờ thay thế, không được âm
+        // thầm ghi thẳng (mẫu đã duyệt coi như "chốt", mọi giá trị máy phải qua người xem lại).
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Base.Catalog, "HGB", "Huyết sắc tố", env.Base.EdtaId, decimals: 0, unit: "g/L");
+        var wbcId = await SaveServiceAsync(env.Base.Catalog, "WBC", "Bạch cầu", env.Base.EdtaId, decimals: 1, unit: "G/L");
+        await MapAsync(env, "WBC#", wbcId, decimals: 1);
+        var (sampleId, items) = await CreateSampleAsync(env.Base, MaleAdult(), hgbId, wbcId);
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+        await env.Base.Results.SetManualAsync(items[hgbId], "130", env.Base.ActorId, null);
+        await env.Base.Results.ApproveAsync(sampleId, env.Base.ActorId);
+
+        var outcome = await env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("WBC#", "6.5")));
+
+        outcome.ShouldBe(new IngestOutcome(0, 1, 0, 0));
+        var stored = await StoredAsync(env.Db, items[wbcId]);
+        stored.Value.ShouldBeNull();
+        stored.Status.ShouldBe("cho-duyet");
+        stored.PendingValue.ShouldBe("6.5");
+        stored.PendingInstrumentId.ShouldBe(env.InstrumentId);
+
+        var sample = await env.Base.Results.GetAsync(sampleId);
+        sample.ApprovedAt.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Assign_ApprovedSample_NewItemGoesPending_NotDirect()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Base.Catalog, "HGB", "Huyết sắc tố", env.Base.EdtaId, decimals: 0, unit: "g/L");
+        var pltId = await SaveServiceAsync(env.Base.Catalog, "PLT", "Tiểu cầu", env.Base.EdtaId, decimals: 0, unit: "G/L");
+        var (sampleId, items) = await CreateSampleAsync(env.Base, MaleAdult(), hgbId, pltId);
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+        await env.Base.Results.SetManualAsync(items[hgbId], "130", env.Base.ActorId, null);
+        await env.Base.Results.ApproveAsync(sampleId, env.Base.ActorId);
+
+        // PLT chưa map -> vào Chưa ghép ("kenh-chua-map")
+        await env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("PLT", "250")));
+        var open = (await env.Unmatched.ListOpenAsync(new DateOnly(2026, 11, 4), new DateOnly(2026, 11, 4))).Single();
+
+        await env.Unmatched.AssignAsync(open.Id, items[pltId], env.Base.ActorId);
+
+        var stored = await StoredAsync(env.Db, items[pltId]);
+        stored.Value.ShouldBeNull();
+        stored.Status.ShouldBe("cho-duyet");
+        stored.PendingValue.ShouldBe("250");
+
+        (await env.Base.Results.GetAsync(sampleId)).ApprovedAt.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Ingest_ResendSameApprovedValue_NoNewPendingOrHistory()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Base.Catalog, "HGB", "Huyết sắc tố", env.Base.EdtaId, decimals: 0, unit: "g/L");
+        await MapAsync(env, "HGB", hgbId);
+        var (sampleId, items) = await CreateSampleAsync(env.Base, FemaleAdult(), hgbId);
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+        await env.Base.Results.SetManualAsync(items[hgbId], "130", env.Base.ActorId, null);
+        await env.Base.Results.ApproveAsync(sampleId, env.Base.ActorId);
+        var historyBefore = await HistoryAsync(env.Db, items[hgbId]);
+
+        var outcome = await env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("HGB", "130")));
+
+        outcome.ShouldBe(new IngestOutcome(0, 0, 0, 0));
+        var stored = await StoredAsync(env.Db, items[hgbId]);
+        stored.Value.ShouldBe("130");
+        stored.PendingValue.ShouldBeNull();
+        stored.Status.ShouldBe("da-duyet");
+        (await HistoryAsync(env.Db, items[hgbId])).Count.ShouldBe(historyBefore.Count);
+    }
+
+    [Fact]
+    public async Task Ingest_PendingUsesMapDecimals_AcceptDoesNotReRound()
+    {
+        // Số lẻ của map máy (1) khác số lẻ của chỉ số (2) — bản chờ thay thế phải lưu đúng số lẻ
+        // của map ("40.5"), và "Chấp nhận" không được làm tròn lại theo số lẻ chỉ số ("40.50").
+        var env = await CreateEnvAsync();
+        var hctId = await SaveServiceAsync(env.Base.Catalog, "HCT", "Hematocrit", env.Base.EdtaId, decimals: 2, unit: "%");
+        await MapAsync(env, "HCT", hctId, decimals: 1, factor: 100);
+        var (sampleId, items) = await CreateSampleAsync(env.Base, MaleAdult(), hctId);
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+        await env.Base.Results.SetManualAsync(items[hctId], "35.00", env.Base.ActorId, null);
+        await env.Base.Results.ApproveAsync(sampleId, env.Base.ActorId);
+
+        await env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("HCT", "0.405")));
+
+        var stored = await StoredAsync(env.Db, items[hctId]);
+        stored.PendingValue.ShouldBe("40.5");
+
+        await env.Base.Results.AcceptPendingAsync(stored.Id, env.Base.ActorId);
+
+        (await StoredAsync(env.Db, items[hctId])).Value.ShouldBe("40.5");
+    }
+
+    [Fact]
+    public async Task Assign_WithInstrumentFlag_CarriesFlag_BlocksAutoApprove()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Base.Catalog, "HGB", "Huyết sắc tố", env.Base.EdtaId, decimals: 0, unit: "g/L", autoApprove: true);
+        await env.Base.Catalog.SaveRangesAsync(hgbId, [Range(hgbId, null, 120, 170)]);
+        var (sampleId, items) = await CreateSampleAsync(env.Base, MaleAdult(), hgbId);
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+
+        // Kênh "HB" chưa map -> Chưa ghép, mang theo cờ máy "*".
+        await env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("HB", "140", flag: "*")));
+        var open = (await env.Unmatched.ListOpenAsync(new DateOnly(2026, 11, 4), new DateOnly(2026, 11, 4))).Single();
+
+        await env.Unmatched.AssignAsync(open.Id, items[hgbId], env.Base.ActorId);
+
+        var stored = await StoredAsync(env.Db, items[hgbId]);
+        stored.Value.ShouldBe("140");
+        stored.InstrumentFlag.ShouldBe("*");
+        stored.Status.ShouldBe("cho-duyet");
+        (await env.Base.Results.GetAsync(sampleId)).ApprovedAt.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task AcceptPending_WithInstrumentFlag_CarriesFlag_BlocksAutoApprove()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Base.Catalog, "HGB", "Huyết sắc tố", env.Base.EdtaId, decimals: 0, unit: "g/L", autoApprove: true);
+        await env.Base.Catalog.SaveRangesAsync(hgbId, [Range(hgbId, null, 120, 170)]);
+        await MapAsync(env, "HGB", hgbId);
+        var (sampleId, items) = await CreateSampleAsync(env.Base, MaleAdult(), hgbId);
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+        await env.Base.Results.SetManualAsync(items[hgbId], "130", env.Base.ActorId, null);
+        await env.Base.Results.ApproveAsync(sampleId, env.Base.ActorId);
+
+        await env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("HGB", "140", flag: "*")));
+        var pending = await StoredAsync(env.Db, items[hgbId]);
+        pending.PendingValue.ShouldBe("140");
+
+        await env.Base.Results.AcceptPendingAsync(pending.Id, env.Base.ActorId);
+
+        var accepted = await StoredAsync(env.Db, items[hgbId]);
+        accepted.Value.ShouldBe("140");
+        accepted.InstrumentFlag.ShouldBe("*");
+        accepted.Status.ShouldBe("cho-duyet");
+
+        var tried = await env.Base.Results.TryAutoApproveAsync(sampleId);
+        tried.ShouldBeFalse();
+        (await env.Base.Results.GetAsync(sampleId)).ApprovedAt.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Assign_ChannelMappedToDifferentService_IgnoresMap()
+    {
+        var env = await CreateEnvAsync();
+        var hctId = await SaveServiceAsync(env.Base.Catalog, "HCT", "Hematocrit", env.Base.EdtaId, decimals: 1, unit: "%");
+        var pltId = await SaveServiceAsync(env.Base.Catalog, "PLT", "Tiểu cầu", env.Base.EdtaId, decimals: 1, unit: "G/L");
+        await MapAsync(env, "HCT", hctId, factor: 100); // map kênh "HCT" trỏ tới chỉ số HCT, hệ số 100
+        var (sampleId, items) = await CreateSampleAsync(env.Base, MaleAdult(), pltId); // chỉ định PLT, không có HCT
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+
+        await env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("HCT", "0.49")));
+        var open = (await env.Unmatched.ListOpenAsync(new DateOnly(2026, 11, 4), new DateOnly(2026, 11, 4))).Single();
+        open.Reason.ShouldBe("khong-co-chi-dinh");
+
+        // Gán tay dòng "HCT" (map trỏ tới chỉ số HCT) vào chỉ số PLT — serviceId khác, không được áp hệ số map.
+        await env.Unmatched.AssignAsync(open.Id, items[pltId], env.Base.ActorId);
+
+        (await StoredAsync(env.Db, items[pltId])).Value.ShouldBe("0.5");
+    }
+
+    [Fact]
+    public async Task Ingest_ExceptionMidReading_RollsBackEverything()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Base.Catalog, "HGB", "Huyết sắc tố", env.Base.EdtaId, decimals: 0, unit: "g/L");
+        var wbcId = await SaveServiceAsync(env.Base.Catalog, "WBC", "Bạch cầu", env.Base.EdtaId, decimals: 2, unit: "G/L");
+        var panelId = await env.Base.Catalog.SaveServiceAsync(new ServiceInfo(
+            Guid.Empty, "TPTTBM", "Tổng phân tích tế bào máu", null, env.Base.EdtaId, null, "so", null, 0, true, false, true, null, [wbcId]));
+        await MapAsync(env, "HGB", hgbId);
+        var (sampleId, items) = await CreateSampleAsync(env.Base, FemaleAdult(), hgbId);
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+
+        // Tạo thẳng một dòng chỉ định + map kênh trỏ tới dịch vụ cha (panel) bằng SQL thô — bình
+        // thường InstrumentStore.SaveChannelAsync/order_item không cho việc này xảy ra, ở đây chỉ
+        // để ép pipeline ném lỗi giữa bản tin, kiểm tra dòng đầu (HGB) không bị ghi sót lại khi cả
+        // bản tin phải rollback.
+        await using (var connection = await env.Db.OpenAsync(TestContext.Current.CancellationToken))
+        {
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO order_item (order_id, sample_id, service_id)
+                SELECT order_id, sample_id, @panelId FROM order_item WHERE sample_id = @sampleId LIMIT 1
+                """,
+                new { panelId, sampleId });
+            await connection.ExecuteAsync(
+                "INSERT INTO instrument_channel (instrument_id, channel_code, service_id) VALUES (@instrumentId, 'PANEL', @panelId)",
+                new { env.InstrumentId, panelId });
+        }
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("HGB", "130"), Item("PANEL", "1"))));
+
+        (await StoredOrNullAsync(env.Db, items[hgbId])).ShouldBeNull();
+        (await UnmatchedRowsAsync(env.Db)).ShouldBeEmpty();
     }
 
     [Fact]
@@ -422,5 +629,31 @@ public class IngestServiceTests(PostgresFixture fixture)
         (await env.Unmatched.ListOpenAsync(day4, day4)).Select(u => u.ChannelCode).ShouldBe(["A"]);
         (await env.Unmatched.ListOpenAsync(day5, day5)).Select(u => u.ChannelCode).ShouldBe(["B"]);
         (await env.Unmatched.ListOpenAsync(day4, day5)).Select(u => u.ChannelCode).ShouldBe(["B", "A"]);
+    }
+
+    [Fact]
+    public async Task ManualAndIngest_Concurrent_SameSample_NeverDeadlocks()
+    {
+        // Nhập tay (SetManualAsync) và máy gửi (IngestAsync) cùng một mẫu, chạy song song nhiều
+        // lần — cả hai đều khóa mẫu TRƯỚC bằng một câu lệnh riêng (không gộp vào JOIN đọc chỉ
+        // định/kết quả), nên không bao giờ đảo thứ tự khóa và không bao giờ deadlock (40P01) dù
+        // chạy đồng thời trên hai kết nối khác nhau.
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Base.Catalog, "HGB", "Huyết sắc tố", env.Base.EdtaId, decimals: 0, unit: "g/L");
+        var wbcId = await SaveServiceAsync(env.Base.Catalog, "WBC", "Bạch cầu", env.Base.EdtaId, decimals: 1, unit: "G/L");
+        await MapAsync(env, "WBC#", wbcId);
+        var (sampleId, items) = await CreateSampleAsync(env.Base, MaleAdult(), hgbId, wbcId);
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+
+        for (var i = 0; i < 20; i++)
+        {
+            var manualTask = env.Base.Results.SetManualAsync(items[hgbId], (120 + i).ToString(), env.Base.ActorId, "Sửa lại");
+            var ingestTask = env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("WBC#", (6.0m + i * 0.1m).ToString(CultureInfo.InvariantCulture))));
+
+            await Task.WhenAll(manualTask, ingestTask);
+        }
+
+        (await StoredAsync(env.Db, items[hgbId])).Value.ShouldBe("139");
+        (await StoredAsync(env.Db, items[wbcId])).Value.ShouldBe("7.9");
     }
 }

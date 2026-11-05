@@ -48,6 +48,7 @@ internal sealed record ItemContext
     public string? PendingValue { get; init; }
     public Guid? PendingInstrumentId { get; init; }
     public string? PendingRawRef { get; init; }
+    public string? PendingInstrumentFlag { get; init; }
 
     public PatientFacts Patient => new(Sex[0], Dob, BirthYear);
 
@@ -118,6 +119,40 @@ internal sealed class ResultWriter(Db db)
             default:
                 return new ComputedValue(trimmed, service.Unit, null, null, null, ResultFlag.None);
         }
+    }
+
+    /// <summary>
+    /// Dùng khi giá trị đã tính xong rồi (<c>pending_value</c> đã qua <see cref="ComputeAsync"/>
+    /// lúc ghi bản chờ thay thế — xem R22/<c>InstrumentValuePipeline</c>): với kiểu <c>so</c> chỉ
+    /// tính lại khoảng tham chiếu/cờ, KHÔNG làm tròn lại — nếu không, "Chấp nhận bản thay thế" có
+    /// thể ra khác giá trị lúc mới đến khi số lẻ của map máy khác số lẻ của chỉ số (vd map 1 số
+    /// lẻ ra "40.5", làm tròn lại theo chỉ số 2 số lẻ sẽ thành "40.50"). Kiểu khác không có khái
+    /// niệm làm tròn nên tính lại bình thường.
+    /// </summary>
+    public async Task<ComputedValue> ComputeFromFinalValueAsync(
+        ServiceRow service, PatientFacts patient, DateOnly at, Guid? instrumentId, string? finalValue)
+    {
+        if (string.IsNullOrEmpty(finalValue))
+        {
+            return new ComputedValue(null, service.Unit, null, null, null, ResultFlag.None);
+        }
+
+        if (service.ValueType != "so")
+        {
+            return await ComputeAsync(service, patient, at, instrumentId, finalValue);
+        }
+
+        var parsed = ResultValue.Parse(finalValue);
+        if (parsed.IsEmpty)
+        {
+            // Phòng khi pending_value không phải số hợp lệ (dữ liệu cũ trước bản sửa này, hoặc
+            // kiểm thử ghi thẳng) — không có giá trị, không phải "0", giống ComputeAsync.
+            return new ComputedValue(null, service.Unit, null, null, null, ResultFlag.None);
+        }
+
+        var range = ReferenceRangeSelector.Select(await _catalog.RangesAsync(service.Id), patient, at, instrumentId);
+        var flag = FlagCalculator.Compute(parsed, range);
+        return new ComputedValue(finalValue, service.Unit, range?.Low, range?.High, range?.TextRange, flag);
     }
 
     /// <summary>
@@ -196,14 +231,16 @@ internal sealed class ResultWriter(Db db)
     /// </summary>
     public static async Task MarkPendingAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, Guid resultId, string? currentValue,
-        string pendingValue, Guid instrumentId, string? rawRef, string reason, Guid? actorId, DateTimeOffset now)
+        string pendingValue, Guid instrumentId, string? rawRef, string? instrumentFlag, string reason, Guid? actorId, DateTimeOffset now)
     {
         await connection.ExecuteAsync(
             """
-            UPDATE result SET pending_value = @pendingValue, pending_instrument_id = @instrumentId, pending_raw_ref = @rawRef
+            UPDATE result SET pending_value = @pendingValue, pending_instrument_id = @instrumentId, pending_raw_ref = @rawRef,
+                pending_instrument_flag = @instrumentFlag
             WHERE id = @resultId
             """,
-            new { resultId, pendingValue, instrumentId, rawRef }, transaction);
+            new { resultId, pendingValue, instrumentId, rawRef, instrumentFlag = string.IsNullOrEmpty(instrumentFlag) ? null : instrumentFlag },
+            transaction);
 
         await InsertHistoryAsync(connection, transaction, resultId, "thay-the", currentValue, pendingValue, reason, actorId, now);
     }
@@ -245,7 +282,8 @@ internal sealed class ResultWriter(Db db)
     public static string ItemContextSelect(string resultJoin) => $"""
         SELECT oi.id AS order_item_id, oi.sample_id, oi.service_id, s.approved_at,
                p.sex, p.dob, p.birth_year, o.created_at AS order_created_at,
-               r.id AS result_id, r.value, r.status, r.pending_value, r.pending_instrument_id, r.pending_raw_ref
+               r.id AS result_id, r.value, r.status, r.pending_value, r.pending_instrument_id, r.pending_raw_ref,
+               r.pending_instrument_flag
         FROM order_item oi
         JOIN sample s ON s.id = oi.sample_id
         JOIN lab_order o ON o.id = oi.order_id

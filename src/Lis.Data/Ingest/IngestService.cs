@@ -48,7 +48,7 @@ public sealed class IngestService(Db db, TimeProvider clock)
                         new
                         {
                             instrumentId = reading.InstrumentId,
-                            barcode = reading.Barcode.Trim(),
+                            barcode = ReadingNormalizer.CleanBarcode(reading.Barcode),
                             channelCode = item.ChannelCode.Trim(),
                             value = item.RawValue,
                             unit = item.Unit,
@@ -63,12 +63,12 @@ public sealed class IngestService(Db db, TimeProvider clock)
 
             // So khớp chính xác sau khi bỏ khoảng trắng/ký tự điều khiển — không bao giờ LIKE/khớp đuôi.
             var barcode = ReadingNormalizer.CleanBarcode(reading.Barcode);
-            var sampleId = barcode.Length == 0
+            var sample = barcode.Length == 0
                 ? null
-                : await connection.ExecuteScalarAsync<Guid?>(
-                    "SELECT id FROM sample WHERE barcode = @barcode FOR UPDATE", new { barcode }, transaction);
+                : await connection.QuerySingleOrDefaultAsync<SampleLockRow>(
+                    "SELECT id, approved_at FROM sample WHERE barcode = @barcode FOR UPDATE", new { barcode }, transaction);
 
-            if (sampleId is null)
+            if (sample is null)
             {
                 foreach (var item in reading.Items)
                 {
@@ -99,7 +99,7 @@ public sealed class IngestService(Db db, TimeProvider clock)
                     WHERE oi.sample_id = @sampleId AND oi.service_id = @serviceId
                     ORDER BY oi.created_at
                     """,
-                    new { sampleId, serviceId = channel.ServiceId }, transaction);
+                    new { sampleId = sample.Id, serviceId = channel.ServiceId }, transaction);
 
                 if (context is null)
                 {
@@ -109,20 +109,20 @@ public sealed class IngestService(Db db, TimeProvider clock)
                 }
 
                 var kind = await InstrumentValuePipeline.WriteAsync(
-                    connection, transaction, _writer, clock, context, channel, reading.InstrumentId, item, reading.RawRef,
+                    connection, transaction, _writer, clock, context, sample.ApprovedAt, channel, reading.InstrumentId, item, reading.RawRef,
                     ReasonStored, ReasonPending, actorId: null);
 
                 if (kind == InstrumentWriteKind.Stored)
                 {
                     stored++;
                 }
-                else
+                else if (kind == InstrumentWriteKind.PendingReplacement)
                 {
                     pending++;
                 }
             }
 
-            await _results.TryAutoApproveAsync(connection, transaction, sampleId.Value);
+            await _results.TryAutoApproveAsync(connection, transaction, sample.Id);
 
             return new IngestOutcome(stored, pending, unmatched, 0);
         });
@@ -133,8 +133,8 @@ public sealed class IngestService(Db db, TimeProvider clock)
     {
         await connection.ExecuteAsync(
             """
-            INSERT INTO unmatched_result (instrument_id, barcode, channel_code, value, unit, reason, raw_ref, received_at)
-            VALUES (@instrumentId, @barcode, @channelCode, @value, @unit, @reason, @rawRef, @receivedAt)
+            INSERT INTO unmatched_result (instrument_id, barcode, channel_code, value, unit, reason, instrument_flag, raw_ref, received_at)
+            VALUES (@instrumentId, @barcode, @channelCode, @value, @unit, @reason, @instrumentFlag, @rawRef, @receivedAt)
             """,
             new
             {
@@ -144,9 +144,16 @@ public sealed class IngestService(Db db, TimeProvider clock)
                 value = item.RawValue,
                 unit = item.Unit,
                 reason,
+                instrumentFlag = string.IsNullOrEmpty(item.InstrumentFlag) ? null : item.InstrumentFlag,
                 rawRef = reading.RawRef,
                 receivedAt = reading.ReceivedAt.ToUniversalTime(),
             },
             transaction);
+    }
+
+    private sealed record SampleLockRow
+    {
+        public Guid Id { get; init; }
+        public DateTimeOffset? ApprovedAt { get; init; }
     }
 }

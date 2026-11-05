@@ -356,11 +356,11 @@ public class ResultServiceTests(PostgresFixture fixture)
         await env.Results.SetManualAsync(items[wbcId], "6.0", env.ActorId, null);
         await env.Results.SetManualAsync(items[hgbId], "140", env.ActorId, null);
         await env.Results.ApproveAsync(sampleId, env.ActorId);
-        await SetPendingAsync(env.Db, items[wbcId], "7.25", instrumentId, "MSG-001");
+        await SetPendingAsync(env.Db, items[wbcId], "7.3", instrumentId, "MSG-001");
 
         var before = await env.Results.GetAsync(sampleId);
         var wbcRow = before.Rows.Single(r => r.ServiceId == wbcId);
-        wbcRow.PendingValue.ShouldBe("7.25");
+        wbcRow.PendingValue.ShouldBe("7.3");
         before.ApprovedAt.ShouldNotBeNull();
 
         await env.Results.AcceptPendingAsync(wbcRow.ResultId!.Value, env.ActorId);
@@ -384,7 +384,7 @@ public class ResultServiceTests(PostgresFixture fixture)
         var history = await HistoryAsync(env.Db, items[wbcId]);
         var replaced = history.Single(h => h.Action == "thay-the");
         replaced.OldValue.ShouldBe("6.0");
-        replaced.NewValue.ShouldBe("7.25");
+        replaced.NewValue.ShouldBe("7.3");
         replaced.ActorId.ShouldBe(env.ActorId);
 
         // Kết quả bị thay thế đã về cho-duyet trước khi hủy duyệt mẫu nên không có dòng huy-duyet riêng;

@@ -107,4 +107,22 @@ public class InstrumentStoreTests(PostgresFixture fixture)
         await env.Instruments.DeleteChannelAsync(channelId);
         (await env.Instruments.ChannelsAsync(instrumentId)).ShouldBeEmpty();
     }
+
+    [Fact]
+    public async Task SaveChannel_FactorNotPositive_Throws()
+    {
+        var env = await CreateEnvAsync();
+        var instrumentId = await env.Instruments.SaveAsync(new InstrumentInfo(Guid.Empty, "Máy thử XN-1000", null, "astm", null, null, null, true));
+        var wbcId = await SaveServiceAsync(env.Catalog, "WBC", "Bạch cầu", env.EdtaId);
+
+        var zero = await Should.ThrowAsync<ArgumentException>(
+            () => env.Instruments.SaveChannelAsync(new ChannelMap(Guid.Empty, instrumentId, "WBC#", wbcId, null, 0m, false, false)));
+        zero.Message.ShouldBe("Hệ số phải lớn hơn 0");
+
+        var negative = await Should.ThrowAsync<ArgumentException>(
+            () => env.Instruments.SaveChannelAsync(new ChannelMap(Guid.Empty, instrumentId, "WBC#", wbcId, null, -1m, false, false)));
+        negative.Message.ShouldBe("Hệ số phải lớn hơn 0");
+
+        (await env.Instruments.ChannelsAsync(instrumentId)).ShouldBeEmpty();
+    }
 }
