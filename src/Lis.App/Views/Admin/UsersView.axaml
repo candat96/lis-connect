@@ -1,0 +1,103 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Admin"
+             x:Class="Lis.App.Views.Admin.UsersView"
+             x:DataType="vm:UsersViewModel">
+
+    <Grid ColumnDefinitions="300,*" RowDefinitions="*">
+
+        <!-- Cột trái: danh sách tài khoản -->
+        <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto" Margin="0,0,16,0">
+
+            <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,8">
+                <TextBlock Classes="label" Text="Tìm tài khoản" />
+                <TextBox Text="{Binding FilterText}" PlaceholderText="Tên đăng nhập..." />
+            </StackPanel>
+
+            <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+                <ListBox Name="UserList"
+                         ItemsSource="{Binding FilteredUsers}"
+                         SelectedItem="{Binding SelectedUser}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:UserListItemViewModel">
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="{Binding Username}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding FullName}" FontSize="11" Classes="muted" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding Active, StringFormat={}{0}}" FontSize="10" Classes="muted" VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <Button Grid.Row="2" Content="+ Tài khoản mới" Command="{Binding NewUserCommand}" Margin="0,8,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+
+        </Grid>
+
+        <!-- Cột phải: form chỉnh sửa -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*">
+
+            <!-- Form -->
+            <Border Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+                <ScrollViewer>
+                    <StackPanel Spacing="12">
+
+                        <!-- Tên đăng nhập (read-only khi sửa) -->
+                        <StackPanel>
+                            <TextBlock Classes="label" Text="Tên đăng nhập" />
+                            <TextBox Text="{Binding EditUsername}" IsEnabled="{Binding IsEditingNew}" />
+                        </StackPanel>
+
+                        <!-- Họ tên -->
+                        <StackPanel>
+                            <TextBlock Classes="label" Text="Họ tên" />
+                            <TextBox Text="{Binding EditFullName}" />
+                        </StackPanel>
+
+                        <!-- Chức danh -->
+                        <StackPanel>
+                            <TextBlock Classes="label" Text="Chức danh" />
+                            <TextBox Text="{Binding EditTitle}" />
+                        </StackPanel>
+
+                        <!-- Mật khẩu -->
+                        <StackPanel>
+                            <TextBlock Classes="label" Text="Mật khẩu" />
+                            <TextBox Text="{Binding NewPassword}" PasswordChar="*" />
+                            <TextBlock FontSize="10" Classes="muted" Text="Để trống nếu không đổi mật khẩu" />
+                        </StackPanel>
+
+                        <!-- Vai trò -->
+                        <StackPanel>
+                            <TextBlock Classes="label" Text="Vai trò" />
+                            <StackPanel Spacing="4">
+                                <CheckBox Content="Quản trị" IsChecked="{Binding EditRoleQuanTri}" />
+                                <CheckBox Content="Tiếp nhận" IsChecked="{Binding EditRoleTiepNhan}" />
+                                <CheckBox Content="Kỹ thuật viên" IsChecked="{Binding EditRoleKyThuatVien}" />
+                                <CheckBox Content="Trưởng khoa" IsChecked="{Binding EditRoleTruongKhoa}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Trạng thái -->
+                        <CheckBox Content="Đang dùng" IsChecked="{Binding EditActive}" />
+
+                        <!-- Nút hành động -->
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0" HorizontalAlignment="Right">
+                            <Button Content="Lưu" Classes="primary" Command="{Binding SaveUserCommand}" />
+                            <Button Content="Hủy" Command="{Binding CancelCommand}" />
+                        </StackPanel>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- Lỗi -->
+            <TextBlock Grid.Row="1" Classes="error" Text="{Binding ErrorMessage}" Margin="0,8,0,0" TextWrapping="Wrap" />
+
+        </Grid>
+
+    </Grid>
+
+</UserControl>
