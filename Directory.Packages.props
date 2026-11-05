@@ -33,6 +33,9 @@
     <PackageVersion Include="Dapper" Version="2.1.89" />
     <PackageVersion Include="dbup-postgresql" Version="7.0.1" />
 
+    <!-- Đọc/ghi Excel -->
+    <PackageVersion Include="ClosedXML" Version="0.105.1" />
+
     <!-- Kiểm thử CSDL -->
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
 

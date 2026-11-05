@@ -14,6 +14,7 @@
     <PackageReference Include="Dapper" />
     <PackageReference Include="dbup-postgresql" />
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
+    <PackageReference Include="ClosedXML" />
   </ItemGroup>
 
   <ItemGroup>
