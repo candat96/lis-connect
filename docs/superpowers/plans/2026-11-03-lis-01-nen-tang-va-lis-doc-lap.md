@@ -563,6 +563,86 @@ setting(key text PK, value text)
 
 ---
 
+---
+
+### Task 14: Cấu hình kết nối HIS (màn cài đặt, chưa đồng bộ) — bổ sung 05/11 theo yêu cầu người dùng
+
+Người dùng cần cài đặt được kết nối HIS ngay ở bản chạy thử. Đợt 1 chỉ làm phần **lưu cấu hình + thử kết nối**. Phần kéo chỉ định / đẩy kết quả / đồng bộ nhân sự vẫn thuộc đợt 3.
+
+**Files:**
+- Create: `src/Lis.Data/Migrations/0006_his_profile.sql`, `src/Lis.Data/His/HisProfile.cs`, `HisProfileStore.cs`, `HisConnectionTester.cs`, `src/Lis.App/Views/Settings/HisSettings*`, `ViewModels/Settings/HisSettingsViewModel.cs`
+- Test: `tests/Lis.Data.Tests/His/HisProfileStoreTests.cs`, `HisConnectionTesterTests.cs`, `tests/Lis.App.Tests/HisSettingsViewModelTests.cs`
+
+**Interfaces:**
+- Produces:
+  - Bảng `his_profile`: một dòng, `id int PK CHECK (id=1)`. Các cột:
+    - `enabled bool`, `name text`, `base_url text`;
+    - `auth_type text CHECK IN ('none','api-key','basic','bearer-login')`;
+    - `api_key_header text`, `secret_protected text` (khóa API hoặc mật khẩu, mã hóa như mật khẩu CSDL ở Task 2, dạng base64), `username text`;
+    - `login_path text`, `login_body_template text`, `token_json_path text`, `token_ttl_minutes int`;
+    - `orders_mode text CHECK IN ('pull','push')`, `orders_path text`, `poll_seconds int`, `results_path text`, `staff_path text`;
+    - `push_listen_port int`, `push_api_key_hash text`, `push_workstation_code text`;
+    - `updated_at`, `updated_by`.
+  - `record HisProfile(...)` có đủ các trường trên. Bí mật được giải mã khi đọc và **không bao giờ in ra trong `ToString`** (che như `DbSettings`).
+  - `class HisProfileStore(Db db, ISecretProtector protector)`: `Task<HisProfile?> GetAsync()`, `Task SaveAsync(HisProfile p, Guid actorId)`.
+  - `class HisConnectionTester(HttpClient http)`: `Task<HisTestResult> TestAsync(HisProfile p, CancellationToken ct)`, với `record HisTestResult(bool Ok, string Message)`.
+    - Gọi đăng nhập nếu `bearer-login`, rồi `GET` tới `orders_path`.
+    - Timeout 10 giây.
+    - Thông báo tiếng Việt cho các trường hợp: thành công kèm mã HTTP; sai xác thực (401/403); không tới được máy chủ; sai đường dẫn (404); không lấy được token ở `token_json_path`.
+  - Hồ sơ dựng sẵn **"HIS-PROMAX"**: nút điền sẵn `auth_type = bearer-login`, `login_path = /api/v1/integration/auth/verify`. Các đường API khác để trống và ghi chú "API phía HIS-PROMAX làm ở đợt 3".
+  - Màn **Cài đặt → Kết nối HIS** (chỉ vai trò `quan-tri`):
+    - form theo `auth_type`, ẩn/hiện trường theo loại;
+    - mật khẩu/khóa API là ô che chữ; để trống nghĩa là giữ giá trị cũ;
+    - nút **Thử kết nối** và **Lưu**.
+
+- [ ] **Step 1:** Viết test.
+  - `Save_ThenGet_RoundTrips_SecretEncrypted`: cột `secret_protected` không chứa chuỗi bí mật rõ.
+  - `ToString_RedactsSecret`.
+  - `Test_*`: dựng HTTP server giả trong test (`HttpListener` hoặc `WebApplication` cục bộ) cho các trường hợp 200 / 401 / 404 / không tới được / token thiếu.
+  - `HisSettingsViewModel_TestButton_ShowsMessage`.
+- [ ] **Step 2:** Chạy test, mong đợi FAIL.
+- [ ] **Step 3:** Cài đặt.
+- [ ] **Step 4:** Chạy test, mong đợi PASS. Chụp ảnh màn Kết nối HIS.
+- [ ] **Step 5:** Commit `feat(his): màn cấu hình kết nối HIS + thử kết nối`.
+
+---
+
+### Task 15: Build và chạy thử trên Windows
+
+**Files:**
+- Create: `scripts/build-windows.ps1`, `docs/CHAY-THU-WINDOWS.md`
+- Modify: `README.md` (trỏ tới tài liệu chạy thử), `.github/workflows/build.yml` (thêm job `publish-win-x64` đẩy artifact zip)
+
+**Interfaces:**
+- `scripts/build-windows.ps1`:
+  - chạy `dotnet publish src/Lis.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true`;
+  - kèm công cụ `tools/Lis.SeedTool`;
+  - ra thư mục `dist/LisConnect-win-x64/` và tệp zip;
+  - in ra đường dẫn.
+- `docs/CHAY-THU-WINDOWS.md` (tiếng Việt có dấu), từng bước:
+  1. Cài .NET 10 SDK (chỉ cần khi build từ mã nguồn) hoặc dùng bản zip từ CI.
+  2. Cài PostgreSQL 16+ cho Windows (link tải chính thức). Tạo CSDL `lis` và user `lis_user` bằng lệnh `psql` mẫu. Bật extension `citext` và `unaccent`: hai extension này đi kèm bản cài, migration tự `CREATE EXTENSION`, nhưng user cần quyền hoặc là chủ CSDL — ghi rõ cách cấp.
+  3. Chạy `LisConnect.exe` → trình cài đặt:
+     - nhập kết nối CSDL, **Thử kết nối**;
+     - tạo **tài khoản quản trị**;
+     - nhập thông tin cơ sở.
+  4. Đăng nhập → **Cài đặt → Kết nối CSDL** để sửa kết nối khi cần. **Cài đặt → Kết nối HIS** để cấu hình HIS và thử kết nối.
+  5. Nạp danh mục mẫu: **Danh mục → Nhập Excel** với `tools/seed/mau-danh-muc.xlsx`. Tạo dữ liệu demo bằng `Lis.SeedTool seed-demo`.
+  6. Cấu hình máy in tem / máy in phiếu.
+  7. Gỡ lỗi thường gặp: tường lửa cổng 5432, sai mật khẩu, thiếu quyền tạo extension, font.
+  - Nói rõ các phần **chưa có ở bản thử**: dịch vụ nền Windows, kết nối máy xét nghiệm, log thô (đợt 2); đồng bộ HIS thật (đợt 3); bộ cài `.msi` (đợt 5).
+- **PostgreSQL 16+ (thay vì 18):** migration hiện dùng `uuidv7()`, chỉ có từ PostgreSQL 18. Phải chọn một trong hai:
+  - (a) yêu cầu PostgreSQL 18;
+  - (b) thêm migration tạo hàm `uuidv7()` dự phòng khi phiên bản < 18.
+  
+  Chọn **(b)** để cài được trên bản PostgreSQL phổ biến: viết `0007_uuidv7_compat.sql`, tạo hàm SQL thuần sinh UUIDv7 khi `current_setting('server_version_num')::int < 180000`. Thứ tự migration phải bảo đảm hàm có trước khi bảng dùng: vì 0001 đã dùng `uuidv7()`, đặt khối tạo hàm vào **script chạy trước** 0001 (DbUp pre-deployment script, luôn chạy, idempotent). Test chạy migration trên `postgres:16-alpine`.
+
+- [ ] **Step 1:** Viết test `Upgrade_OnPostgres16_Works` (fixture thêm image 16) và `UuidV7Compat_GeneratesTimeOrderedUuid`.
+- [ ] **Step 2:** Chạy test, mong đợi FAIL trên PostgreSQL 16.
+- [ ] **Step 3:** Cài đặt script, tài liệu, job CI.
+- [ ] **Step 4:** Chạy test, mong đợi PASS. Chạy `pwsh scripts/build-windows.ps1` nếu có PowerShell; nếu không có thì kiểm `dotnet publish -r win-x64` chạy được trên macOS.
+- [ ] **Step 5:** Commit `chore: build Windows + hướng dẫn chạy thử`.
+
 ## Kết thúc đợt 1
 
 - [ ] `dotnet build LisConnect.slnx -warnaserror` và `dotnet test LisConnect.slnx` xanh. CI xanh trên cả `windows-latest` và `ubuntu-latest`.
