@@ -67,3 +67,28 @@ Phiên bản các gói NuGet được khai một lần trong `Directory.Packages
 ## Tích hợp liên tục (CI)
 
 `.github/workflows/build.yml` chạy `dotnet build` và `dotnet test` trên cả `windows-latest` và `ubuntu-latest`. `Lis.Data.Tests` cần Docker nên chỉ chạy trên `ubuntu-latest`.
+
+## Build cho Windows
+
+Để tạo bản phân phối có thể cài trên Windows:
+
+**Trên macOS/Linux** (cross-compile):
+```bash
+pwsh scripts/build-windows.ps1
+# Nếu pwsh không có, chạy trực tiếp dotnet:
+dotnet publish src/Lis.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist/LisConnect-win-x64/app
+dotnet publish tools/Lis.SeedTool -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist/LisConnect-win-x64/seedtool
+```
+
+Kết quả: `dist/LisConnect-win-x64.zip` sẵn sàng triển khai.
+
+## Chạy thử trên Windows
+
+Xem hướng dẫn chi tiết: [`docs/CHAY-THU-WINDOWS.md`](docs/CHAY-THU-WINDOWS.md)
+
+Tóm tắt:
+1. Cài PostgreSQL 16+ (https://www.postgresql.org/download/windows/)
+2. Tạo CSDL `lis` và tài khoản `lis_user`
+3. Chạy `LisConnect.exe` → hoàn thành wizard cài đặt
+4. Nạp danh mục từ `mau-danh-muc.xlsx`
+5. Tạo dữ liệu demo (tuỳ chọn): `Lis.SeedTool.exe seed-demo --conn "..."`
