@@ -4,7 +4,7 @@
         xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
         x:Class="Lis.App.Views.LoginWindow"
         x:DataType="vm:LoginViewModel"
-        Icon="avares://Lis.App/Assets/app-icon.ico"
+        Icon="avares://LisConnect/Assets/app-icon.ico"
         Title="LIS Connect — Đăng nhập"
         Width="380"
         Height="340"

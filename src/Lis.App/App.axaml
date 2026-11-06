@@ -5,12 +5,12 @@
 
     <Application.Styles>
         <FluentTheme />
-        <StyleInclude Source="avares://Lis.App/Styles/Theme.axaml" />
+        <StyleInclude Source="avares://LisConnect/Styles/Theme.axaml" />
     </Application.Styles>
 
     <TrayIcon.Icons>
         <TrayIcons>
-            <TrayIcon ToolTipText="LIS Connect" Icon="avares://Lis.App/Assets/app-icon.ico">
+            <TrayIcon ToolTipText="LIS Connect" Icon="avares://LisConnect/Assets/app-icon.ico">
                 <TrayIcon.Menu>
                     <NativeMenu>
                         <NativeMenuItem Header="Mở" Click="OnTrayOpenClicked" />

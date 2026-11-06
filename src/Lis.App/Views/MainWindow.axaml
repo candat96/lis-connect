@@ -10,7 +10,7 @@
         xmlns:unmatched="using:Lis.App.Views.Unmatched"
         x:Class="Lis.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
-        Icon="avares://Lis.App/Assets/app-icon.ico"
+        Icon="avares://LisConnect/Assets/app-icon.ico"
         Title="LIS Connect"
         Width="1024"
         Height="720"

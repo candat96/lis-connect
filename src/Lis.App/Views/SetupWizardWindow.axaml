@@ -4,7 +4,7 @@
         xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
         x:Class="Lis.App.Views.SetupWizardWindow"
         x:DataType="vm:SetupWizardViewModel"
-        Icon="avares://Lis.App/Assets/app-icon.ico"
+        Icon="avares://LisConnect/Assets/app-icon.ico"
         Title="LIS Connect — Cài đặt lần đầu"
         Width="520"
         Height="640"

@@ -5,12 +5,12 @@
 
 $ErrorActionPreference = "Stop"
 
-# Set up paths
-$RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$DistDir = Join-Path $RepoRoot "dist" "LisConnect-win-x64"
+# Set up paths (nested Join-Path for PowerShell 5.1 compatibility)
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$DistDir = Join-Path (Join-Path $RepoRoot "dist") "LisConnect-win-x64"
 $AppDir = Join-Path $DistDir "app"
 $ToolDir = Join-Path $DistDir "seedtool"
-$ZipPath = Join-Path $RepoRoot "dist" "LisConnect-win-x64.zip"
+$ZipPath = Join-Path (Join-Path $RepoRoot "dist") "LisConnect-win-x64.zip"
 
 Write-Host "Building LIS Connect for Windows x64..."
 Write-Host "Repository root: $RepoRoot"
