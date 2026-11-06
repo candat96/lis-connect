@@ -3,6 +3,7 @@ using Lis.Data;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
+using Lis.Data.His;
 using Lis.Data.Ingest;
 using Lis.Data.Instruments;
 using Lis.Data.Local;
@@ -36,6 +37,8 @@ public sealed class AppServices
         ReportPrinter = new ReportPrinter(Results, Facility, Settings, PrintService, TimeProvider.System);
         Unmatched = new UnmatchedService(Db, TimeProvider.System);
         Instruments = new InstrumentStore(Db);
+        HisProfiles = new HisProfileStore(Db, SecretProtectors.ForCurrentOs(LocalPaths.DataDirectory));
+        HisConnectionTester = new HisConnectionTester(new HttpClient());
     }
 
     public LocalConfig Config { get; }
@@ -65,6 +68,10 @@ public sealed class AppServices
     public IUnmatchedService Unmatched { get; }
 
     public IInstrumentStore Instruments { get; }
+
+    public HisProfileStore HisProfiles { get; }
+
+    public HisConnectionTester HisConnectionTester { get; }
 
     /// <summary>
     /// Cập nhật máy trạm (<c>workstation.last_seen_at</c>) ngay sau khi đăng nhập thành công.

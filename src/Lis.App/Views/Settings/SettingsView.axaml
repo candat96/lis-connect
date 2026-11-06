@@ -23,6 +23,10 @@
             <settings:DbConnectionView DataContext="{Binding DbConnection}" />
         </TabItem>
 
+        <TabItem Header="Kết nối HIS" IsVisible="{Binding ShowHisConnection}">
+            <settings:HisSettingsView DataContext="{Binding HisConnection}" />
+        </TabItem>
+
     </TabControl>
 
 </UserControl>

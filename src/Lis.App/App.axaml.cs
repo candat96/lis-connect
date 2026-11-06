@@ -114,7 +114,8 @@ public partial class App : Application
         var viewModel = new MainViewModel(
             currentUser, services.Catalog, services.Orders, services.Facility, services.LabelPrinter, services.Settings, services.PrintService,
             services.Results, services.ReportPrinter, services.Unmatched, services.Instruments, services.Users,
-            new SetupService(), configStore, config);
+            new SetupService(), configStore, config,
+            services.HisProfiles, services.HisConnectionTester);
         var window = new MainWindow { DataContext = viewModel };
 
         // Lưu cấu hình CSDL mới ở tab "Kết nối CSDL" -> đăng xuất: mở màn đăng nhập với cấu

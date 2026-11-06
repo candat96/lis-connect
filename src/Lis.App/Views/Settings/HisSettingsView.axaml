@@ -1,0 +1,118 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Settings"
+             x:Class="Lis.App.Views.Settings.HisSettingsView"
+             x:DataType="vm:HisSettingsViewModel">
+
+    <ScrollViewer>
+        <StackPanel Spacing="12">
+
+            <Border Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="heading" Text="Kết nối HIS" />
+                    <TextBlock Classes="muted" TextWrapping="Wrap"
+                               Text="Đợt 1: chỉ lưu cấu hình và cho thử kết nối. Kéo chỉ định, đẩy kết quả và đồng bộ nhân sự làm ở đợt 3." />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <CheckBox Content="Bật kết nối HIS" IsChecked="{Binding Enabled}" />
+                        <Button Content="Dùng mẫu HIS-PROMAX" Command="{Binding ApplyHisPromaxPresetCommand}" />
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Classes="label" Text="Tên hồ sơ" />
+                            <TextBox Text="{Binding Name}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Classes="label" Text="Địa chỉ máy chủ (base URL)" />
+                            <TextBox Text="{Binding BaseUrl}" PlaceholderText="https://his.vi-du.vn" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel>
+                        <TextBlock Classes="label" Text="Kiểu xác thực" />
+                        <ComboBox ItemsSource="{Binding AuthTypes}" SelectedItem="{Binding AuthType}" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+
+                    <!-- api-key -->
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="16" IsVisible="{Binding ShowApiKeyFields}">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Classes="label" Text="Tên tiêu đề khóa API" />
+                            <TextBox Text="{Binding ApiKeyHeader}" PlaceholderText="X-Integration-Key" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Classes="label" Text="Khóa API" />
+                            <TextBox Text="{Binding Secret}" PasswordChar="*" />
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- basic -->
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="16" IsVisible="{Binding ShowBasicFields}">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Classes="label" Text="Tên đăng nhập" />
+                            <TextBox Text="{Binding Username}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Classes="label" Text="Mật khẩu" />
+                            <TextBox Text="{Binding Secret}" PasswordChar="*" />
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- bearer-login -->
+                    <StackPanel Spacing="12" IsVisible="{Binding ShowBearerLoginFields}">
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="label" Text="Tên đăng nhập" />
+                                <TextBox Text="{Binding Username}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Classes="label" Text="Mật khẩu" />
+                                <TextBox Text="{Binding Secret}" PasswordChar="*" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="label" Text="Đường đăng nhập (login_path)" />
+                                <TextBox Text="{Binding LoginPath}" PlaceholderText="/api/v1/integration/auth/verify" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Classes="label" Text="Đường đọc token (token_json_path)" />
+                                <TextBox Text="{Binding TokenJsonPath}" PlaceholderText="data.token" />
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel>
+                            <TextBlock Classes="label" Text="Mẫu nội dung đăng nhập (login_body_template)" />
+                            <TextBox Text="{Binding LoginBodyTemplate}" PlaceholderText="{}{&quot;username&quot;:&quot;{username}&quot;,&quot;password&quot;:&quot;{password}&quot;}" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Classes="label" Text="Thời hạn token (phút)" />
+                            <TextBox Text="{Binding TokenTtlMinutesText}" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <TextBlock Classes="muted" FontSize="10" Text="{Binding SecretHint}" TextWrapping="Wrap" IsVisible="{Binding ShowSecretHint}" />
+
+                    <StackPanel>
+                        <TextBlock Classes="label" Text="Đường kiểm tra kết nối" />
+                        <TextBox Text="{Binding OrdersPath}" PlaceholderText="/api/v1/system/info" />
+                        <TextBlock Classes="muted" FontSize="10" Text="Dùng để &quot;Thử kết nối&quot; xác nhận tới được HIS. Đường lấy chỉ định/gửi kết quả làm ở đợt 3." TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <TextBlock Text="{Binding TestMessage}" TextWrapping="Wrap"
+                               Classes.success="{Binding TestOk}"
+                               Classes.error="{Binding !TestOk}"
+                               IsVisible="{Binding TestMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <TextBlock Classes="success" Text="{Binding SuccessMessage}" IsVisible="{Binding SuccessMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Thử kết nối" Command="{Binding TestConnectionCommand}" />
+                        <Button Classes="primary" Content="Lưu" Command="{Binding SaveCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+
+</UserControl>

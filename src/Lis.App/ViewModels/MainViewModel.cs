@@ -11,6 +11,7 @@ using Lis.Core.Auth;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
+using Lis.Data.His;
 using Lis.Data.Ingest;
 using Lis.Data.Instruments;
 using Lis.Data.Local;
@@ -40,7 +41,8 @@ public partial class MainViewModel : ObservableObject
         CurrentUser currentUser, CatalogStore catalogStore, IOrderService orders, FacilityStore facility, ILabelPrinter labelPrinter,
         ISettingStore settings, IPrintService printService, IResultService results, IReportPrinter reportPrinter,
         IUnmatchedService unmatched, IInstrumentStore instruments, UserStore users,
-        ISetupService setupService, LocalConfigStore configStore, LocalConfig localConfig)
+        ISetupService setupService, LocalConfigStore configStore, LocalConfig localConfig,
+        HisProfileStore hisProfileStore, HisConnectionTester hisConnectionTester)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
@@ -60,7 +62,12 @@ public partial class MainViewModel : ObservableObject
             dbConnection.ConfigSaved += (_, config) => ConfigSaved?.Invoke(this, config);
         }
 
-        Settings = new SettingsViewModel(new FacilitySettingsViewModel(facility), new PrinterSettingsViewModel(settings, printService), dbConnection);
+        var hisConnection = currentUser.Can(Permission.QuanTri)
+            ? new HisSettingsViewModel(hisProfileStore, hisConnectionTester, currentUser)
+            : null;
+
+        Settings = new SettingsViewModel(
+            new FacilitySettingsViewModel(facility), new PrinterSettingsViewModel(settings, printService), dbConnection, hisConnection);
 
         // Đặt sau khi các ViewModel con đã có — OnSelectedItemChanged có thể tải màn đầu tiên ngay.
         SelectedItem = NavItems.FirstOrDefault();
