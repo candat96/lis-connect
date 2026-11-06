@@ -268,6 +268,11 @@ CREATE EXTENSION IF NOT EXISTS unaccent;
 \c postgres
 ```
 
+Nếu lỗi này xảy ra ngay trong Trình hướng dẫn cài đặt (bước "Kết nối CSDL"), việc tạo bảng chỉ
+lỗi ở đúng phần script bị thiếu quyền — các bảng đã tạo trước đó trong cùng lần chạy **không bị
+mất**. Sau khi cấp quyền (hoặc tạo extension bằng tay như trên), chỉ cần mở lại ứng dụng và thử
+kết nối lại — ứng dụng tự chạy tiếp phần migration còn thiếu, không cần xóa CSDL làm lại từ đầu.
+
 ### Lỗi: "Font không hỗ trợ tiếng Việt" khi in
 
 - Đảm bảo hệ thống đã cài đặt font hỗ trợ tiếng Việt (ví dụ: Segoe UI, Times New Roman)
@@ -277,6 +282,31 @@ CREATE EXTENSION IF NOT EXISTS unaccent;
 
 - Điều này bình thường — ứng dụng Avalonia khởi tạo UI framework
 - Lần thứ 2 trở đi sẽ nhanh hơn
+
+### Xem nhật ký lỗi (loi.log)
+
+Nếu ứng dụng gặp lỗi không mong đợi (treo, thông báo lỗi lạ, hoặc "biến mất" không rõ lý do),
+ứng dụng ghi lại thời điểm + chi tiết lỗi vào tệp nhật ký ở thư mục dữ liệu cục bộ:
+
+- Windows: `C:\ProgramData\LIS Connect\loi.log`
+- macOS (máy phát triển): `~/Library/Application Support/LIS Connect/loi.log`
+
+Tệp này **không chứa dữ liệu người bệnh**, chỉ có thời điểm và nội dung ngoại lệ (.NET
+exception, kèm stack trace) — gửi kèm tệp này khi báo lỗi với bộ phận hỗ trợ kỹ thuật.
+
+### Đặt lại cấu hình cục bộ (config.json)
+
+Cấu hình kết nối CSDL + mã máy trạm lưu ở cùng thư mục trên, tệp `config.json`:
+
+- Windows: `C:\ProgramData\LIS Connect\config.json`
+- macOS (máy phát triển): `~/Library/Application Support/LIS Connect/config.json`
+
+Nếu tệp này hỏng (sửa tay sai cú pháp JSON, hoặc copy từ máy khác — mật khẩu CSDL mã hóa bằng
+DPAPI của Windows, **gắn với từng máy**, không copy sang máy khác được), ứng dụng tự phát hiện,
+đổi tên tệp cũ thành `config.json.bak` (giữ lại để chẩn đoán), hiện một thông báo giải thích,
+rồi tự mở lại **Trình hướng dẫn cài đặt** để nhập lại thông tin kết nối. Không cần tự tay xóa
+tệp — nhưng nếu muốn làm lại từ đầu, có thể tự xóa (hoặc đổi tên) `config.json` trước khi mở
+ứng dụng.
 
 ---
 
@@ -301,7 +331,7 @@ Các tính năng sau sẽ được thêm vào các phiên bản tiếp theo:
 
 Nếu gặp vấn đề:
 
-1. Ghi lại **thông báo lỗi chi tiết** hiện trên màn hình (chưa có màn xem nhật ký ứng dụng trong bản đợt 1 — xem mục "Chưa có ở bản thử")
+1. Ghi lại **thông báo lỗi chi tiết** hiện trên màn hình, kèm tệp `loi.log` (xem mục "Xem nhật ký lỗi (loi.log)" ở trên) — bản đợt 1 chưa có màn xem nhật ký trong giao diện ứng dụng (xem mục "Chưa có ở bản thử")
 2. Liên hệ bộ phận hỗ trợ kỹ thuật cùng:
    - Phiên bản Windows (ví dụ: Windows 10 22H2)
    - Phiên bản PostgreSQL
