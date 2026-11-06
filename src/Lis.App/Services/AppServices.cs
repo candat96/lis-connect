@@ -39,6 +39,8 @@ public sealed class AppServices
         Instruments = new InstrumentStore(Db);
         HisProfiles = new HisProfileStore(Db, SecretProtectors.ForCurrentOs(LocalPaths.DataDirectory));
         HisConnectionTester = new HisConnectionTester(new HttpClient());
+        CatalogExcelImporter = new CatalogExcelImporter(Db);
+        FilePicker = new AvaloniaFilePicker();
     }
 
     public LocalConfig Config { get; }
@@ -72,6 +74,10 @@ public sealed class AppServices
     public HisProfileStore HisProfiles { get; }
 
     public HisConnectionTester HisConnectionTester { get; }
+
+    public ICatalogExcelImporter CatalogExcelImporter { get; }
+
+    public IFilePicker FilePicker { get; }
 
     /// <summary>
     /// Cập nhật máy trạm (<c>workstation.last_seen_at</c>) ngay sau khi đăng nhập thành công.

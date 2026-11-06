@@ -5,6 +5,7 @@
              x:Class="Lis.App.Views.Catalog.CatalogView"
              x:DataType="vm:CatalogViewModel">
 
+    <Grid>
     <Grid ColumnDefinitions="340,*" RowDefinitions="*">
 
         <!-- Cột trái: bảng dịch vụ có ô lọc -->
@@ -237,6 +238,44 @@
             </TabControl>
 
         </Grid>
+
+    </Grid>
+
+    <!-- Panel kết quả nhập Excel: hiện khi IsImportResultVisible, che toàn màn như hộp thoại nhẹ. -->
+    <Border IsVisible="{Binding IsImportResultVisible}"
+            Background="#80000000"
+            HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <Border Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1"
+                CornerRadius="4" Padding="20" MaxWidth="480" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Kết quả nhập Excel" FontWeight="SemiBold" FontSize="16" />
+
+                <TextBlock Text="{Binding ImportResultMessage}"
+                           IsVisible="{Binding !ImportHasErrors}"
+                           TextWrapping="Wrap" />
+
+                <StackPanel IsVisible="{Binding ImportHasErrors}" Spacing="4">
+                    <TextBlock Classes="error" Text="Có lỗi, chưa nhập dòng nào:" FontWeight="SemiBold" />
+                    <ItemsControl ItemsSource="{Binding ImportErrors}" MaxHeight="240">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <TextBlock Classes="error" Text="{Binding}" TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                    <Button Content="Nhập thật"
+                            Classes="primary"
+                            Command="{Binding ConfirmImportCommand}"
+                            IsVisible="{Binding !ImportCompleted}"
+                            IsEnabled="{Binding CanConfirmImport}" />
+                    <Button Content="{Binding CancelButtonLabel}" Command="{Binding CancelImportCommand}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Border>
 
     </Grid>
 

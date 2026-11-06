@@ -13,6 +13,17 @@ namespace Lis.Data.Catalog;
 public record ImportReport(int Created, int Updated, IReadOnlyList<string> Errors);
 
 /// <summary>
+/// Nhập danh mục từ workbook Excel — xem <see cref="CatalogExcelImporter"/>. Tách thành
+/// interface để màn Danh mục (<c>CatalogViewModel</c>) kiểm thử được bằng bản giả, không cần
+/// CSDL thật.
+/// </summary>
+public interface ICatalogExcelImporter
+{
+    /// <summary>Nhập dữ liệu từ workbook. Nếu <paramref name="dryRun"/> là true, kiểm tra nhưng không ghi.</summary>
+    Task<ImportReport> ImportAsync(Stream xlsx, bool dryRun);
+}
+
+/// <summary>
 /// Nhập danh mục dịch vụ, chỉ số con, khoảng tham chiếu và ánh xạ máy từ workbook Excel.
 /// Toàn bộ nhập trong một giao dịch: lỗi nào thì rollback hết — mọi câu ghi phải đi qua kết nối
 /// và giao dịch của <see cref="Db.InTransactionAsync{T}"/> (các bản <c>...InTransactionAsync</c>
@@ -20,7 +31,7 @@ public record ImportReport(int Created, int Updated, IReadOnlyList<string> Error
 /// thức công khai thường (tự mở kết nối riêng, tự commit) — nếu không, lỗi ở dòng sau sẽ không
 /// rollback được các dòng đã ghi trước đó.
 /// </summary>
-public sealed class CatalogExcelImporter(Db db)
+public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
 {
     private readonly Db _db = db;
     private readonly List<string> _errors = [];

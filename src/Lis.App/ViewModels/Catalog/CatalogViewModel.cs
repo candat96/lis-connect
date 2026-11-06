@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
-using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lis.App.Services;
+using Lis.Core.Auth;
+using Lis.Data.Auth;
 using Lis.Data.Catalog;
 
 namespace Lis.App.ViewModels.Catalog;
@@ -10,15 +12,25 @@ namespace Lis.App.ViewModels.Catalog;
 /// ViewModel cho màn Danh mục: bảng dịch vụ có ô lọc, form sửa dịch vụ, và 3 tab cho dịch vụ
 /// đang chọn — mỗi tab là một ViewModel riêng (<see cref="ChildrenEditor"/>,
 /// <see cref="RangesEditor"/>, <see cref="QualitativeEditor"/>) được <see cref="CatalogViewModel"/>
-/// nạp lại mỗi khi đổi <see cref="SelectedService"/>.
+/// nạp lại mỗi khi đổi <see cref="SelectedService"/>. Nút "Nhập Excel…" nhập danh mục từ workbook
+/// (xem <see cref="ImportExcelAsync"/>).
 /// </summary>
 public partial class CatalogViewModel : ObservableObject
 {
     private readonly CatalogStore _store;
+    private readonly ICatalogExcelImporter _importer;
+    private readonly IFilePicker _filePicker;
+    private readonly CurrentUser _currentUser;
 
-    public CatalogViewModel(CatalogStore store)
+    /// <summary>Nội dung tệp Excel đang chờ nhập — giữ trong bộ nhớ từ lúc chạy dryRun tới lúc bấm "Nhập thật", không đọc lại tệp từ đĩa.</summary>
+    private byte[]? _pendingImportBytes;
+
+    public CatalogViewModel(CatalogStore store, ICatalogExcelImporter importer, IFilePicker filePicker, CurrentUser currentUser)
     {
         _store = store;
+        _importer = importer;
+        _filePicker = filePicker;
+        _currentUser = currentUser;
         ChildrenEditor = new ChildrenEditorViewModel(store);
         RangesEditor = new RangesEditorViewModel(store);
         QualitativeEditor = new QualitativeRulesEditorViewModel(store);
@@ -270,19 +282,118 @@ public partial class CatalogViewModel : ObservableObject
         }
     }
 
-    [ObservableProperty]
-    private bool _canImportExcel = true;
+    /// <summary>Chỉ quyền <see cref="Permission.QuanTri"/> mới nhập Excel được — nút ẩn/mờ với các vai trò khác.</summary>
+    public bool CanImportExcel => _currentUser.Can(Permission.QuanTri);
 
-    /// <summary>Mở dialog chọn tệp Excel danh mục để nhập (chỉ admin).</summary>
+    /// <summary>Panel kết quả nhập Excel (dryRun hoặc nhập thật) có đang hiện không.</summary>
+    [ObservableProperty]
+    private bool _isImportResultVisible;
+
+    /// <summary>"Sẽ tạo X, cập nhật Y" (dryRun) hoặc "Đã tạo X, cập nhật Y" (nhập thật) — null khi có lỗi.</summary>
+    [ObservableProperty]
+    private string? _importResultMessage;
+
+    /// <summary>Tệp đang nhập có lỗi không — chặn nút "Nhập thật" khi có.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmImport))]
+    private bool _importHasErrors;
+
+    /// <summary>Đã bấm "Nhập thật" và nhập xong (thành công hoặc lỗi) — ẩn nút "Nhập thật", chỉ còn "Đóng".</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmImport))]
+    [NotifyPropertyChangedFor(nameof(CancelButtonLabel))]
+    private bool _importCompleted;
+
+    /// <summary>Danh sách lỗi theo dòng (định dạng "Sheet X dòng Y: ...") của lần kiểm tra/nhập gần nhất.</summary>
+    public ObservableCollection<string> ImportErrors { get; } = [];
+
+    /// <summary>Còn tệp đang chờ, chưa có lỗi, và chưa nhập thật — nút "Nhập thật" chỉ bấm được khi true.</summary>
+    public bool CanConfirmImport => !ImportHasErrors && !ImportCompleted && _pendingImportBytes is not null;
+
+    /// <summary>Nhãn nút đóng panel: "Hủy" trước khi nhập thật, "Đóng" sau khi đã nhập xong.</summary>
+    public string CancelButtonLabel => ImportCompleted ? "Đóng" : "Hủy";
+
+    /// <summary>
+    /// Mở dialog chọn tệp Excel danh mục để nhập (chỉ admin): chạy dryRun trước, hiện panel kết
+    /// quả ("Sẽ tạo X, cập nhật Y" hoặc danh sách lỗi theo dòng). Người dùng bấm "Nhập thật" để
+    /// ghi thật (<see cref="ConfirmImportAsync"/>) hoặc "Hủy" để đóng (<see cref="CancelImport"/>).
+    /// </summary>
     [RelayCommand]
     public async Task ImportExcelAsync()
     {
+        if (!CanImportExcel)
+        {
+            return;
+        }
+
         ErrorMessage = null;
-        // TODO: Thực hiện import Excel với file picker, dryRun preview, confirm, và reload danh mục.
-        // Bước 1: Mở file picker qua StorageProvider (được inject từ View)
-        // Bước 2: Chạy CatalogExcelImporter.ImportAsync(..., dryRun: true)
-        // Bước 3: Hiển thị dialog báo cáo (created/updated/errors)
-        // Bước 4: Nếu xác nhận, chạy lại với dryRun: false
-        // Bước 5: Gọi LoadAsync() để reload danh sách
+
+        var picked = await _filePicker.PickExcelFileAsync();
+        if (picked is null)
+        {
+            // Người dùng bấm Hủy trên hộp thoại chọn tệp — không làm gì cả.
+            return;
+        }
+
+        _pendingImportBytes = picked.Content;
+        ImportCompleted = false;
+
+        await RunImportAsync(dryRun: true);
+    }
+
+    /// <summary>Nút "Nhập thật": chạy lại <see cref="_importer"/> với cùng nội dung tệp đã chọn, dryRun: false, rồi nạp lại danh sách dịch vụ.</summary>
+    [RelayCommand]
+    private async Task ConfirmImportAsync()
+    {
+        if (!CanConfirmImport)
+        {
+            return;
+        }
+
+        await RunImportAsync(dryRun: false);
+
+        if (!ImportHasErrors)
+        {
+            ImportCompleted = true;
+            await LoadAsync();
+        }
+    }
+
+    /// <summary>Nút "Hủy" (hoặc "Đóng" sau khi đã nhập thật): đóng panel kết quả, bỏ tệp đang chờ.</summary>
+    [RelayCommand]
+    private void CancelImport()
+    {
+        IsImportResultVisible = false;
+        ImportResultMessage = null;
+        ImportErrors.Clear();
+        ImportHasErrors = false;
+        ImportCompleted = false;
+        _pendingImportBytes = null;
+    }
+
+    private async Task RunImportAsync(bool dryRun)
+    {
+        if (_pendingImportBytes is null)
+        {
+            return;
+        }
+
+        using var stream = new MemoryStream(_pendingImportBytes);
+        var report = await _importer.ImportAsync(stream, dryRun);
+
+        ImportErrors.Clear();
+        foreach (var error in report.Errors)
+        {
+            ImportErrors.Add(error);
+        }
+
+        ImportHasErrors = report.Errors.Count > 0;
+        ImportResultMessage = ImportHasErrors
+            ? null
+            : dryRun
+                ? $"Sẽ tạo {report.Created}, cập nhật {report.Updated}."
+                : $"Đã tạo {report.Created}, cập nhật {report.Updated}.";
+
+        IsImportResultVisible = true;
     }
 }

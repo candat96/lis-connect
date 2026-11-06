@@ -95,6 +95,7 @@ internal static class Program
         Capture(outputDirectory, "15-cai-dat-barcode-tem.png", CreateBarcodeSettingsWindow());
         Capture(outputDirectory, "16-cai-dat-ket-noi-csdl.png", CreateDbConnectionWindow());
         Capture(outputDirectory, "17-cai-dat-ket-noi-his.png", CreateHisSettingsWindow());
+        Capture(outputDirectory, "18-danh-muc-nhap-excel.png", CreateCatalogImportResultWindow());
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
 
@@ -159,7 +160,8 @@ internal static class Program
         var viewModel = new MainViewModel(
             new CurrentUser(user), catalogStore, orders, facilityStore, new UnusedLabelPrinter(), new UnusedSettingStore(), new FakePrintService(),
             new SeededResultService(null, []), new UnusedReportPrinter(), new UnusedUnmatchedService(), new UnusedInstrumentStore(), users,
-            new UnusedSetupService(), configStore, localConfig, hisProfileStore, hisConnectionTester);
+            new UnusedSetupService(), configStore, localConfig, hisProfileStore, hisConnectionTester,
+            new UnusedCatalogExcelImporter(), new UnusedFilePicker());
         return new MainWindow { DataContext = viewModel };
     }
 
@@ -536,7 +538,8 @@ internal static class Program
     private static (Window Window, CatalogViewModel ViewModel) CreateCatalogWindow(bool selectPanel, int tabIndex)
     {
         var catalogStore = new CatalogStore(Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused"));
-        var viewModel = new CatalogViewModel(catalogStore);
+        var admin = new CurrentUser(new UserInfo(Guid.NewGuid(), "quantri.thu", "Nguyễn Văn Thử", "Quản trị", [Roles.QuanTri], true));
+        var viewModel = new CatalogViewModel(catalogStore, new UnusedCatalogExcelImporter(), new UnusedFilePicker(), admin);
 
         var edta = new SpecimenTypeItem(Guid.NewGuid(), "EDTA", "Máu EDTA (huyết học)");
         viewModel.SpecimenTypes.Add(edta);
@@ -600,6 +603,18 @@ internal static class Program
         };
 
         return (window, viewModel);
+    }
+
+    /// <summary>Màn Danh mục với panel kết quả "Nhập Excel" đang hiện (dryRun thành công) — gán trực tiếp các trường kết quả, không gọi lệnh thật.</summary>
+    private static Window CreateCatalogImportResultWindow()
+    {
+        var (window, viewModel) = CreateCatalogWindow(selectPanel: true, tabIndex: 0);
+        ClearDetailErrors(viewModel);
+
+        viewModel.IsImportResultVisible = true;
+        viewModel.ImportResultMessage = "Sẽ tạo 12, cập nhật 3.";
+
+        return window;
     }
 
     /// <summary>Xóa lỗi do <c>LoadSelectedDetailCommand</c> thật sự thử (và không) kết nối CSDL khi gán <see cref="CatalogViewModel.SelectedService"/> cho ảnh chụp — xem ghi chú ở <see cref="CreateCatalogWindow"/>.</summary>
@@ -794,6 +809,16 @@ internal static class Program
     {
         public Task<ServiceInfo?> FindByCodeAsync(string code) => throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
     }
+
+    private sealed class UnusedCatalogExcelImporter : ICatalogExcelImporter
+    {
+        public Task<ImportReport> ImportAsync(Stream xlsx, bool dryRun) => throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+    }
+
+    private sealed class UnusedFilePicker : IFilePicker
+    {
+        public Task<PickedFile?> PickExcelFileAsync() => throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+    }
 }
 
 /// <summary>Application tối giản cho công cụ chụp ảnh: chỉ nạp FluentTheme + Theme.axaml của Lis.App.</summary>
@@ -805,7 +830,7 @@ internal sealed class ScreenshotApp : Application
         Styles.Add(new global::Avalonia.Themes.Fluent.FluentTheme());
         Styles.Add(new StyleInclude(new Uri("avares://Lis.Screenshots/"))
         {
-            Source = new Uri("avares://Lis.App/Styles/Theme.axaml"),
+            Source = new Uri("avares://LisConnect/Styles/Theme.axaml"),
         });
     }
 }

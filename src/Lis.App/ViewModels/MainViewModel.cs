@@ -42,12 +42,13 @@ public partial class MainViewModel : ObservableObject
         ISettingStore settings, IPrintService printService, IResultService results, IReportPrinter reportPrinter,
         IUnmatchedService unmatched, IInstrumentStore instruments, UserStore users,
         ISetupService setupService, LocalConfigStore configStore, LocalConfig localConfig,
-        HisProfileStore hisProfileStore, HisConnectionTester hisConnectionTester)
+        HisProfileStore hisProfileStore, HisConnectionTester hisConnectionTester,
+        ICatalogExcelImporter catalogExcelImporter, IFilePicker filePicker)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
 
-        Catalog = new CatalogViewModel(catalogStore);
+        Catalog = new CatalogViewModel(catalogStore, catalogExcelImporter, filePicker, currentUser);
         Reception = new ReceptionViewModel(orders, catalogStore, facility, currentUser, labelPrinter);
         Results = new ResultsViewModel(results, currentUser, reportPrinter);
         Unmatched = new UnmatchedViewModel(unmatched, currentUser);
