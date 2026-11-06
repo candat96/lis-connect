@@ -27,6 +27,7 @@ using Lis.Data;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
+using Lis.Data.His;
 using Lis.Data.Ingest;
 using Lis.Data.Instruments;
 using Lis.Data.Local;
@@ -93,6 +94,7 @@ internal static class Program
         Capture(outputDirectory, "14-cai-dat-thong-tin-co-so.png", CreateFacilityInfoWindow());
         Capture(outputDirectory, "15-cai-dat-barcode-tem.png", CreateBarcodeSettingsWindow());
         Capture(outputDirectory, "16-cai-dat-ket-noi-csdl.png", CreateDbConnectionWindow());
+        Capture(outputDirectory, "17-cai-dat-ket-noi-his.png", CreateHisSettingsWindow());
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
 
@@ -151,10 +153,13 @@ internal static class Program
         var localConfig = new LocalConfig(new DbSettings("localhost", 5432, "unused", "unused", "unused", false), "XN-01");
         var screenshotsConfigDir = Path.Combine(Path.GetTempPath(), "lis-screenshots-unused");
         var configStore = new LocalConfigStore(screenshotsConfigDir, new DevKeySecretProtector(screenshotsConfigDir));
+        var hisScreenshotsDir = Path.Combine(Path.GetTempPath(), "lis-screenshots-unused-his-main");
+        var hisProfileStore = new HisProfileStore(unusedDb, new DevKeySecretProtector(hisScreenshotsDir));
+        var hisConnectionTester = new HisConnectionTester(new HttpClient());
         var viewModel = new MainViewModel(
             new CurrentUser(user), catalogStore, orders, facilityStore, new UnusedLabelPrinter(), new UnusedSettingStore(), new FakePrintService(),
             new SeededResultService(null, []), new UnusedReportPrinter(), new UnusedUnmatchedService(), new UnusedInstrumentStore(), users,
-            new UnusedSetupService(), configStore, localConfig);
+            new UnusedSetupService(), configStore, localConfig, hisProfileStore, hisConnectionTester);
         return new MainWindow { DataContext = viewModel };
     }
 
@@ -377,6 +382,42 @@ internal static class Program
             Title = "LIS Connect — Cài đặt — Kết nối CSDL",
             Width = 900,
             Height = 620,
+            Content = view,
+        };
+    }
+
+    /// <summary>Tab "Kết nối HIS" của màn Cài đặt, biến thể bearer-login đã điền sẵn và thử kết nối thành công.</summary>
+    private static Window CreateHisSettingsWindow()
+    {
+        var unusedDb = Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused");
+        var screenshotsDir = Path.Combine(Path.GetTempPath(), "lis-screenshots-unused-his");
+        var store = new HisProfileStore(unusedDb, new DevKeySecretProtector(screenshotsDir));
+        var tester = new HisConnectionTester(new HttpClient());
+        var currentUser = new CurrentUser(new UserInfo(Guid.NewGuid(), "quantri.thu", "Nguyễn Văn Thử", "Quản trị", [Roles.QuanTri], true));
+
+        var viewModel = new HisSettingsViewModel(store, tester, currentUser)
+        {
+            Enabled = true,
+            Name = "HIS Bệnh viện Thử",
+            BaseUrl = "https://his.benhvien-thu.vn",
+            AuthType = "bearer-login",
+            Username = "tich-hop-lis",
+            LoginPath = "/api/auth/dang-nhap",
+            LoginBodyTemplate = "{\"username\":\"{username}\",\"password\":\"{password}\"}",
+            TokenJsonPath = "data.token",
+            TokenTtlMinutesText = "60",
+            OrdersPath = "/api/chi-dinh",
+            TestMessage = "Kết nối HIS thành công (mã HTTP 200)",
+            TestOk = true,
+        };
+
+        var view = new HisSettingsView { DataContext = viewModel };
+
+        return new Window
+        {
+            Title = "LIS Connect — Cài đặt — Kết nối HIS",
+            Width = 900,
+            Height = 760,
             Content = view,
         };
     }
