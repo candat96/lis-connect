@@ -9,9 +9,9 @@ namespace Lis.App.ViewModels;
 /// </summary>
 public partial class LoginViewModel : ObservableObject
 {
-    private readonly AuthService _authService;
+    private readonly IAuthService _authService;
 
-    public LoginViewModel(AuthService authService)
+    public LoginViewModel(IAuthService authService)
     {
         _authService = authService;
     }
@@ -47,6 +47,13 @@ public partial class LoginViewModel : ObservableObject
             }
 
             LoggedIn?.Invoke(this, result.User);
+        }
+        catch (Exception ex)
+        {
+            // CSDL mất kết nối (máy chủ tắt, sai cấu hình...) không được để crash màn đăng
+            // nhập — hiện thông báo tiếng Việt và cho người dùng vào Cài đặt kết nối để sửa.
+            ErrorMessage = "Không kết nối được CSDL — kiểm tra máy chủ PostgreSQL hoặc vào Cài đặt kết nối. " +
+                           $"Chi tiết: {ex.Message}";
         }
         finally
         {

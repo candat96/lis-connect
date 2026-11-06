@@ -2,9 +2,11 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using Lis.App.Services;
 using Lis.App.ViewModels;
 using Lis.App.Views;
+using Lis.Data;
 using Lis.Data.Auth;
 using Lis.Data.Local;
 using Lis.Data.Setup;
@@ -28,6 +30,17 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        // Lỗi trên luồng UI (binding, command, event handler ném ra ngoài...) mặc định làm
+        // crash cả ứng dụng ngay không kịp ghi gì — ghi vào loi.log rồi đánh dấu đã xử lý để
+        // ứng dụng còn chạy tiếp (người dùng thấy giao diện "đứng hình" ở chỗ gây lỗi còn hơn
+        // mất hẳn ứng dụng). Hai bộ bắt lỗi còn lại (AppDomain, TaskScheduler) đăng ký ở
+        // Program.Main vì Dispatcher.UIThread chỉ có sau khi Avalonia khởi tạo xong.
+        Dispatcher.UIThread.UnhandledException += (_, e) =>
+        {
+            ErrorLog.Append("Dispatcher.UIThread.UnhandledException", e.Exception);
+            e.Handled = true;
+        };
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Đóng cửa sổ cài đặt/đăng nhập (nút X) phải thoát hẳn ứng dụng — không có cửa sổ
@@ -48,16 +61,37 @@ public partial class App : Application
         var protector = SecretProtectors.ForCurrentOs(directory);
         var configStore = new LocalConfigStore(directory, protector);
         _configStore = configStore;
-        var config = configStore.Load();
+
+        // Tệp cấu hình hỏng (JSON lỗi, hoặc mã hóa DPAPI của máy khác) không được crash lúc
+        // khởi động — coi như chưa cài đặt, báo người dùng rồi mở lại trình hướng dẫn.
+        var config = configStore.TryLoadOrRecover(out var configError);
+        if (configError is not null)
+        {
+            SimpleMessageBoxWindow.Show("LIS Connect — Cấu hình cục bộ", configError);
+        }
 
         if (config is null)
         {
             ShowSetupWizard(desktop, configStore);
+            return;
         }
-        else
+
+        // Migrate ngay sau khi đọc cấu hình, trước khi hiện màn đăng nhập: CSDL có thể đã được
+        // nâng cấp lên bản schema mới hơn (cập nhật ứng dụng) hoặc lần migrate trước đó (ở trình
+        // hướng dẫn cài đặt hoặc lần chạy trước) đã lỗi giữa chừng — migration là idempotent nên
+        // gọi lại an toàn. Thất bại thì báo lỗi tiếng Việt và dừng ở đây, không mở màn đăng nhập
+        // với CSDL chưa đúng lược đồ.
+        var migration = Migrator.Upgrade(config.Db.ToConnectionString());
+        if (!migration.Ok)
         {
-            ShowLogin(desktop, config);
+            SimpleMessageBoxWindow.Show(
+                "LIS Connect — Lỗi cập nhật CSDL",
+                $"Không nâng cấp được lược đồ CSDL khi khởi động: {migration.Error}\n\n" +
+                "Kiểm tra máy chủ PostgreSQL đang chạy và tài khoản CSDL đủ quyền, sau đó mở lại ứng dụng để thử lại.");
+            return;
         }
+
+        ShowLogin(desktop, config);
     }
 
     private void ShowSetupWizard(IClassicDesktopStyleApplicationLifetime desktop, LocalConfigStore configStore)

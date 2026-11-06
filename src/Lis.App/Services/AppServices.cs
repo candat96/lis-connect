@@ -49,7 +49,7 @@ public sealed class AppServices
 
     public UserStore Users { get; }
 
-    public AuthService Auth { get; }
+    public IAuthService Auth { get; }
 
     public FacilityStore Facility { get; }
 

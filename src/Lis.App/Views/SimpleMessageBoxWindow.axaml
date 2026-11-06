@@ -1,0 +1,25 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Lis.App.Views.SimpleMessageBoxWindow"
+        Icon="avares://LisConnect/Assets/app-icon.ico"
+        Title="LIS Connect"
+        Width="460"
+        MinHeight="180"
+        SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen">
+
+    <Border Padding="24">
+        <StackPanel Spacing="16">
+            <TextBlock Name="TitleText" Classes="title" />
+            <TextBlock Name="MessageText" TextWrapping="Wrap" />
+            <Button Name="OkButton"
+                    Classes="primary"
+                    Content="Đồng ý"
+                    HorizontalAlignment="Right"
+                    HorizontalContentAlignment="Center"
+                    MinWidth="100" />
+        </StackPanel>
+    </Border>
+
+</Window>

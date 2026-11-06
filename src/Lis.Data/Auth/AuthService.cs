@@ -9,10 +9,19 @@ namespace Lis.Data.Auth;
 public sealed record LoginResult(bool Ok, string Code, string Message, UserInfo? User);
 
 /// <summary>
+/// Phần của <see cref="AuthService"/> cần cho <c>LoginViewModel</c> — tách interface để test
+/// được bằng một bản giả (vd mô phỏng CSDL mất kết nối), không cần CSDL thật.
+/// </summary>
+public interface IAuthService
+{
+    Task<LoginResult> LoginAsync(string username, string password);
+}
+
+/// <summary>
 /// Xử lý đăng nhập: kiểm mật khẩu, khóa tài khoản sau 5 lần sai liên tiếp trong 15 phút,
 /// chặn tài khoản đã ngừng hoạt động.
 /// </summary>
-public sealed class AuthService(Db db, PasswordHasher hasher, TimeProvider clock)
+public sealed class AuthService(Db db, PasswordHasher hasher, TimeProvider clock) : IAuthService
 {
     private const int MaxFailedAttempts = 5;
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(15);
