@@ -1,0 +1,467 @@
+<title>Sổ tay LIS Connect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+:root{
+  --ground:#F5F7F5; --paper:#FFFFFF; --ink:#1B2826; --muted:#5A6B68; --line:#DCE3E0;
+  --petrol:#12505C; --petrol-soft:#E3EFEF; --amber:#9A6510; --amber-soft:#FBF1DE;
+  --red:#A3302A; --red-soft:#FBE7E5; --green:#2E6B3F; --green-soft:#E4F2E7;
+  --kbd:#EEF2F1; --shadow:0 1px 2px rgba(18,80,92,.06),0 4px 14px rgba(18,80,92,.05);
+  --sans:"Be Vietnam Pro",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --ground:#0F1716; --paper:#16211F; --ink:#E4ECEA; --muted:#9DB0AC; --line:#2A3A37;
+    --petrol:#6FC0CC; --petrol-soft:#16343A; --amber:#E2B15C; --amber-soft:#33291A;
+    --red:#EE8B83; --red-soft:#3A1F1D; --green:#86C79A; --green-soft:#1C3324;
+    --kbd:#22302D; --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ground:#0F1716; --paper:#16211F; --ink:#E4ECEA; --muted:#9DB0AC; --line:#2A3A37;
+  --petrol:#6FC0CC; --petrol-soft:#16343A; --amber:#E2B15C; --amber-soft:#33291A;
+  --red:#EE8B83; --red-soft:#3A1F1D; --green:#86C79A; --green-soft:#1C3324;
+  --kbd:#22302D; --shadow:none;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.65;margin:0;padding-inline:16px}
+a{color:var(--petrol);text-underline-offset:3px}
+a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--petrol);outline-offset:2px;border-radius:4px}
+.wrap{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:240px minmax(0,1fr);gap:40px;padding-block:28px 64px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr;gap:20px}}
+header.top{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;border-bottom:1px solid var(--line);padding-bottom:20px}
+header.top h1{font-size:clamp(28px,4vw,40px);line-height:1.15;margin:0;letter-spacing:-.01em;text-wrap:balance}
+header.top p{margin:6px 0 0;color:var(--muted);max-width:60ch}
+.badge{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--petrol);background:var(--petrol-soft);padding:6px 12px;border-radius:999px;white-space:nowrap}
+.badge .dot{width:8px;height:8px;border-radius:50%;background:var(--petrol)}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 20px);align-self:start;font-size:14px}
+nav.toc .label{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+nav.toc a{display:block;padding:6px 10px;border-radius:6px;color:var(--ink);text-decoration:none}
+nav.toc a:hover{background:var(--petrol-soft);color:var(--petrol)}
+nav.toc ol ol{padding-left:12px;margin:2px 0 6px}
+nav.toc ol ol a{color:var(--muted);padding:3px 10px}
+@media (max-width:900px){nav.toc{position:static;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:14px}nav.toc ol ol{display:none}}
+main{min-width:0}
+section{padding-block:8px 28px;border-bottom:1px solid var(--line)}
+section:last-child{border-bottom:0}
+h2{font-size:26px;line-height:1.25;margin:28px 0 6px;text-wrap:balance;scroll-margin-top:20px}
+h2 .who{display:block;font-size:14px;font-weight:500;color:var(--muted);margin-top:4px;letter-spacing:0}
+h3{font-size:19px;margin:28px 0 8px;scroll-margin-top:20px}
+h4{font-size:16px;margin:20px 0 6px}
+p,li{max-width:70ch}
+.lead{font-size:17px;color:var(--muted)}
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0 8px}
+.role{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:6px}
+.role b{font-size:16px}
+.role span{color:var(--muted);font-size:14px;line-height:1.5}
+.role a{font-size:14px;font-weight:600;margin-top:auto;padding-top:6px}
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0;display:grid;gap:12px}
+ol.steps>li{counter-increment:s;position:relative;padding:12px 16px 12px 52px;background:var(--paper);border:1px solid var(--line);border-radius:10px;max-width:none}
+ol.steps>li::before{content:counter(s);position:absolute;left:14px;top:12px;width:26px;height:26px;border-radius:50%;background:var(--petrol);color:var(--paper);font-weight:600;font-size:14px;display:grid;place-items:center}
+ol.steps>li p{margin:4px 0}
+.note,.warn,.tip,.off{border-radius:10px;padding:12px 16px;margin:14px 0;max-width:78ch;font-size:15px}
+.note{background:var(--petrol-soft)}
+.tip{background:var(--green-soft)}
+.warn{background:var(--amber-soft)}
+.off{background:var(--red-soft)}
+.note b,.tip b,.warn b,.off b{display:block;margin-bottom:2px}
+.ui{font-weight:600;white-space:nowrap}
+kbd{font-family:var(--mono);font-size:13px;background:var(--kbd);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;white-space:nowrap}
+code{font-family:var(--mono);font-size:13.5px;background:var(--kbd);border-radius:4px;padding:1px 5px;overflow-wrap:anywhere}
+pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--kbd);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;margin:10px 0}
+pre code{background:none;padding:0}
+.tbl{overflow-x:auto;margin:12px 0;border:1px solid var(--line);border-radius:10px;background:var(--paper)}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{text-align:left;vertical-align:top;padding:10px 14px;border-bottom:1px solid var(--line)}
+th{font-size:13px;font-weight:600;color:var(--muted);background:var(--ground)}
+tr:last-child td{border-bottom:0}
+figure{margin:16px 0;max-width:100%}
+figure img{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
+figcaption{font-size:13px;color:var(--muted);margin-top:6px}
+.flag{font-weight:700}
+.flag.up{color:var(--amber)} .flag.crit{color:var(--red)}
+details{background:var(--paper);border:1px solid var(--line);border-radius:10px;margin:10px 0;max-width:80ch}
+summary{cursor:pointer;padding:12px 16px;font-weight:600;list-style:none;display:flex;gap:10px;align-items:baseline}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+";font-family:var(--mono);color:var(--petrol);width:12px;flex:none}
+details[open] summary::before{content:"−"}
+details>div{padding:0 16px 12px 38px}
+details>div p{margin:6px 0}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0}
+.flow span{background:var(--paper);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:14px;font-weight:500}
+.flow i{font-style:normal;color:var(--muted)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+footer{color:var(--muted);font-size:13px;padding-top:24px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+html{scroll-behavior:smooth}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div>
+    <h1>Sổ tay LIS Connect</h1>
+    <p>Hướng dẫn cài đặt, cấu hình và sử dụng phần mềm quản lý xét nghiệm, viết cho người làm khoa xét nghiệm, không cần biết lập trình.</p>
+  </div>
+  <span class="badge"><span class="dot"></span>Phiên bản Đợt 1 · Nền tảng</span>
+</header>
+
+<nav class="toc" aria-label="Mục lục">
+  <div class="label">Mục lục</div>
+  <ol>
+    <li><a href="#bat-dau">Bắt đầu từ đâu</a></li>
+    <li><a href="#cai-dat">Cài đặt (IT)</a>
+      <ol>
+        <li><a href="#cai-postgres">Cài nơi lưu dữ liệu</a></li>
+        <li><a href="#lay-phan-mem">Lấy phần mềm</a></li>
+        <li><a href="#lan-dau">Mở lần đầu</a></li>
+        <li><a href="#nhieu-may">Nhiều máy dùng chung</a></li>
+        <li><a href="#sao-luu">Sao lưu, cập nhật</a></li>
+      </ol>
+    </li>
+    <li><a href="#cau-hinh">Cấu hình (Quản trị)</a>
+      <ol>
+        <li><a href="#tai-khoan">Tài khoản & quyền</a></li>
+        <li><a href="#barcode">Barcode & tem</a></li>
+        <li><a href="#may-in">Máy in</a></li>
+        <li><a href="#danh-muc">Danh mục xét nghiệm</a></li>
+        <li><a href="#nhap-excel">Nhập từ Excel</a></li>
+        <li><a href="#his">Kết nối HIS</a></li>
+        <li><a href="#may-xn">Máy xét nghiệm</a></li>
+      </ol>
+    </li>
+    <li><a href="#hang-ngay">Làm việc hằng ngày</a>
+      <ol>
+        <li><a href="#tiep-nhan">Tiếp nhận</a></li>
+        <li><a href="#ket-qua">Nhập & duyệt kết quả</a></li>
+        <li><a href="#in-phieu">In phiếu</a></li>
+        <li><a href="#chua-ghep">Kết quả chưa ghép</a></li>
+      </ol>
+    </li>
+    <li><a href="#phim-tat">Phím tắt</a></li>
+    <li><a href="#su-co">Khi gặp sự cố</a></li>
+    <li><a href="#chua-co">Chưa có trong bản này</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<section id="bat-dau">
+  <h2>Bắt đầu từ đâu</h2>
+  <p class="lead">LIS Connect giúp khoa xét nghiệm tiếp nhận người bệnh, cấp mã vạch (barcode) dán ống mẫu, ghi và duyệt kết quả, rồi in phiếu trả kết quả. Phần mềm cài trên máy Windows; toàn bộ dữ liệu lưu ở một <b>cơ sở dữ liệu</b> chung (gọi tắt là CSDL) để nhiều máy trong khoa cùng dùng.</p>
+
+  <div class="flow" aria-label="Quy trình một mẫu xét nghiệm">
+    <span>Tiếp nhận người bệnh</span><i>→</i><span>In tem barcode</span><i>→</i><span>Lấy mẫu, chạy máy</span><i>→</i><span>Nhập kết quả</span><i>→</i><span>Duyệt</span><i>→</i><span>In phiếu</span>
+  </div>
+
+  <p>Chọn phần dành cho bạn:</p>
+  <div class="roles">
+    <div class="role"><b>Nhân viên tiếp nhận</b><span>Tìm hoặc thêm người bệnh, chọn xét nghiệm, in tem.</span><a href="#tiep-nhan">Đến phần Tiếp nhận</a></div>
+    <div class="role"><b>Kỹ thuật viên, trưởng khoa</b><span>Nhập kết quả, xem cờ cao/thấp, duyệt, in phiếu, xử lý kết quả chưa ghép.</span><a href="#ket-qua">Đến phần Kết quả</a></div>
+    <div class="role"><b>Quản trị khoa</b><span>Tạo tài khoản, khai danh mục xét nghiệm, khoảng tham chiếu, máy in, barcode.</span><a href="#cau-hinh">Đến phần Cấu hình</a></div>
+    <div class="role"><b>Người cài đặt (IT)</b><span>Cài nơi lưu dữ liệu, chạy phần mềm lần đầu, nối nhiều máy, sao lưu.</span><a href="#cai-dat">Đến phần Cài đặt</a></div>
+  </div>
+
+  <div class="note"><b>Mẹo dùng bàn phím</b>Phần mềm làm cho thao tác nhanh bằng bàn phím: gõ mã rồi nhấn <kbd>Enter</kbd> thay vì bấm chuột; trên các ô nhập, <kbd>Enter</kbd> chuyển sang ô kế tiếp. Xem đủ ở <a href="#phim-tat">Phím tắt</a>.</div>
+</section>
+
+<section id="cai-dat">
+  <h2>Cài đặt <span class="who">Dành cho người cài đặt (IT). Làm một lần cho cả khoa.</span></h2>
+
+  <h3>Cần chuẩn bị</h3>
+  <ul>
+    <li>Máy tính <b>Windows 10 hoặc 11, bản 64-bit</b>. RAM từ 4 GB (nên 8 GB), ổ cứng trống 2 GB cho phần mềm.</li>
+    <li><b>PostgreSQL bản 16 trở lên</b> — đây là chương trình lưu dữ liệu (CSDL). Cài trên chính máy đó, trên một máy chủ trong khoa, hoặc thuê trên cloud.</li>
+    <li>Không cần cài thêm .NET: phần mềm là một tệp chạy được ngay.</li>
+  </ul>
+
+  <h3>Ba cách bố trí</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Cách</th><th>Khi nào dùng</th><th>Ghi chú</th></tr></thead>
+    <tbody>
+      <tr><td><b>Một máy</b></td><td>Phòng xét nghiệm nhỏ, một người dùng</td><td>CSDL và phần mềm cài cùng máy. Ô <span class="ui">Máy chủ</span> ghi <code>localhost</code>.</td></tr>
+      <tr><td><b>Nhiều máy dùng chung</b></td><td>Khoa có nhiều máy tính (tiếp nhận, kỹ thuật viên, trưởng khoa)</td><td>CSDL cài trên một máy chủ; các máy khác chỉ cài phần mềm và ghi địa chỉ IP của máy chủ. Xem <a href="#nhieu-may">Nhiều máy dùng chung</a>.</td></tr>
+      <tr><td><b>CSDL trên cloud</b></td><td>Có máy chủ thuê ngoài, nhiều cơ sở</td><td>Bắt buộc tích <span class="ui">Bắt buộc TLS (SSL)</span> khi kết nối.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="cai-postgres">Bước 1 — Cài nơi lưu dữ liệu (PostgreSQL)</h3>
+  <ol class="steps">
+    <li><p>Tải bộ cài tại <a href="https://www.postgresql.org/download/windows/" target="_blank" rel="noopener">postgresql.org/download/windows</a>, chọn <b>PostgreSQL 16.x</b> (hoặc mới hơn), loại <i>Interactive installer</i>.</p></li>
+    <li><p>Chạy bộ cài, giữ các lựa chọn mặc định. Khi được hỏi <b>mật khẩu cho tài khoản <code>postgres</code></b>, đặt mật khẩu và <b>ghi lại</b>. Cổng giữ <code>5432</code>.</p></li>
+    <li><p>Tạo CSDL riêng cho LIS. Mở <i>Command Prompt</i> và gõ lệnh dưới (nhập mật khẩu <code>postgres</code> khi được hỏi):</p>
+<pre><code>"C:\Program Files\PostgreSQL\16\bin\psql" -U postgres -h localhost</code></pre>
+      <p>Tại dấu nhắc <code>postgres=#</code>, gõ lần lượt (đổi <code>mat-khau-lis</code> thành mật khẩu của bạn):</p>
+<pre><code>CREATE DATABASE lis;
+CREATE USER lis_user WITH PASSWORD 'mat-khau-lis';
+ALTER DATABASE lis OWNER TO lis_user;
+\q</code></pre>
+      <p>Dòng thứ ba cho tài khoản <code>lis_user</code> làm chủ CSDL, để phần mềm tự tạo các bảng dữ liệu khi chạy lần đầu.</p></li>
+  </ol>
+
+  <h3 id="lay-phan-mem">Bước 2 — Lấy phần mềm</h3>
+  <div class="two">
+    <div>
+      <h4>Cách nhanh: tệp nén có sẵn</h4>
+      <p>Nhận tệp <code>LisConnect-win-x64.zip</code> từ IT, giải nén vào ví dụ <code>C:\LisConnect</code>. Bên trong có:</p>
+      <ul>
+        <li><code>app\LisConnect.exe</code> — phần mềm chính</li>
+        <li><code>seedtool\Lis.SeedTool.exe</code> — công cụ tạo dữ liệu thử</li>
+        <li><code>mau-danh-muc.xlsx</code> — danh mục xét nghiệm mẫu</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Cách tự đóng gói từ mã nguồn</h4>
+      <p>Cần cài <a href="https://git-scm.com/download/win" target="_blank" rel="noopener">Git</a> và <a href="https://dotnet.microsoft.com/en-us/download/dotnet/10.0" target="_blank" rel="noopener">.NET 10 SDK</a>, rồi chạy:</p>
+<pre><code>git clone https://github.com/candat96/lis-connect.git
+cd lis-connect
+powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1</code></pre>
+      <p>Khoảng 5 phút sau có tệp <code>dist\LisConnect-win-x64.zip</code>; giải nén như cách bên trái.</p>
+    </div>
+  </div>
+
+  <h3 id="lan-dau">Bước 3 — Mở phần mềm lần đầu</h3>
+  <p>Nhấp đôi <code>LisConnect.exe</code>. Lần đầu hiện cửa sổ <span class="ui">Cài đặt lần đầu</span> gồm 3 bước, mỗi bước bấm <span class="ui">Tiếp theo</span> ở góc dưới bên phải.</p>
+  <ol class="steps">
+    <li><p><b>Bước 1 — Kết nối CSDL.</b> Điền <span class="ui">Máy chủ</span> (<code>localhost</code> nếu cùng máy), <span class="ui">Cổng</span> <code>5432</code>, <span class="ui">Tên CSDL</span> <code>lis</code>, <span class="ui">Tài khoản</span> <code>lis_user</code>, <span class="ui">Mật khẩu</span>, và <span class="ui">Mã máy trạm</span> (tên riêng cho máy này, ví dụ <code>XN-01</code>). Bấm <span class="ui">Thử kết nối</span>, thấy báo thành công thì nút <span class="ui">Tiếp theo</span> mới bấm được.</p></li>
+    <li><p><b>Bước 2 — Tài khoản quản trị đầu tiên.</b> Đặt tên đăng nhập, họ tên, mật khẩu (ít nhất 8 ký tự). Bước này chỉ hiện khi CSDL chưa có tài khoản nào.</p></li>
+    <li><p><b>Bước 3 — Thông tin cơ sở.</b> Tên cơ sở, địa chỉ, điện thoại — in ở đầu phiếu kết quả. Xong bấm <span class="ui">Tiếp theo</span>, phần mềm tự tạo dữ liệu và mở màn <span class="ui">Đăng nhập</span>.</p></li>
+  </ol>
+  <figure><img src="anh/01-cai-dat-ket-noi-csdl.png" alt="Màn cài đặt lần đầu, bước 1 Kết nối CSDL" loading="lazy" width="520" height="640"><figcaption>Bước 1 — Kết nối CSDL (dữ liệu minh họa)</figcaption></figure>
+  <div class="tip"><b>Lỡ đóng cửa sổ giữa chừng?</b>Mở lại phần mềm, làm lại từ Bước 1 với đúng thông tin cũ. Phần mềm tự làm tiếp phần còn thiếu, không mất gì.</div>
+
+  <h3 id="nhieu-may">Nhiều máy dùng chung một CSDL</h3>
+  <p>Trên <b>máy chủ</b> có cài PostgreSQL, IT mở cho các máy khác kết nối:</p>
+  <ol class="steps">
+    <li><p>Cho phép <code>postgres.exe</code> qua tường lửa Windows (Windows Defender Firewall → Cho phép ứng dụng).</p></li>
+    <li><p>Trong <code>C:\Program Files\PostgreSQL\16\data\pg_hba.conf</code> thêm dòng (thay dải mạng cho đúng mạng của khoa):</p>
+<pre><code>host    all    all    192.168.0.0/16    md5</code></pre></li>
+    <li><p>Trong <code>postgresql.conf</code> (cùng thư mục) đặt <code>listen_addresses = '*'</code>, rồi khởi động lại dịch vụ <code>postgresql-x64-16</code> (Win+R → <code>services.msc</code>).</p></li>
+    <li><p>Ở <b>mỗi máy trạm</b>: giải nén phần mềm, mở lần đầu, ô <span class="ui">Máy chủ</span> ghi địa chỉ IP máy chủ, đặt <span class="ui">Mã máy trạm</span> khác nhau (<code>XN-02</code>, <code>XN-03</code>…). Máy thứ hai trở đi chỉ hiện Bước 1, rồi đăng nhập bằng tài khoản đã có.</p></li>
+  </ol>
+
+  <h3 id="sao-luu">Sao lưu, cập nhật, gỡ cài đặt</h3>
+  <div class="two">
+    <div>
+      <h4>Sao lưu dữ liệu</h4>
+<pre><code>"C:\Program Files\PostgreSQL\16\bin\pg_dump" -U lis_user -h localhost lis &gt; lis_backup.sql</code></pre>
+      <p>Nên đặt lịch sao lưu hằng ngày (Task Scheduler) và cất bản sao ở máy khác.</p>
+      <h4>Khôi phục</h4>
+<pre><code>"C:\Program Files\PostgreSQL\16\bin\psql" -U lis_user -h localhost lis &lt; lis_backup.sql</code></pre>
+    </div>
+    <div>
+      <h4>Cập nhật bản mới</h4>
+      <p>Sao lưu trước, rồi giải nén bản mới đè lên thư mục <code>app\</code>. Lần mở kế tiếp phần mềm tự cập nhật CSDL, không cần làm gì thêm.</p>
+      <h4>Gỡ cài đặt</h4>
+      <p>Xóa thư mục phần mềm (ví dụ <code>C:\LisConnect</code>). Muốn xóa cả cấu hình trên máy: xóa <code>C:\ProgramData\LIS Connect\</code>. Dữ liệu trong CSDL vẫn còn cho đến khi tự xóa CSDL.</p>
+    </div>
+  </div>
+  <div class="note"><b>Cấu hình riêng của từng máy nằm ở đâu</b><code>C:\ProgramData\LIS Connect\config.json</code> — chứa thông tin kết nối CSDL, mật khẩu được mã hóa theo máy nên <b>không chép sang máy khác được</b>. Nhật ký lỗi nằm cùng thư mục: <code>loi.log</code>.</div>
+</section>
+
+<section id="cau-hinh">
+  <h2>Cấu hình <span class="who">Dành cho tài khoản Quản trị. Menu Danh mục, Máy &amp; map, Tài khoản, Cài đặt chỉ hiện với Quản trị.</span></h2>
+
+  <h3 id="tai-khoan">Tài khoản và quyền</h3>
+  <p>Vào <span class="ui">Tài khoản</span> → <span class="ui">+ Tài khoản mới</span>. Điền tên đăng nhập (không đổi được sau này), họ tên, mật khẩu (ít nhất 8 ký tự), tích một hoặc nhiều vai trò, bấm <span class="ui">Lưu</span>. Bỏ tích <span class="ui">Đang dùng</span> để khóa tài khoản.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Vai trò</th><th>Được làm</th></tr></thead>
+    <tbody>
+      <tr><td><b>Tiếp nhận</b></td><td>Tiếp nhận người bệnh, lập chỉ định, xem kết quả</td></tr>
+      <tr><td><b>Kỹ thuật viên</b></td><td>Xem, nhập, sửa kết quả; duyệt; xử lý kết quả chưa ghép</td></tr>
+      <tr><td><b>Trưởng khoa</b></td><td>Như Kỹ thuật viên, thêm quyền <b>hủy duyệt</b></td></tr>
+      <tr><td><b>Quản trị</b></td><td>Toàn quyền: danh mục, tài khoản, máy, cài đặt, kết nối</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li>Nhập sai mật khẩu <b>5 lần liên tiếp</b> thì tài khoản bị khóa tạm <b>15 phút</b>, sau đó đăng nhập lại bình thường.</li>
+    <li>Phần mềm luôn giữ <b>ít nhất một Quản trị đang hoạt động</b>: không tự khóa mình, không tự bỏ quyền Quản trị của mình.</li>
+  </ul>
+
+  <h3 id="barcode">Barcode và tem</h3>
+  <p><span class="ui">Cài đặt</span> → tab <span class="ui">Barcode &amp; tem</span>. Barcode được ghép từ ba phần:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Phần</th><th>Mặc định</th><th>Ví dụ ngày 06/11/2026</th></tr></thead>
+    <tbody>
+      <tr><td>Tiền tố</td><td><code>9</code></td><td><code>9</code></td></tr>
+      <tr><td>Mẫu ngày</td><td><code>yyMMdd</code></td><td><code>261106</code></td></tr>
+      <tr><td>Số chữ số thứ tự</td><td>3 (tối đa 999 ống/ngày)</td><td><code>001</code></td></tr>
+      <tr><td colspan="2"><b>Barcode ống đầu tiên trong ngày</b></td><td><code>9261106001</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>Chọn cách cấp barcode cho một phiếu:</p>
+  <ul>
+    <li><b>Mỗi loại mẫu một barcode</b> (mặc định): phiếu có ống máu và ống nước tiểu thì in hai tem khác nhau.</li>
+    <li><b>Cả phiếu một barcode</b>: mọi ống của phiếu dùng chung một mã.</li>
+  </ul>
+  <div class="warn"><b>Lưu ý khi sau này nối máy xét nghiệm</b>Một số máy chỉ nhận mã dài đúng 8 hoặc 10 chữ số. Hỏi IT độ dài máy cho phép trước khi đổi tiền tố hay số chữ số.</div>
+
+  <h3 id="may-in">Máy in</h3>
+  <p><span class="ui">Cài đặt</span> → tab <span class="ui">Máy in</span>: chọn <b>máy in tem</b> (tem nhiệt, khai chiều rộng/cao tem theo mm) và <b>máy in phiếu kết quả</b> (máy in A4). Bấm <span class="ui">In tem thử</span> để kiểm tra mà không cần tạo mẫu thật.</p>
+
+  <h3 id="danh-muc">Danh mục xét nghiệm</h3>
+  <p>Màn <span class="ui">Danh mục</span> liệt kê các xét nghiệm. Mỗi xét nghiệm có mã, tên, nhóm, loại mẫu (EDTA, huyết thanh, nước tiểu…), kiểu kết quả (số, định tính như Âm tính/Dương tính, hoặc chữ), đơn vị, số chữ số sau dấu phẩy.</p>
+  <ul>
+    <li><b>Xét nghiệm gộp (panel)</b>: tích <span class="ui">Là dịch vụ cha (panel)</span> rồi thêm các chỉ số con ở tab <span class="ui">Chỉ số con</span>. Ví dụ "Tổng phân tích tế bào máu" gồm Bạch cầu, Hồng cầu, Huyết sắc tố… Khi tiếp nhận chọn panel, các chỉ số con tự đi theo.</li>
+    <li><b>Khoảng tham chiếu</b> (tab cùng tên): mỗi dòng là một khoảng bình thường theo <b>giới</b>, <b>tuổi</b> (nhập theo ngày, tháng hoặc năm — trẻ sơ sinh dùng ngày), và có thể theo <b>máy</b>. Có thêm ngưỡng <b>nguy hiểm</b>. Phần mềm tự chọn dòng khớp nhất với người bệnh.</li>
+    <li><b>Quy đổi định tính</b>: đổi giá trị thô như <code>neg</code> thành chữ "Âm tính" để in phiếu.</li>
+    <li>Số thập phân gõ dấu phẩy hay dấu chấm đều được (<code>4,5</code> hoặc <code>4.5</code>).</li>
+  </ul>
+  <figure><img src="anh/07-danh-muc-khoang-tham-chieu.png" alt="Bảng khoảng tham chiếu theo giới và tuổi" loading="lazy" width="1360" height="780"><figcaption>Khoảng tham chiếu: riêng Nam, riêng Nữ, và trẻ sơ sinh 0–28 ngày (dữ liệu minh họa)</figcaption></figure>
+
+  <h3 id="nhap-excel">Nhập danh mục từ Excel</h3>
+  <p>Thay vì gõ từng xét nghiệm, có thể nạp từ tệp Excel. Dùng tệp mẫu <code>mau-danh-muc.xlsx</code> đi kèm phần mềm để xem đúng cách sắp cột.</p>
+  <ol class="steps">
+    <li><p>Ở màn <span class="ui">Danh mục</span>, bấm <span class="ui">📥 Nhập Excel…</span> và chọn tệp.</p></li>
+    <li><p>Phần mềm <b>kiểm tra trước, chưa ghi gì</b>: báo "Sẽ tạo X, cập nhật Y", hoặc liệt kê lỗi theo dòng (ví dụ <i>Sheet DichVu dòng 5: thiếu Mã</i>). Có lỗi thì sửa tệp và chọn lại.</p></li>
+    <li><p>Không lỗi thì bấm <span class="ui">Nhập thật</span>. Nếu có trục trặc giữa chừng, phần mềm hủy toàn bộ — không bao giờ nhập dở dang.</p></li>
+  </ol>
+  <div class="tbl"><table>
+    <thead><tr><th>Sheet trong tệp</th><th>Nội dung</th></tr></thead>
+    <tbody>
+      <tr><td><code>DichVu</code></td><td>Danh sách xét nghiệm: mã, tên, nhóm, loại mẫu, đơn vị, kiểu kết quả, số lẻ, thứ tự in, là panel, tự duyệt, mã HIS</td></tr>
+      <tr><td><code>ChiSoCon</code></td><td>Cặp mã cha – mã con của các panel</td></tr>
+      <tr><td><code>KhoangThamChieu</code></td><td>Khoảng bình thường theo giới, tuổi, ngưỡng nguy hiểm</td></tr>
+      <tr><td><code>MapMay</code></td><td>Mã kênh của máy xét nghiệm ứng với chỉ số nào</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="his">Kết nối HIS</h3>
+  <p><span class="ui">Cài đặt</span> → tab <span class="ui">Kết nối HIS</span>. Ở bản này chỉ <b>lưu thông tin kết nối và kiểm tra kết nối được</b>; việc tự nhận chỉ định từ HIS và gửi kết quả về HIS có ở bản sau.</p>
+  <ol class="steps">
+    <li><p>Tích <span class="ui">Bật kết nối HIS</span>. Dùng HIS-PROMAX thì bấm <span class="ui">Dùng mẫu HIS-PROMAX</span> để điền sẵn.</p></li>
+    <li><p>Điền địa chỉ HIS, chọn kiểu xác thực (khóa API, tài khoản/mật khẩu, hoặc đăng nhập lấy token) theo thông tin HIS cung cấp.</p></li>
+    <li><p>Bấm <span class="ui">Thử kết nối</span>, thấy báo thành công thì <span class="ui">Lưu</span>.</p></li>
+  </ol>
+  <div class="note"><b>Mật khẩu/khóa được mã hóa theo từng máy</b>Mở cấu hình này trên máy khác cần nhập lại. Để trống ô mật khẩu khi sửa nghĩa là giữ nguyên mật khẩu cũ.</div>
+
+  <h3 id="may-xn">Máy xét nghiệm và map kênh</h3>
+  <p>Màn <span class="ui">Máy &amp; map</span> dùng để khai báo trước các máy xét nghiệm và cho biết "mã kênh" mỗi máy gửi về ứng với chỉ số nào (ví dụ kênh <code>WBC#</code> là Bạch cầu). Mỗi mã kênh của một máy chỉ trỏ tới <b>một</b> chỉ số, để kết quả không bao giờ vào nhầm chỗ.</p>
+  <div class="off"><b>Chưa nối máy thật ở bản này</b>Phần khai báo đã có, nhưng phần mềm chưa tự nhận kết quả từ máy xét nghiệm. Tính năng này thuộc bản sau (Đợt 2).</div>
+</section>
+
+<section id="hang-ngay">
+  <h2>Làm việc hằng ngày</h2>
+  <figure><img src="anh/05-man-chinh.png" alt="Màn chính với menu bên trái" loading="lazy" width="1024" height="720"><figcaption>Sau khi đăng nhập, menu bên trái chỉ hiện các mục bạn có quyền dùng</figcaption></figure>
+
+  <h3 id="tiep-nhan">Tiếp nhận người bệnh</h3>
+  <ol class="steps">
+    <li><p><b>Tìm người bệnh</b>: gõ mã, họ tên (không cần dấu) hoặc số điện thoại, nhấn <kbd>Enter</kbd>, chọn đúng người trong danh sách. Không có thì bấm <span class="ui">Người bệnh mới</span> và điền họ tên, ngày sinh (hoặc chỉ năm sinh), giới, địa chỉ, điện thoại.</p></li>
+    <li><p>Điền <span class="ui">Bác sĩ chỉ định</span>, <span class="ui">Khoa chỉ định</span>, <span class="ui">Chẩn đoán</span> nếu có.</p></li>
+    <li><p><b>Chọn xét nghiệm</b>: gõ mã vào ô <span class="ui">Mã dịch vụ</span> rồi <kbd>Enter</kbd>; gõ chữ thì hiện gợi ý để chọn. Chọn panel thì các chỉ số con tự thêm vào. Khung <span class="ui">Xem trước nhóm mẫu</span> cho biết sẽ cần mấy ống.</p></li>
+    <li><p>Nhấn <kbd>F9</kbd> (<span class="ui">Lưu và in tem</span>). Khung <span class="ui">Barcode đã cấp</span> hiện mã từng ống, máy in tem in ra để dán.</p></li>
+  </ol>
+  <figure><img src="anh/08-tiep-nhan-sau-khi-luu.png" alt="Màn tiếp nhận sau khi lưu, có hai barcode cho hai loại ống" loading="lazy" width="1360" height="820"><figcaption>Một phiếu có công thức máu và glucose được cấp 2 barcode cho 2 loại ống (dữ liệu minh họa)</figcaption></figure>
+  <div class="tip"><b>Chọn trùng?</b>Nếu lỡ chọn một xét nghiệm hai lần, hoặc chọn panel rồi lại chọn thêm chỉ số con của nó, phần mềm báo ngay để tránh hai dòng kết quả cho cùng một chỉ số.</div>
+
+  <h3 id="ket-qua">Nhập và duyệt kết quả</h3>
+  <p>Màn <span class="ui">Kết quả</span>: bên trái là danh sách mẫu (lọc theo ngày — có nút <span class="ui">Hôm nay</span>, <span class="ui">Hôm qua</span>, <span class="ui">7 ngày</span> — và trạng thái, hoặc gõ barcode/họ tên rồi <kbd>Enter</kbd>); bên phải là các chỉ số của mẫu đang chọn.</p>
+  <ol class="steps">
+    <li><p><b>Nhập</b>: bấm vào ô Giá trị, gõ, nhấn <kbd>Enter</kbd> — tự xuống ô kế tiếp. <kbd>Esc</kbd> để bỏ những gì vừa gõ.</p></li>
+    <li><p><b>Sửa ô đã có giá trị</b> bắt buộc ghi <b>lý do sửa</b>; giá trị cũ được lưu lại để tra cứu.</p></li>
+    <li><p><b>Xem cờ</b>: <span class="flag up">↑ Cao</span>, <span class="flag up">↓ Thấp</span> khi ngoài khoảng bình thường; <span class="flag crit">‼ Nguy hiểm</span> khi vượt ngưỡng nguy hiểm; "Bất thường" cho kết quả định tính dương tính. Giá trị đúng bằng giới hạn được tính là bình thường.</p></li>
+    <li><p><b>Duyệt</b>: nhấn <kbd>F10</kbd>. Đã duyệt thì không sửa trực tiếp được nữa. Cần sửa thì <b>Trưởng khoa</b> bấm <span class="ui">Hủy duyệt</span> và ghi lý do.</p></li>
+  </ol>
+  <figure><img src="anh/10-ket-qua.png" alt="Màn kết quả với cờ cao và thấp" loading="lazy" width="1360" height="820"><figcaption>Bạch cầu có cờ cao, hồng cầu có cờ thấp (dữ liệu minh họa)</figcaption></figure>
+
+  <h4>Tự duyệt</h4>
+  <p>Quản trị có thể bật <span class="ui">Tự duyệt</span> cho từng xét nghiệm trong Danh mục. Một mẫu chỉ tự duyệt khi mọi chỉ số đều cho phép tự duyệt, đều có giá trị, không có cờ nào và không có bản chờ thay thế. Ở bản này, <b>kết quả nhập tay luôn phải bấm <kbd>F10</kbd></b>; tự duyệt chỉ áp dụng cho kết quả gán từ màn Chưa ghép (và từ máy, ở bản sau).</p>
+
+  <h4>Khi có "bản thay thế"</h4>
+  <p>Nếu mẫu đã duyệt mà có giá trị mới gửi tới (ví dụ máy chạy lại), giá trị mới <b>không ghi đè</b> mà hiện "Máy gửi lại: …" để người có quyền chọn <span class="ui">Chấp nhận</span> hoặc <span class="ui">Bỏ bản thay thế</span>. Danh sách mẫu đánh dấu <b>⟳</b> cho những mẫu đang chờ.</p>
+
+  <h3 id="in-phieu">In phiếu kết quả</h3>
+  <p>Chọn mẫu, nhấn <kbd>F11</kbd> (<span class="ui">In phiếu</span>). Các ống của cùng một lần chỉ định được gộp vào một phiếu; mỗi ống ghi rõ ai duyệt, lúc nào. Nếu còn ống chưa duyệt, phiếu in thêm dòng <b>"CHƯA DUYỆT — KHÔNG CÓ GIÁ TRỊ TRẢ KẾT QUẢ"</b> ở đầu và cuối.</p>
+  <figure><img src="anh/13-phieu-ket-qua.png" alt="Mẫu phiếu kết quả xét nghiệm" loading="lazy" width="1240" height="1754"><figcaption>Phiếu kết quả: chỉ số con thụt vào dưới panel, giá trị bất thường in đậm có mũi tên (dữ liệu minh họa)</figcaption></figure>
+
+  <h3 id="chua-ghep">Kết quả chưa ghép</h3>
+  <p>Màn <span class="ui">Chưa ghép</span> gom các kết quả phần mềm <b>không tự gắn được</b> vào mẫu nào — phần mềm không bao giờ đoán.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Lý do</th><th>Thường do</th><th>Cách xử lý</th></tr></thead>
+    <tbody>
+      <tr><td><b>Không có barcode</b></td><td>Barcode đọc sai hoặc không có trong hệ thống</td><td>Kiểm tra tem, bấm <span class="ui">Gán vào mẫu…</span> nhập đúng barcode</td></tr>
+      <tr><td><b>Chưa có chỉ định</b></td><td>Mẫu không được chỉ định xét nghiệm này</td><td>Kiểm tra lại phiếu tiếp nhận; gán vào đúng chỉ số hoặc bỏ qua</td></tr>
+      <tr><td><b>Kênh chưa map</b></td><td>Máy gửi mã kênh chưa khai báo</td><td>Báo Quản trị thêm map kênh ở <span class="ui">Máy &amp; map</span></td></tr>
+    </tbody>
+  </table></div>
+  <p>Dòng nào không dùng được thì bấm <span class="ui">Bỏ qua</span> và ghi lý do, để danh sách không tồn đọng.</p>
+</section>
+
+<section id="phim-tat">
+  <h2>Phím tắt</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Phím</th><th>Ở màn</th><th>Tác dụng</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>Enter</kbd></td><td>Mọi ô nhập</td><td>Sang ô kế tiếp</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td>Tiếp nhận — ô tìm người bệnh / ô mã dịch vụ</td><td>Tìm người bệnh / thêm xét nghiệm</td></tr>
+      <tr><td><kbd>F9</kbd></td><td>Tiếp nhận</td><td>Lưu và in tem</td></tr>
+      <tr><td><kbd>Enter</kbd> / <kbd>Esc</kbd></td><td>Kết quả — ô giá trị</td><td>Ghi và xuống ô sau / bỏ những gì vừa gõ</td></tr>
+      <tr><td><kbd>F10</kbd></td><td>Kết quả</td><td>Duyệt mẫu</td></tr>
+      <tr><td><kbd>F11</kbd></td><td>Kết quả</td><td>In phiếu</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td>Chưa ghép — ô barcode, ô lý do</td><td>Tra barcode / xác nhận bỏ qua</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="su-co">
+  <h2>Khi gặp sự cố</h2>
+  <p>Khi báo IT, gửi kèm: ảnh chụp thông báo lỗi, tệp <code>C:\ProgramData\LIS Connect\loi.log</code>, và đang làm bước nào.</p>
+
+  <details><summary>Báo "Không kết nối được CSDL"</summary><div>
+    <p>Phần mềm hiện hộp thoại với hai nút <span class="ui">Thử lại</span> và <span class="ui">Cài đặt lại kết nối</span>.</p>
+    <p>Kiểm tra theo thứ tự: dịch vụ PostgreSQL có đang chạy không (Win+R → <code>services.msc</code> → <code>postgresql-x64-16</code> phải là <i>Running</i>); máy chủ có bật không; tường lửa; nếu CSDL ở cloud thì đã tích SSL chưa.</p>
+  </div></details>
+
+  <details><summary>Sai mật khẩu CSDL / quên mật khẩu</summary><div>
+    <p>IT đặt lại bằng tài khoản <code>postgres</code>: <code>ALTER USER lis_user WITH PASSWORD 'mat-khau-moi';</code> rồi sửa ở <span class="ui">Cài đặt</span> → <span class="ui">Kết nối CSDL</span>.</p>
+  </div></details>
+
+  <details><summary>Báo lỗi "permission denied" khi mở lần đầu</summary><div>
+    <p>Tài khoản <code>lis_user</code> chưa là chủ CSDL. IT chạy dưới tài khoản <code>postgres</code>:</p>
+<pre><code>\c lis
+CREATE EXTENSION IF NOT EXISTS citext;
+CREATE EXTENSION IF NOT EXISTS unaccent;</code></pre>
+    <p>Rồi mở lại phần mềm — nó tự làm tiếp, không cần xóa CSDL.</p>
+  </div></details>
+
+  <details><summary>Phần mềm báo cấu hình hỏng và mở lại màn cài đặt</summary><div>
+    <p>Xảy ra khi tệp <code>config.json</code> bị sửa sai hoặc chép từ máy khác. Phần mềm tự đổi tên tệp cũ thành <code>config.json.bak</code> và mở màn cài đặt lần đầu để nhập lại kết nối. Dữ liệu trong CSDL không mất.</p>
+  </div></details>
+
+  <details><summary>Không in được tem hoặc phiếu</summary><div>
+    <p>Vào <span class="ui">Cài đặt</span> → <span class="ui">Máy in</span> kiểm tra đã chọn đúng máy; bấm <span class="ui">In tem thử</span>. Kiểm tra máy in bật, còn giấy/ruy băng, đã cài driver. Chữ tiếng Việt lỗi khi in thường do driver máy in — cài bản mới nhất của hãng.</p>
+  </div></details>
+
+  <details><summary>Đầu đọc không quét được barcode</summary><div>
+    <p>Kiểm tra khổ tem (chiều rộng/cao) khai đúng với tem thật; in tem thử để quét; đầu đọc phải bật đọc chuẩn <b>Code 128</b>; tem in mờ thì thay ruy băng/tem.</p>
+  </div></details>
+
+  <details><summary>Tài khoản bị "tạm khóa do nhập sai nhiều lần"</summary><div>
+    <p>Chờ hết thời gian ghi trong thông báo (tối đa 15 phút) rồi đăng nhập lại bằng mật khẩu đúng. Quên mật khẩu thì nhờ Quản trị đặt lại ở màn <span class="ui">Tài khoản</span>.</p>
+  </div></details>
+
+  <details><summary>Không thấy mục Danh mục, Tài khoản, Cài đặt</summary><div>
+    <p>Các mục này chỉ hiện với vai trò Quản trị. Nhờ Quản trị cấp quyền nếu cần.</p>
+  </div></details>
+</section>
+
+<section id="chua-co">
+  <h2>Chưa có trong bản này</h2>
+  <p>Bản hiện tại là <b>Đợt 1 — Nền tảng</b>. Những việc sau sẽ có ở các bản sau, đừng tìm trong phần mềm lúc này:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Bản</th><th>Sẽ có</th></tr></thead>
+    <tbody>
+      <tr><td><b>Đợt 2</b></td><td>Tự nhận kết quả từ máy xét nghiệm; chạy nền khi bật máy tính; xem nhật ký trao đổi với máy ngay trong phần mềm</td></tr>
+      <tr><td><b>Đợt 3</b></td><td>Tự nhận chỉ định từ HIS và gửi kết quả đã duyệt về HIS</td></tr>
+      <tr><td><b>Đợt 5</b></td><td>Bộ cài đặt chuẩn (.msi) thay cho tệp nén</td></tr>
+    </tbody>
+  </table></div>
+  <footer>Ảnh minh họa trong sổ tay dùng dữ liệu giả lập, không có thông tin người bệnh thật. Bản chi tiết cho kỹ thuật: thư mục <code>docs/HUONG-DAN/</code> trong mã nguồn.</footer>
+</section>
+
+</main>
+</div>
