@@ -2,6 +2,8 @@
 
 Tài liệu này hướng dẫn cài đặt và chạy LIS Connect (phần mềm Hệ thống thông tin phòng xét nghiệm) trên máy tính Windows x64.
 
+Đây là bản **tóm tắt chạy thử nhanh**. Hướng dẫn đầy đủ (cài đặt nhiều máy trạm, CSDL cloud, cấu hình từng tab, quy trình sử dụng hằng ngày, xử lý sự cố) nằm ở [`docs/HUONG-DAN/`](HUONG-DAN/README.md).
+
 **Phiên bản**: Đợt 1 (Nền tảng)  
 **Ngày cập nhật**: 2026-11-06
 
@@ -44,7 +46,7 @@ Tài liệu này hướng dẫn cài đặt và chạy LIS Connect (phần mềm
    ```bash
    git clone https://github.com/candat96/lis-connect.git
    cd lis-connect
-   git checkout dot-1-nen-tang
+   git checkout main
    powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
    ```
 3. Chờ quá trình build hoàn thành (~5 phút tuỳ kết nối mạng)

@@ -6,6 +6,8 @@ Kế hoạch triển khai (chia theo task) nằm ở: [`docs/superpowers/plans/2
 
 Tài liệu giao tiếp của từng hãng máy (driver) nằm ở [`docs/drivers/`](docs/drivers/README.md); các bản PDF/tài liệu gốc của hãng (nặng, có thể hạn chế bản quyền) nằm ở `docs/drivers/tai-lieu-hang/` và **không đẩy lên GitHub** (xem `.gitignore`).
 
+Hướng dẫn cài đặt, cấu hình và sử dụng (tiếng Việt, cho IT và nhân viên khoa xét nghiệm) nằm ở [`docs/HUONG-DAN/`](docs/HUONG-DAN/README.md).
+
 ## Cấu trúc solution
 
 ```
