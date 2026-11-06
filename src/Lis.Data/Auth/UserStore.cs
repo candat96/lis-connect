@@ -57,48 +57,58 @@ public sealed class UserStore(Db db)
     {
         var rolesArray = roles.ToArray();
 
-        await using var connection = await db.OpenAsync();
-
-        // Không bao giờ để hệ thống còn 0 tài khoản quản trị đang hoạt động. Chỉ cần kiểm khi
-        // tài khoản đang sửa HIỆN ĐANG là quản trị đang hoạt động và sẽ KHÔNG còn như vậy sau khi
-        // lưu (bị khóa hoặc mất vai trò quan-tri) — sửa một tài khoản chưa từng là quản trị
-        // (vd khóa một kỹ thuật viên) không bao giờ bị chặn ở đây.
-        var current = await connection.QuerySingleOrDefaultAsync<CurrentAdminRow>(
-            "SELECT active, roles FROM app_user WHERE id = @id", new { id });
-        var wasActiveAdmin = current is { Active: true } && current.Roles.Contains(Roles.QuanTri);
-        var willStayActiveAdmin = active && roles.Contains(Roles.QuanTri);
-
-        if (wasActiveAdmin && !willStayActiveAdmin)
+        string? passwordHash = null;
+        if (newPassword is not null)
         {
-            var otherActiveAdmins = await connection.ExecuteScalarAsync<long>(
-                "SELECT count(*) FROM app_user WHERE id <> @id AND active = true AND @quanTri = ANY(roles)",
-                new { id, quanTri = Roles.QuanTri });
+            RequireValidPassword(newPassword);
+            passwordHash = hasher.Hash(newPassword);
+        }
 
-            if (otherActiveAdmins == 0)
+        // Kiểm "còn ít nhất một quản trị đang hoạt động" và ghi UPDATE phải nằm trong CÙNG một
+        // giao dịch, có khóa hàng (FOR UPDATE) trên toàn bộ tập quản trị đang hoạt động — nếu
+        // không, hai máy trạm cùng lúc mỗi bên khóa một quản trị khác nhau đều có thể đọc "còn
+        // quản trị kia đang hoạt động" TRƯỚC khi bên kia ghi, rồi cả hai cùng commit, xóa sạch
+        // quản trị đang hoạt động. FOR UPDATE buộc giao dịch thứ hai chờ giao dịch thứ nhất
+        // commit/rollback rồi mới đọc lại đúng trạng thái mới nhất (Postgres re-check điều kiện
+        // WHERE sau khi lấy được khóa, dưới mức cô lập READ COMMITTED mặc định).
+        await db.InTransactionAsync(async (connection, transaction) =>
+        {
+            var activeAdminIds = (await connection.QueryAsync<Guid>(
+                "SELECT id FROM app_user WHERE active = true AND @quanTri = ANY(roles) FOR UPDATE",
+                new { quanTri = Roles.QuanTri }, transaction)).ToHashSet();
+
+            var wasActiveAdmin = activeAdminIds.Contains(id);
+            var willStayActiveAdmin = active && roles.Contains(Roles.QuanTri);
+
+            if (wasActiveAdmin && !willStayActiveAdmin)
             {
-                throw new InvalidOperationException(
-                    "Phải còn ít nhất một tài khoản Quản trị đang hoạt động — không thể khóa hoặc bỏ vai trò Quản trị của tài khoản này");
+                var otherActiveAdmins = activeAdminIds.Count - 1; // trừ chính tài khoản đang sửa
+                if (otherActiveAdmins <= 0)
+                {
+                    throw new InvalidOperationException(
+                        "Phải còn ít nhất một tài khoản Quản trị đang hoạt động — không thể khóa hoặc bỏ vai trò Quản trị của tài khoản này");
+                }
             }
-        }
 
-        if (newPassword is null)
-        {
-            await connection.ExecuteAsync(
-                "UPDATE app_user SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active WHERE id = @id",
-                new { id, fullName, title, rolesArray, active });
-            return;
-        }
+            if (passwordHash is null)
+            {
+                await connection.ExecuteAsync(
+                    "UPDATE app_user SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active WHERE id = @id",
+                    new { id, fullName, title, rolesArray, active }, transaction);
+            }
+            else
+            {
+                await connection.ExecuteAsync(
+                    """
+                    UPDATE app_user
+                    SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active, password_hash = @passwordHash
+                    WHERE id = @id
+                    """,
+                    new { id, fullName, title, rolesArray, active, passwordHash }, transaction);
+            }
 
-        RequireValidPassword(newPassword);
-        var passwordHash = hasher.Hash(newPassword);
-
-        await connection.ExecuteAsync(
-            """
-            UPDATE app_user
-            SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active, password_hash = @passwordHash
-            WHERE id = @id
-            """,
-            new { id, fullName, title, rolesArray, active, passwordHash });
+            return true;
+        });
     }
 
     public async Task<IReadOnlyList<UserInfo>> ListAsync()
@@ -115,12 +125,6 @@ public sealed class UserStore(Db db)
         {
             throw new ArgumentException("Mật khẩu tối thiểu 8 ký tự", nameof(password));
         }
-    }
-
-    private sealed record CurrentAdminRow
-    {
-        public bool Active { get; init; }
-        public string[] Roles { get; init; } = [];
     }
 
     private sealed record UserRow

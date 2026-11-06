@@ -139,15 +139,6 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
     public async Task<Guid> SaveChannelAsync(ChannelMap channel)
     {
         var channelCode = channel.ChannelCode.Trim();
-        if (channelCode.Length == 0)
-        {
-            throw new ArgumentException("Nhập mã kênh");
-        }
-
-        if (channel.Factor is <= 0)
-        {
-            throw new ArgumentException("Hệ số phải lớn hơn 0");
-        }
 
         try
         {
@@ -170,12 +161,22 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
     /// <summary>
     /// Như <see cref="SaveChannelAsync"/> nhưng dùng kết nối/giao dịch của bên gọi — để các việc
     /// nhiều bước (vd nhập Excel ở <see cref="Catalog.CatalogExcelImporter"/>) ghi chung một
-    /// giao dịch. Không kiểm tra <see cref="ChannelMap.ChannelCode"/> trống/<see cref="ChannelMap.Factor"/>
-    /// — bên gọi tự kiểm trước (xem <see cref="SaveChannelAsync"/>).
+    /// giao dịch. Kiểm tra <see cref="ChannelMap.ChannelCode"/> trống và <see cref="ChannelMap.Factor"/>
+    /// ngay ở đây (không phải chỉ ở <see cref="SaveChannelAsync"/>) để cả hai đường gọi đều được
+    /// kiểm, không trùng lặp kiểm tra ở hai nơi.
     /// </summary>
     internal static async Task<Guid> SaveChannelInTransactionAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, ChannelMap channel)
     {
-        var channelCode = channel.ChannelCode;
+        var channelCode = channel.ChannelCode.Trim();
+        if (channelCode.Length == 0)
+        {
+            throw new ArgumentException("Nhập mã kênh");
+        }
+
+        if (channel.Factor is <= 0)
+        {
+            throw new ArgumentException("Hệ số phải lớn hơn 0");
+        }
 
         // Kiểm tra trùng trong cùng giao dịch để báo tên chỉ số đã map; ràng buộc UNIQUE
         // (instrument_id, channel_code) vẫn là chốt chặn cuối khi hai máy trạm lưu cùng lúc.

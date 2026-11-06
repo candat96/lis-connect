@@ -122,4 +122,41 @@ public class UserStoreTests(PostgresFixture fixture)
         var updated = (await store.ListAsync()).Single(u => u.Id == admin1.Id);
         updated.Active.ShouldBeFalse();
     }
+
+    /// <summary>
+    /// Hai quản trị A, B đang hoạt động — đồng thời A khóa B và B khóa A. Không được để cả hai
+    /// đều thành công (sẽ còn 0 quản trị hoạt động): đúng một lệnh thành công, lệnh kia bị chặn
+    /// bởi InvalidOperationException, và sau cùng vẫn còn đúng một quản trị đang hoạt động.
+    /// Dùng hai <see cref="UserStore"/> riêng trên cùng <see cref="Db"/> (cùng pool kết nối) để
+    /// mô phỏng hai máy trạm gọi cùng lúc, như race thật trên sản phẩm.
+    /// </summary>
+    [Fact]
+    public async Task Update_ConcurrentMutualDeactivation_ExactlyOneSucceeds_OneActiveAdminRemains()
+    {
+        var connectionString = await fixture.NewDatabaseAsync();
+        var db = Db.Create(connectionString);
+        var seedStore = new UserStore(db);
+        var adminA = await seedStore.CreateAsync("quan-tri-doi-a", "Quản Trị A", null, ValidPassword, [Roles.QuanTri]);
+        var adminB = await seedStore.CreateAsync("quan-tri-doi-b", "Quản Trị B", null, ValidPassword, [Roles.QuanTri]);
+
+        var storeForA = new UserStore(db);
+        var storeForB = new UserStore(db);
+
+        var aDeactivatesB = Record.ExceptionAsync(() =>
+            storeForA.UpdateAsync(adminB.Id, adminB.FullName, null, adminB.Roles, active: false, null)).AsTask();
+        var bDeactivatesA = Record.ExceptionAsync(() =>
+            storeForB.UpdateAsync(adminA.Id, adminA.FullName, null, adminA.Roles, active: false, null)).AsTask();
+
+        var results = await Task.WhenAll(aDeactivatesB, bDeactivatesA);
+
+        var succeeded = results.Count(ex => ex is null);
+        var blocked = results.Count(ex => ex is InvalidOperationException);
+
+        succeeded.ShouldBe(1);
+        blocked.ShouldBe(1);
+
+        var stillActiveAdmins = (await seedStore.ListAsync())
+            .Count(u => u.Active && u.Roles.Contains(Roles.QuanTri));
+        stillActiveAdmins.ShouldBe(1);
+    }
 }

@@ -241,6 +241,54 @@ public class CatalogExcelImporterTests(PostgresFixture fixture)
         channelCount.ShouldBe(0);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Import_MapMay_NonPositiveFactor_ReportsErrorAndWritesNothing(decimal heSo)
+    {
+        // SaveChannelInTransactionAsync (gọi thẳng từ ImportMapMayAsync, không qua
+        // SaveChannelAsync công khai) phải tự kiểm Hệ số > 0 — nếu kiểm tra chỉ còn ở
+        // SaveChannelAsync (không đi qua đường nhập Excel) thì HeSo <= 0 sẽ lọt vào CSDL.
+        var (importer, db, specimenTypeId) = await CreateImporterAsync();
+
+        var workbook = new XLWorkbook();
+        var dichVuSheet = workbook.Worksheets.Add("DichVu");
+        dichVuSheet.Cell("A1").Value = "Ma";
+        dichVuSheet.Cell("B1").Value = "Ten";
+        dichVuSheet.Cell("D1").Value = "LoaiMau";
+        dichVuSheet.Cell("F1").Value = "KieuKetQua";
+        dichVuSheet.Cell("A2").Value = "WBC";
+        dichVuSheet.Cell("B2").Value = "Bạch cầu";
+        dichVuSheet.Cell("D2").Value = specimenTypeId.ToString();
+        dichVuSheet.Cell("F2").Value = "so";
+
+        var mapMaySheet = workbook.Worksheets.Add("MapMay");
+        mapMaySheet.Cell("A1").Value = "TenMay";
+        mapMaySheet.Cell("B1").Value = "MaKenh";
+        mapMaySheet.Cell("C1").Value = "MaChiSo";
+        mapMaySheet.Cell("D1").Value = "SoLe";
+        mapMaySheet.Cell("E1").Value = "HeSo";
+
+        mapMaySheet.Cell("A2").Value = "SampleMachine";
+        mapMaySheet.Cell("B2").Value = "CH-HESO";
+        mapMaySheet.Cell("C2").Value = "WBC";
+        mapMaySheet.Cell("E2").Value = heSo;
+
+        var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        stream.Position = 0;
+
+        var report = await importer.ImportAsync(stream, dryRun: false);
+
+        report.Errors.Count.ShouldBeGreaterThan(0);
+        report.Errors.ShouldContain(e => e.Contains("MapMay") && e.Contains("dòng") && e.Contains("Hệ số"));
+
+        var serviceCount = await CountAsync(db, "SELECT count(*) FROM service WHERE code = 'WBC'");
+        serviceCount.ShouldBe(0);
+        var channelCount = await CountAsync(db, "SELECT count(*) FROM instrument_channel WHERE channel_code = 'CH-HESO'");
+        channelCount.ShouldBe(0);
+    }
+
     [Fact]
     public async Task Import_DecimalCells_NotCultureDependent()
     {
