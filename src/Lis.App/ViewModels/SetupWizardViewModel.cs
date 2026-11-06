@@ -129,6 +129,13 @@ public partial class SetupWizardViewModel : ObservableObject
             ConnectionMessage = result.Message;
             _databaseEmpty = result.DatabaseEmpty;
         }
+        catch (Exception ex)
+        {
+            // SetupService.TestAsync đã tự bắt lỗi và trả ConnectionTest — nhánh này chỉ còn lại
+            // lỗi hoàn toàn không mong đợi (vd lỗi dựng DbSettings), không để crash trình hướng dẫn.
+            ConnectionOk = false;
+            ConnectionMessage = $"Thử kết nối lỗi: {ex.Message}";
+        }
         finally
         {
             IsBusy = false;
@@ -175,14 +182,15 @@ public partial class SetupWizardViewModel : ObservableObject
     {
         var settings = BuildDbSettings();
 
-        if (_databaseEmpty)
+        // Luôn chạy migration sau khi kết nối thành công, không chỉ khi CSDL trống: migration là
+        // idempotent (DbUp tự bỏ qua script đã chạy), nên gọi lại không hại gì — nhưng nếu bỏ qua
+        // khi CSDL không trống, một lần chạy trước bị lỗi giữa chừng (vd thiếu quyền tạo
+        // extension) sẽ không bao giờ được thử lại vì bảng schemaversions đã tồn tại.
+        var migration = _setupService.Migrate(settings);
+        if (!migration.Ok)
         {
-            var migration = _setupService.Migrate(settings);
-            if (!migration.Ok)
-            {
-                ErrorMessage = $"Không tạo được bảng CSDL: {migration.Error}";
-                return;
-            }
+            ErrorMessage = $"Không tạo/nâng cấp được bảng CSDL: {migration.Error}";
+            return;
         }
 
         _needsFirstAdmin = await _setupService.NeedsFirstAdminAsync(settings);

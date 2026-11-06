@@ -1,4 +1,5 @@
 using Dapper;
+using DbUp.Engine;
 using Npgsql;
 using Shouldly;
 using Testcontainers.PostgreSql;
@@ -112,6 +113,42 @@ public class MigratorTests(PostgresFixture fixture)
         var second = Migrator.Upgrade(connectionString);
         second.Ok.ShouldBeTrue(second.Error);
         second.Applied.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Upgrade_FailingScript_CanBeRetried()
+    {
+        // Mô phỏng finding 1 của rà soát toàn nhánh: một script lỗi giữa chừng (vd thiếu quyền
+        // CREATE EXTENSION) không được để lại schemaversions ở trạng thái "coi như đã chạy" —
+        // lần sau phải thử lại đúng chỗ lỗi, không bị bỏ qua.
+        var connectionString = await fixture.NewEmptyDatabaseAsync();
+
+        // Tên sắp xếp sau 0001 nhưng trước 0002 (DbUp sắp script theo tên, kể cả khi thêm qua
+        // .WithScript) — chạy giữa hai migration thật để kiểm tra DbUp dừng đúng chỗ và
+        // transaction-per-script không ghi journal cho script lỗi. Dùng cùng tiền tố
+        // "Lis.Data.Migrations." như các script nhúng để thứ tự sắp xếp đúng với chúng.
+        var failingScript = new SqlScript("Lis.Data.Migrations.0001a_loi_gia_lap.sql", "SELECT 1/0; -- lỗi cố ý để kiểm thử retry");
+
+        var first = Migrator.Upgrade(connectionString, failingScript);
+        first.Ok.ShouldBeFalse();
+        first.Applied.ShouldContain("Lis.Data.Migrations.0001_khoi_tao.sql", customMessage: $"error was: {first.Error}; applied: [{string.Join(", ", first.Applied)}]");
+        first.Applied.ShouldNotContain(failingScript.Name);
+
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var journalEntries = (await connection.QueryAsync<string>(
+            "SELECT scriptname FROM schemaversions")).ToList();
+
+        journalEntries.ShouldContain("Lis.Data.Migrations.0001_khoi_tao.sql");
+        journalEntries.ShouldNotContain(failingScript.Name);
+
+        // Chạy lại không kèm script lỗi — phải áp dụng hết các migration còn thiếu, không bị
+        // trình hướng dẫn cài đặt coi CSDL là "đã migrate" chỉ vì có bảng schemaversions.
+        var second = Migrator.Upgrade(connectionString);
+        second.Ok.ShouldBeTrue(second.Error);
+        second.Applied.ShouldNotBeEmpty();
+
+        Migrator.IsEmpty(connectionString).ShouldBeFalse();
     }
 
     [Fact]

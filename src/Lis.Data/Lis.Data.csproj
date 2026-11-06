@@ -21,4 +21,10 @@
     <EmbeddedResource Include="Migrations\*.sql" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Cho MigratorTests dùng overload test-only Migrator.Upgrade(string, SqlScript?) để mô
+         phỏng script lỗi giữa chừng (xem findings 1 của rà soát toàn nhánh). -->
+    <InternalsVisibleTo Include="Lis.Data.Tests" />
+  </ItemGroup>
+
 </Project>

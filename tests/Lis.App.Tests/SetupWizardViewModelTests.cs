@@ -22,10 +22,15 @@ internal sealed class FakeSetupService : ISetupService
 
     public Exception? CreateFirstAdminException { get; set; }
 
+    public Action? OnMigrate { get; set; }
+
     public Task<ConnectionTest> TestAsync(DbSettings settings) => Task.FromResult(NextTestResult);
 
-    public MigrationResult Migrate(DbSettings settings) =>
-        MigrateException is not null ? throw MigrateException : NextMigrationResult;
+    public MigrationResult Migrate(DbSettings settings)
+    {
+        OnMigrate?.Invoke();
+        return MigrateException is not null ? throw MigrateException : NextMigrationResult;
+    }
 
     public Task<bool> NeedsFirstAdminAsync(DbSettings settings) => Task.FromResult(NeedsFirstAdminResult);
 
@@ -94,7 +99,23 @@ public class SetupWizardViewModelTests
         vm.NextCommand.Execute(null);
 
         vm.Step.ShouldBe(SetupWizardStep.ConnectDb);
-        vm.ErrorMessage.ShouldBe("Không tạo được bảng CSDL: bảng service đã tồn tại");
+        vm.ErrorMessage.ShouldBe("Không tạo/nâng cấp được bảng CSDL: bảng service đã tồn tại");
+    }
+
+    [Fact]
+    public void Next_DatabaseNotEmpty_StillMigrates()
+    {
+        // Finding 1 rà soát toàn nhánh: phải luôn gọi Migrate (idempotent), không chỉ khi CSDL
+        // trống — một lần migrate trước lỗi giữa chừng phải được thử lại ở lần kết nối sau.
+        var vm = CreateViewModel(out var fake);
+        fake.NextTestResult = new ConnectionTest(true, "Kết nối thành công", false); // CSDL không trống
+        vm.TestConnectionCommand.Execute(null);
+        var migrateCalled = false;
+        fake.OnMigrate = () => migrateCalled = true;
+
+        vm.NextCommand.Execute(null);
+
+        migrateCalled.ShouldBeTrue();
     }
 
     [Fact]

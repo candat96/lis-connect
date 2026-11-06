@@ -47,6 +47,47 @@ public sealed class LocalConfigStore
         return new LocalConfig(db, record.WorkstationCode);
     }
 
+    /// <summary>
+    /// Giống <see cref="Load"/> nhưng không bao giờ ném: tệp hỏng (JSON lỗi, hoặc mã hóa bằng
+    /// DPAPI của máy khác nên không giải mã được) được coi như "chưa cài đặt" — đổi tên thành
+    /// <c>config.json.bak</c> để giữ lại cho việc chẩn đoán, rồi trả về null kèm thông báo tiếng
+    /// Việt để nơi gọi (App khởi động) mở lại trình hướng dẫn cài đặt thay vì crash.
+    /// </summary>
+    public LocalConfig? TryLoadOrRecover(out string? error)
+    {
+        try
+        {
+            error = null;
+            return Load();
+        }
+        catch (Exception ex)
+        {
+            error = $"Tệp cấu hình cục bộ ({ConfigFile}) không đọc được, có thể do hỏng tệp hoặc tệp được tạo trên máy khác: {ex.Message}. " +
+                    "Tệp cũ đã được đổi tên thành config.json.bak — vui lòng cài đặt lại.";
+
+            try
+            {
+                var backupFile = ConfigFile + ".bak";
+                if (File.Exists(backupFile))
+                {
+                    File.Delete(backupFile);
+                }
+
+                if (File.Exists(ConfigFile))
+                {
+                    File.Move(ConfigFile, backupFile);
+                }
+            }
+            catch
+            {
+                // Không đổi tên được (vd quyền tệp) — vẫn tiếp tục mở trình hướng dẫn cài đặt,
+                // người dùng có thể tự xóa tệp theo hướng dẫn trong CHAY-THU-WINDOWS.md.
+            }
+
+            return null;
+        }
+    }
+
     public void Save(LocalConfig cfg)
     {
         Directory.CreateDirectory(_directory);

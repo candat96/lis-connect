@@ -22,17 +22,37 @@ public static class Migrator
     /// Chạy nhiều lần là an toàn (idempotent) — DbUp tự theo dõi script đã chạy trong bảng
     /// schemaversions, lần gọi sau không còn gì để áp dụng.
     /// </summary>
-    public static MigrationResult Upgrade(string connectionString)
+    public static MigrationResult Upgrade(string connectionString) => Upgrade(connectionString, extraScript: null);
+
+    /// <summary>
+    /// Giống <see cref="Upgrade(string)"/> nhưng cho chèn thêm một script test-only
+    /// (<paramref name="extraScript"/>) vào danh sách migration — dùng để mô phỏng một script
+    /// lỗi giữa chừng (xem <c>MigratorTests.Upgrade_FailingScript_CanBeRetried</c>) mà không cần
+    /// tạo CSDL thiếu quyền thật. Không dùng ở mã sản phẩm.
+    /// </summary>
+    internal static MigrationResult Upgrade(string connectionString, DbUp.Engine.SqlScript? extraScript)
     {
         // Chạy script hỗ trợ uuidv7 cho PostgreSQL < 18 trước DbUp migration
         // (plays the role of a DbUp always-run script, idempotent)
         EnsureUuidv7Compat(connectionString);
 
-        var upgrader = DeployChanges.To
+        var builder = DeployChanges.To
             .PostgresqlDatabase(connectionString)
             .WithScriptsEmbeddedInAssembly(Assembly.GetExecutingAssembly())
             .LogToNowhere()
-            .Build();
+            // Mỗi script chạy trong một transaction riêng (mặc định DbUp là không transaction).
+            // Nếu một script lỗi giữa chừng, các câu lệnh của RIÊNG script đó bị rollback và
+            // schemaversions KHÔNG ghi dòng cho script đó — lần chạy lại sau sẽ thử lại đúng
+            // script đã lỗi thay vì bị bỏ qua. Mọi migration hiện có chỉ dùng DDL/DML thường
+            // (không có CREATE INDEX CONCURRENTLY — không tương thích transaction) nên an toàn.
+            .WithTransactionPerScript();
+
+        if (extraScript is not null)
+        {
+            builder = builder.WithScript(extraScript);
+        }
+
+        var upgrader = builder.Build();
 
         var result = upgrader.PerformUpgrade();
         var applied = result.Scripts.Select(script => script.Name).ToList();

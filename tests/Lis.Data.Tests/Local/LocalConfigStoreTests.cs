@@ -1,4 +1,5 @@
 using Lis.Data.Local;
+using Npgsql;
 using Shouldly;
 using Xunit;
 
@@ -78,5 +79,72 @@ public class LocalConfigStoreTests : IDisposable
 
         db.ToString().ShouldNotContain("Thu@12345");
         config.ToString().ShouldNotContain("Thu@12345");
+    }
+
+    [Theory]
+    [InlineData("mat;khau=\"ky,tu\"dac;biet")]
+    [InlineData("a\"b;c=d")]
+    [InlineData("đã có dấu;cách")]
+    public void DbSettings_ToConnectionString_RoundTripsSpecialCharacterPassword(string password)
+    {
+        var db = new DbSettings("localhost", 5432, "lis", "lis_user", password, RequireSsl: false);
+
+        var connectionString = db.ToConnectionString();
+        var parsed = new NpgsqlConnectionStringBuilder(connectionString);
+
+        parsed.Password.ShouldBe(password);
+        parsed.Host.ShouldBe("localhost");
+        parsed.Database.ShouldBe("lis");
+        parsed.Username.ShouldBe("lis_user");
+    }
+
+    [Fact]
+    public void Load_CorruptJson_ThrowsAndLeavesFileUntouched()
+    {
+        var store = CreateStore();
+        var configFile = Path.Combine(_tempDirectory, "config.json");
+        File.WriteAllText(configFile, "{ không phải json hợp lệ");
+
+        Should.Throw<Exception>(() => store.Load());
+    }
+
+    [Fact]
+    public void Load_CorruptJson_RenamesToBakOnRecovery()
+    {
+        var store = CreateStore();
+        var configFile = Path.Combine(_tempDirectory, "config.json");
+        File.WriteAllText(configFile, "{ không phải json hợp lệ");
+
+        store.TryLoadOrRecover(out var error).ShouldBeNull();
+        error.ShouldNotBeNullOrWhiteSpace();
+
+        File.Exists(configFile).ShouldBeFalse();
+        File.Exists(Path.Combine(_tempDirectory, "config.json.bak")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void TryLoadOrRecover_ValidFile_ReturnsConfig()
+    {
+        var store = CreateStore();
+        var config = new LocalConfig(
+            new DbSettings("localhost", 5432, "lis", "lis_user", "Thu@12345", RequireSsl: false),
+            "WS-01");
+        store.Save(config);
+
+        var loaded = store.TryLoadOrRecover(out var error);
+
+        loaded.ShouldBe(config);
+        error.ShouldBeNull();
+    }
+
+    [Fact]
+    public void TryLoadOrRecover_MissingFile_ReturnsNullNoError()
+    {
+        var store = CreateStore();
+
+        var loaded = store.TryLoadOrRecover(out var error);
+
+        loaded.ShouldBeNull();
+        error.ShouldBeNull();
     }
 }

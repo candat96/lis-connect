@@ -1,4 +1,5 @@
 using System.Text;
+using Npgsql;
 
 namespace Lis.Data.Local;
 
@@ -9,12 +10,22 @@ public record DbSettings(string Host, int Port, string Database, string Username
 {
     /// <summary>
     /// Chuỗi kết nối Npgsql. Khi <see cref="RequireSsl"/> bật thì bắt buộc TLS (Require),
-    /// ngược lại chỉ ưu tiên dùng TLS nếu máy chủ hỗ trợ (Prefer).
+    /// ngược lại chỉ ưu tiên dùng TLS nếu máy chủ hỗ trợ (Prefer). Dùng
+    /// <see cref="NpgsqlConnectionStringBuilder"/> (không tự nối chuỗi) để mật khẩu/tên CSDL chứa
+    /// <c>;</c>, <c>=</c> hoặc <c>"</c> vẫn được escape đúng, không làm hỏng chuỗi kết nối.
     /// </summary>
     public string ToConnectionString()
     {
-        var sslMode = RequireSsl ? "Require" : "Prefer";
-        return $"Host={Host};Port={Port};Database={Database};Username={Username};Password={Password};SSL Mode={sslMode}";
+        var builder = new NpgsqlConnectionStringBuilder
+        {
+            Host = Host,
+            Port = Port,
+            Database = Database,
+            Username = Username,
+            Password = Password,
+            SslMode = RequireSsl ? SslMode.Require : SslMode.Prefer,
+        };
+        return builder.ConnectionString;
     }
 
     /// <summary>

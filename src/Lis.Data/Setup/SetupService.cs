@@ -45,27 +45,53 @@ public sealed class SetupService : ISetupService
 
     public async Task<ConnectionTest> TestAsync(DbSettings settings)
     {
-        var connectionString = WithShortTimeout(settings);
-
         try
         {
-            await using var connection = new NpgsqlConnection(connectionString);
-            await connection.OpenAsync();
+            var connectionString = WithShortTimeout(settings);
 
-            var empty = Migrator.IsEmpty(connectionString);
-            return new ConnectionTest(true, "Kết nối thành công", empty);
+            try
+            {
+                await using var connection = new NpgsqlConnection(connectionString);
+                await connection.OpenAsync();
+
+                var empty = Migrator.IsEmpty(connectionString);
+                return new ConnectionTest(true, "Kết nối thành công", empty);
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.InvalidPassword)
+            {
+                return new ConnectionTest(false, "Sai tài khoản hoặc mật khẩu CSDL", false);
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.InvalidAuthorizationSpecification)
+            {
+                // 28000 — pg_hba.conf từ chối kết nối (vd sai địa chỉ nguồn, sai kiểu xác thực).
+                return new ConnectionTest(false, "Máy chủ CSDL từ chối kết nối (cấu hình pg_hba.conf) — kiểm tra lại quy tắc cho phép kết nối", false);
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.InvalidCatalogName)
+            {
+                return new ConnectionTest(false, $"CSDL {settings.Database} chưa được tạo trên máy chủ", false);
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.InsufficientPrivilege)
+            {
+                return new ConnectionTest(false, $"Tài khoản {settings.Username} không có quyền trên CSDL {settings.Database}", false);
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.TooManyConnections)
+            {
+                return new ConnectionTest(false, "Máy chủ CSDL đã đạt số kết nối tối đa — thử lại sau", false);
+            }
+            catch (PostgresException ex)
+            {
+                return new ConnectionTest(false, $"Máy chủ CSDL trả lỗi ({ex.SqlState}): {ex.MessageText}", false);
+            }
+            catch (Exception ex) when (IsUnreachable(ex))
+            {
+                return new ConnectionTest(false, $"Không kết nối được máy chủ CSDL {settings.Host}:{settings.Port}", false);
+            }
         }
-        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.InvalidPassword)
+        catch (Exception ex)
         {
-            return new ConnectionTest(false, "Sai tài khoản hoặc mật khẩu CSDL", false);
-        }
-        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.InvalidCatalogName)
-        {
-            return new ConnectionTest(false, $"CSDL {settings.Database} chưa được tạo trên máy chủ", false);
-        }
-        catch (Exception ex) when (IsUnreachable(ex))
-        {
-            return new ConnectionTest(false, $"Không kết nối được máy chủ CSDL {settings.Host}:{settings.Port}", false);
+            // Nhánh dự phòng cuối — lỗi dựng chuỗi kết nối (ArgumentException...) hay bất kỳ lỗi
+            // không mong đợi khác không được để lộ ra ngoài làm crash trình hướng dẫn cài đặt.
+            return new ConnectionTest(false, $"Không thử kết nối được: {ex.Message}", false);
         }
     }
 
