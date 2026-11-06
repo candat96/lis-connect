@@ -7,6 +7,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Lis.App.Services;
 using Lis.App.ViewModels;
+using Lis.App.ViewModels.Admin;
 using Lis.App.ViewModels.Catalog;
 using Lis.App.ViewModels.Instruments;
 using Lis.App.ViewModels.Reception;
@@ -14,6 +15,7 @@ using Lis.App.ViewModels.Results;
 using Lis.App.ViewModels.Settings;
 using Lis.App.ViewModels.Unmatched;
 using Lis.App.Views;
+using Lis.App.Views.Admin;
 using Lis.App.Views.Catalog;
 using Lis.App.Views.Instruments;
 using Lis.App.Views.Reception;
@@ -79,6 +81,18 @@ internal static class Program
         Capture(outputDirectory, "10-ket-qua.png", CreateResultsWindow());
         Capture(outputDirectory, "11-chua-ghep.png", CreateUnmatchedWindow());
         Capture(outputDirectory, "12-may-va-map.png", CreateInstrumentsWindow());
+        var (usersWindow, usersViewModel) = CreateUsersWindow();
+        Capture(outputDirectory, "13-tai-khoan.png", usersWindow, () =>
+        {
+            // Lệnh tải thật (gọi tự động từ constructor UsersViewModel) nhắm CSDL không có
+            // thật, có thể báo lỗi muộn hơn lần ghi đè đầu — chờ một chút rồi ghi đè lại.
+            ApplyFakeUsers(usersViewModel);
+            Thread.Sleep(1500);
+            ApplyFakeUsers(usersViewModel);
+        });
+        Capture(outputDirectory, "14-cai-dat-thong-tin-co-so.png", CreateFacilityInfoWindow());
+        Capture(outputDirectory, "15-cai-dat-barcode-tem.png", CreateBarcodeSettingsWindow());
+        Capture(outputDirectory, "16-cai-dat-ket-noi-csdl.png", CreateDbConnectionWindow());
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
 
@@ -259,6 +273,109 @@ internal static class Program
             Title = "LIS Connect — Máy & map",
             Width = 1360,
             Height = 820,
+            Content = view,
+        };
+    }
+
+    /// <summary>
+    /// Màn "Tài khoản": danh sách giả (ba người dùng, vai trò khác nhau) và form đang sửa người
+    /// dùng đầu tiên. Constructor của <see cref="UsersViewModel"/> tự gọi
+    /// <c>LoadUsersCommand</c> với CSDL không kết nối được — chờ nó thất bại (Postgres trả lỗi
+    /// kết nối rất nhanh với "localhost" không có máy chủ) rồi ghi đè bằng dữ liệu giả.
+    /// </summary>
+    private static (Window Window, UsersViewModel ViewModel) CreateUsersWindow()
+    {
+        // "invalid-host-dung-de-chup-anh" không phân giải được (NXDOMAIN ngay, không chờ
+        // timeout) — constructor của UsersViewModel tự gọi LoadUsersCommand (không await);
+        // AfterShow (chạy sau Dispatcher.UIThread.RunJobs đầu, xem Capture) mới ghi dữ liệu giả
+        // đè lên, lúc đó lệnh tải thật đã chắc chắn xong (lỗi phân giải tên máy chủ rất nhanh).
+        var unusedDb = Db.Create("Host=invalid-host-dung-de-chup-anh;Database=unused;Username=unused;Password=unused;Timeout=1");
+        var viewModel = new UsersViewModel(new UserStore(unusedDb));
+
+        var view = new UsersView { DataContext = viewModel };
+
+        var window = new Window
+        {
+            Title = "LIS Connect — Tài khoản",
+            Width = 1100,
+            Height = 700,
+            Content = view,
+        };
+
+        return (window, viewModel);
+    }
+
+    private static void ApplyFakeUsers(UsersViewModel viewModel)
+    {
+        viewModel.ErrorMessage = "";
+        viewModel.Users =
+        [
+            new UserListItemViewModel(Guid.NewGuid(), "quantri.thu", "Nguyễn Văn Thử", "Quản trị khoa", [Roles.QuanTri], true),
+            new UserListItemViewModel(Guid.NewGuid(), "ktv.mau", "Trần Thị Mẫu", "Kỹ thuật viên trưởng", [Roles.KyThuatVien], true),
+            new UserListItemViewModel(Guid.NewGuid(), "tiepnhan.thu", "Lê Văn Thử", "Tiếp nhận", [Roles.TiepNhan], false),
+        ];
+        viewModel.SelectedUser = viewModel.Users[0];
+        viewModel.SelectUserCommand.Execute(null);
+    }
+
+    /// <summary>Tab "Thông tin cơ sở" của màn Cài đặt, với thông tin cơ sở mẫu đã nạp.</summary>
+    private static Window CreateFacilityInfoWindow()
+    {
+        var unusedDb = Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused");
+        var viewModel = new FacilitySettingsViewModel(new FacilityStore(unusedDb))
+        {
+            Name = "Khoa Xét nghiệm — Bệnh viện Thử",
+            Address = "123 Đường Thử, Quận Thử, TP. Thử",
+            Phone = "0900000001",
+        };
+
+        var view = new FacilityInfoView { DataContext = viewModel };
+
+        return new Window
+        {
+            Title = "LIS Connect — Cài đặt — Thông tin cơ sở",
+            Width = 900,
+            Height = 560,
+            Content = view,
+        };
+    }
+
+    /// <summary>Tab "Barcode & tem" của màn Cài đặt, với cấu hình mặc định và tem mẫu xem trước.</summary>
+    private static Window CreateBarcodeSettingsWindow()
+    {
+        var unusedDb = Db.Create("Host=localhost;Database=unused;Username=unused;Password=unused");
+        var viewModel = new FacilitySettingsViewModel(new FacilityStore(unusedDb));
+
+        var view = new BarcodeSettingsView { DataContext = viewModel };
+
+        return new Window
+        {
+            Title = "LIS Connect — Cài đặt — Barcode & tem",
+            Width = 900,
+            Height = 480,
+            Content = view,
+        };
+    }
+
+    /// <summary>Tab "Kết nối CSDL" của màn Cài đặt, sau một lần "Thử kết nối" thành công.</summary>
+    private static Window CreateDbConnectionWindow()
+    {
+        var localConfig = new LocalConfig(new DbSettings("db-01.noi-bo", 5432, "lis", "lis_user", "***", false), "XN-01");
+        var screenshotsConfigDir = Path.Combine(Path.GetTempPath(), "lis-screenshots-unused-db");
+        var configStore = new LocalConfigStore(screenshotsConfigDir, new DevKeySecretProtector(screenshotsConfigDir));
+        var viewModel = new DbConnectionViewModel(new UnusedSetupService(), configStore, localConfig)
+        {
+            TestMessage = "Kết nối thành công",
+            TestOk = true,
+        };
+
+        var view = new DbConnectionView { DataContext = viewModel };
+
+        return new Window
+        {
+            Title = "LIS Connect — Cài đặt — Kết nối CSDL",
+            Width = 900,
+            Height = 620,
             Content = view,
         };
     }

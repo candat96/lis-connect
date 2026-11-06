@@ -16,6 +16,7 @@ public sealed partial class UsersViewModel : ObservableObject
     private string errorMessage = "";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FilteredUsers))]
     private List<UserListItemViewModel> users = [];
 
     [ObservableProperty]
