@@ -28,7 +28,7 @@ Write-Host "Created output directories"
 
 # Publish Lis.App
 Write-Host "`nPublishing Lis.App..."
-$AppProjPath = Join-Path $RepoRoot "src" "Lis.App" "Lis.App.csproj"
+$AppProjPath = Join-Path (Join-Path (Join-Path $RepoRoot "src") "Lis.App") "Lis.App.csproj"
 dotnet publish $AppProjPath `
     -c Release `
     -r win-x64 `
@@ -46,7 +46,7 @@ Write-Host "Successfully published Lis.App to $AppDir"
 
 # Publish Lis.SeedTool
 Write-Host "`nPublishing Lis.SeedTool..."
-$ToolProjPath = Join-Path $RepoRoot "tools" "Lis.SeedTool" "Lis.SeedTool.csproj"
+$ToolProjPath = Join-Path (Join-Path (Join-Path $RepoRoot "tools") "Lis.SeedTool") "Lis.SeedTool.csproj"
 dotnet publish $ToolProjPath `
     -c Release `
     -r win-x64 `
@@ -64,7 +64,7 @@ Write-Host "Successfully published Lis.SeedTool to $ToolDir"
 
 # Copy seed data and documentation
 Write-Host "`nCopying seed data and documentation..."
-$SeedDataPath = Join-Path $RepoRoot "tools" "seed" "mau-danh-muc.xlsx"
+$SeedDataPath = Join-Path (Join-Path (Join-Path $RepoRoot "tools") "seed") "mau-danh-muc.xlsx"
 if (Test-Path $SeedDataPath) {
     Copy-Item $SeedDataPath (Join-Path $DistDir "mau-danh-muc.xlsx")
     Write-Host "Copied seed data: mau-danh-muc.xlsx"
@@ -72,7 +72,7 @@ if (Test-Path $SeedDataPath) {
     Write-Warning "Seed data not found: $SeedDataPath"
 }
 
-$DocPath = Join-Path $RepoRoot "docs" "CHAY-THU-WINDOWS.md"
+$DocPath = Join-Path (Join-Path $RepoRoot "docs") "CHAY-THU-WINDOWS.md"
 if (Test-Path $DocPath) {
     Copy-Item $DocPath (Join-Path $DistDir "CHAY-THU-WINDOWS.md")
     Write-Host "Copied documentation: CHAY-THU-WINDOWS.md"

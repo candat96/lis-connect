@@ -124,26 +124,28 @@ ALTER DATABASE lis OWNER TO lis_user;
 
 Mở `C:\LisConnect\app\` và nhấp đôi vào **LisConnect.exe**.
 
-**Lần chạy đầu tiên** sẽ hiện trình cài đặt:
+**Lần chạy đầu tiên** sẽ hiện cửa sổ "Cài đặt lần đầu", gồm 3 bước (chung một nút **Tiếp theo** ở góc dưới bên phải để qua bước sau):
 
-1. **Kết nối Cơ sở Dữ liệu**:
-   - Server: `localhost`
-   - Port: `5432`
-   - Database: `lis`
-   - Username: `lis_user`
-   - Password: `mat-khau-lis` (mật khẩu bạn vừa tạo)
-   - Nhấp **Thử kết nối** để kiểm tra
+1. **Bước 1 — Kết nối CSDL**:
+   - Máy chủ: `localhost`
+   - Cổng: `5432`
+   - Tên CSDL: `lis`
+   - Tài khoản: `lis_user`
+   - Mật khẩu: `mat-khau-lis` (mật khẩu bạn vừa tạo)
+   - Mã máy trạm (vd `XN-01`)
+   - Nhấp **Thử kết nối** để kiểm tra, thấy thông báo kết nối thành công rồi mới nhấp **Tiếp theo**
 
-2. **Tài khoản Quản trị**:
-   - Username: (tên người dùng của bạn, ví dụ: `admin`)
-   - Full Name: (tên đầy đủ, ví dụ: `Quản trị viên hệ thống`)
-   - Password: (mật khẩu ≥ 8 ký tự)
-   - Nhấp **Tạo tài khoản**
+2. **Bước 2 — Tài khoản quản trị đầu tiên** (chỉ hiện khi CSDL chưa có tài khoản nào):
+   - Tên đăng nhập: (tên người dùng của bạn, ví dụ: `admin`)
+   - Họ tên: (tên đầy đủ, ví dụ: `Quản trị viên hệ thống`)
+   - Mật khẩu (tối thiểu 8 ký tự)
+   - Nhập lại mật khẩu
+   - Nhấp **Tiếp theo**
 
-3. **Thông tin Cơ sở**:
+3. **Bước 3 — Thông tin cơ sở** (chỉ hiện khi CSDL vừa được tạo mới):
    - Tên cơ sở: (tên bệnh viện/phòng xét nghiệm)
    - Địa chỉ, Điện thoại (tuỳ chọn)
-   - Nhấp **Lưu**
+   - Nhấp **Tiếp theo** để hoàn tất
 
 Ứng dụng sẽ tự động tạo cấu trúc bảng và chạy migrations.
 
@@ -152,11 +154,11 @@ Mở `C:\LisConnect\app\` và nhấp đôi vào **LisConnect.exe**.
 ## Bước 5: Đăng nhập và cấu hình
 
 1. **Đăng nhập** với tài khoản quản trị vừa tạo
-2. **Cài đặt** → **Kết nối Cơ sở Dữ liệu**: Xem lại các thiết lập kết nối
-3. **Cài đặt** → **Kết nối HIS** (tuỳ chọn):
-   - Chọn HIS: **HIS-PROMAX** (hoặc hệ thống khác)
-   - Nhập địa chỉ/cổng/tài khoản HIS (nếu có)
-   - Nhấp **Thử kết nối**
+2. **Cài đặt** → **Kết nối CSDL**: xem lại các thiết lập kết nối, sửa khi cần
+3. **Cài đặt** → **Kết nối HIS** (tuỳ chọn, chỉ hiện cho tài khoản quản trị):
+   - Tích **Bật kết nối HIS**
+   - Nhấp **Dùng mẫu HIS-PROMAX** để tự điền (hoặc tự nhập **Địa chỉ máy chủ (base URL)**, **Kiểu xác thực**, tài khoản/khóa API)
+   - Nhấp **Thử kết nối**, rồi **Lưu**
 
 ---
 
@@ -164,11 +166,15 @@ Mở `C:\LisConnect\app\` và nhấp đôi vào **LisConnect.exe**.
 
 ### 6.1 Nạp danh mục
 
-1. Mở ứng dụng, đăng nhập
-2. Vào **Danh mục** → **Nhập Excel**
+1. Mở ứng dụng, đăng nhập bằng tài khoản quản trị (chỉ quản trị mới thấy nút này)
+2. Vào mục **Danh mục**, nhấp nút **📥 Nhập Excel…**
 3. Chọn tệp `mau-danh-muc.xlsx` (trong thư mục `C:\LisConnect\`)
-4. Nhấp **Nhập**
-   - Sẽ nạp: chỉ số xét nghiệm, nhóm dịch vụ, thông số tham chiếu, v.v.
+4. Ứng dụng kiểm tra trước (không ghi gì) và hiện panel kết quả:
+   - Không lỗi: hiện "Sẽ tạo X, cập nhật Y" — nhấp **Nhập thật** để ghi vào CSDL
+   - Có lỗi: hiện danh sách lỗi theo từng dòng (vd "Sheet DichVu dòng 5: thiếu Mã") — nút **Nhập thật** bị mờ, không ghi gì; sửa tệp Excel rồi nhập lại
+5. Sau khi nhấp **Nhập thật**, panel hiện "Đã tạo X, cập nhật Y" và danh sách dịch vụ tự nạp lại; nhấp **Đóng**
+   - Nhấp **Hủy** ở bất kỳ lúc nào trước khi nhập thật để đóng panel, không ghi gì
+   - Sẽ nạp: chỉ số xét nghiệm, nhóm dịch vụ, thông số tham chiếu, ánh xạ máy, v.v.
 
 ### 6.2 Tạo dữ liệu demo (tuỳ chọn)
 
@@ -197,18 +203,17 @@ Dữ liệu sẽ bao gồm:
 
 ### Máy in tem (Barcode)
 
-1. **Cài đặt** → **In ấn** (hoặc mục tương ứng)
-2. Chọn máy in: Chọn máy in công suất nhỏ (A6 hoặc thermal)
-3. Kiểm tra định dạng barcode trong **Cài đặt** → **Quy tắc Barcode**
+1. **Cài đặt** → **Máy in**: chọn **Máy in tem (tên)** — máy in công suất nhỏ (A6 hoặc thermal), đặt **Chiều rộng tem (mm)**/**Chiều cao tem (mm)**, nhấp **Lưu**
+   - Có thể nhấp **In tem thử** để kiểm tra
+2. **Cài đặt** → **Barcode & tem**: kiểm tra định dạng barcode
    - Tiền tố: `9` (mặc định)
    - Mẫu ngày: `yyMMdd`
    - Số chữ số thứ tự: `3`
+   - Xem trước ở "Xem trước barcode mẫu", nhấp **Lưu**
 
 ### Máy in phiếu (Kết quả)
 
-1. **Cài đặt** → **In ấn**
-2. Chọn máy in: In A4 bình thường
-3. Kiểm tra kiểu giấy và độ phân giải
+1. **Cài đặt** → **Máy in**: chọn **Máy in phiếu kết quả (tên)** — máy in A4 bình thường, nhấp **Lưu**
 
 ---
 
@@ -253,12 +258,9 @@ Dữ liệu sẽ bao gồm:
 
 **Giải pháp**:
 
-Cấp quyền cho `lis_user` (chạy dưới tài khoản `postgres`):
-```sql
-ALTER USER lis_user SUPERUSER;
-```
-
-Hoặc tạo extension dưới `postgres` trước:
+Bình thường không gặp lỗi này — `lis_user` là chủ CSDL `lis` (xem Bước 3) nên tự tạo được
+`citext`/`unaccent` (trusted extensions, PostgreSQL 13+), không cần quyền `SUPERUSER`. Nếu vẫn
+gặp lỗi, tạo extension dưới tài khoản `postgres` trước khi chạy ứng dụng:
 ```sql
 \c lis
 CREATE EXTENSION IF NOT EXISTS citext;
@@ -299,9 +301,8 @@ Các tính năng sau sẽ được thêm vào các phiên bản tiếp theo:
 
 Nếu gặp vấn đề:
 
-1. Kiểm tra **nhật ký ứng dụng**: **Cài đặt** → **Nhật ký** (nếu có)
-2. Ghi lại **thông báo lỗi chi tiết**
-3. Liên hệ bộ phận hỗ trợ kỹ thuật cùng:
+1. Ghi lại **thông báo lỗi chi tiết** hiện trên màn hình (chưa có màn xem nhật ký ứng dụng trong bản đợt 1 — xem mục "Chưa có ở bản thử")
+2. Liên hệ bộ phận hỗ trợ kỹ thuật cùng:
    - Phiên bản Windows (ví dụ: Windows 10 22H2)
    - Phiên bản PostgreSQL
    - Thông báo lỗi từ ứng dụng
