@@ -20,6 +20,10 @@ public partial class HisSettingsViewModel : ObservableObject
     private readonly CurrentUser _currentUser;
     private bool _hasExistingSecret;
 
+    /// <summary>Bí mật đã giải mã từ lần nạp/lưu gần nhất — dùng khi <see cref="Secret"/> để trống
+    /// (giữ bí mật cũ), giống <c>DbConnectionViewModel._existingPassword</c>.</summary>
+    private string? _existingSecret;
+
     public HisSettingsViewModel(HisProfileStore store, HisConnectionTester tester, CurrentUser currentUser)
     {
         _store = store;
@@ -27,8 +31,24 @@ public partial class HisSettingsViewModel : ObservableObject
         _currentUser = currentUser;
     }
 
-    /// <summary>Các kiểu xác thực hợp lệ (xem CHECK của cột <c>auth_type</c>).</summary>
-    public static IReadOnlyList<string> AuthTypes { get; } = ["none", "api-key", "basic", "bearer-login"];
+    /// <summary>Một lựa chọn kiểu xác thực: <see cref="Code"/> là giá trị lưu CSDL, <see cref="Label"/> là chữ hiện trên ComboBox.</summary>
+    public sealed record AuthTypeOption(string Code, string Label);
+
+    /// <summary>Các kiểu xác thực hợp lệ (xem CHECK của cột <c>auth_type</c>), với nhãn tiếng Việt.</summary>
+    public static IReadOnlyList<AuthTypeOption> AuthTypeOptions { get; } =
+    [
+        new("none", "Không xác thực"),
+        new("api-key", "Khóa API (header)"),
+        new("basic", "Tài khoản/mật khẩu (Basic)"),
+        new("bearer-login", "Đăng nhập lấy token (Bearer)"),
+    ];
+
+    /// <summary>Lựa chọn hiện tại trên ComboBox — bọc quanh <see cref="AuthType"/> (giá trị thật lưu CSDL).</summary>
+    public AuthTypeOption SelectedAuthType
+    {
+        get => AuthTypeOptions.First(option => option.Code == AuthType);
+        set => AuthType = value.Code;
+    }
 
     [ObservableProperty]
     private bool _enabled;
@@ -44,6 +64,7 @@ public partial class HisSettingsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ShowBasicFields))]
     [NotifyPropertyChangedFor(nameof(ShowBearerLoginFields))]
     [NotifyPropertyChangedFor(nameof(ShowSecretHint))]
+    [NotifyPropertyChangedFor(nameof(SelectedAuthType))]
     private string _authType = "none";
 
     [ObservableProperty]
@@ -123,7 +144,7 @@ public partial class HisSettingsViewModel : ObservableObject
         {
             ErrorMessage = null;
             var profile = await _store.GetAsync() ?? HisProfile.Empty;
-            ApplyProfile(profile);
+            LoadProfile(profile);
         }
         catch (Exception ex)
         {
@@ -192,7 +213,10 @@ public partial class HisSettingsViewModel : ObservableObject
         try
         {
             await _store.SaveAsync(profile, _currentUser.User.Id);
-            _hasExistingSecret = _hasExistingSecret || !string.IsNullOrEmpty(Secret);
+            // profile.Secret đã gồm "giữ bí mật cũ" (xem TryBuildProfile) — luôn là bí mật đang
+            // hiệu lực sau khi lưu, dù người dùng vừa gõ bí mật mới hay để trống ô.
+            _existingSecret = profile.Secret;
+            _hasExistingSecret = !string.IsNullOrEmpty(profile.Secret);
             Secret = "";
             OnPropertyChanged(nameof(HasExistingSecret));
             OnPropertyChanged(nameof(SecretHint));
@@ -208,7 +232,12 @@ public partial class HisSettingsViewModel : ObservableObject
         }
     }
 
-    private void ApplyProfile(HisProfile profile)
+    /// <summary>
+    /// Nạp một hồ sơ đã đọc (từ <see cref="LoadAsync"/>, hoặc trực tiếp trong test không cần CSDL
+    /// thật) vào các trường của form. Giữ lại bí mật đã giải mã (<see cref="_existingSecret"/>)
+    /// để "Thử kết nối"/"Lưu" dùng khi <see cref="Secret"/> đang để trống trên màn hình.
+    /// </summary>
+    public void LoadProfile(HisProfile profile)
     {
         Enabled = profile.Enabled;
         Name = profile.Name;
@@ -216,6 +245,7 @@ public partial class HisSettingsViewModel : ObservableObject
         AuthType = profile.AuthType;
         ApiKeyHeader = profile.ApiKeyHeader ?? "";
         Secret = "";
+        _existingSecret = profile.Secret;
         _hasExistingSecret = !string.IsNullOrEmpty(profile.Secret);
         Username = profile.Username ?? "";
         LoginPath = profile.LoginPath ?? "";
@@ -262,12 +292,16 @@ public partial class HisSettingsViewModel : ObservableObject
             BaseUrl: BaseUrl.Trim(),
             AuthType: AuthType,
             ApiKeyHeader: NullIfBlank(ApiKeyHeader),
-            Secret: string.IsNullOrEmpty(Secret) ? null : Secret,
+            // Để trống ô bí mật: dùng lại bí mật đã giải mã từ lần nạp/lưu gần nhất, không gửi
+            // chuỗi rỗng đi (ảnh hưởng cả "Thử kết nối" lẫn "Lưu").
+            Secret: string.IsNullOrEmpty(Secret) ? _existingSecret : Secret,
             Username: NullIfBlank(Username),
             LoginPath: NullIfBlank(LoginPath),
             LoginBodyTemplate: NullIfBlank(LoginBodyTemplate),
             TokenJsonPath: NullIfBlank(TokenJsonPath),
             TokenTtlMinutes: tokenTtlMinutes,
+            // Đơn giản hóa đợt 1: form chưa có ô chọn orders_mode — luôn "pull" (GET kiểm tra kết
+            // nối). "push" (máy trạm HIS tự đẩy chỉ định) sẽ có ô riêng khi làm đồng bộ ở đợt 3.
             OrdersMode: "pull",
             OrdersPath: NullIfBlank(OrdersPath),
             PollSeconds: null,

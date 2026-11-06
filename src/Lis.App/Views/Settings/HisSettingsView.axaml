@@ -31,7 +31,13 @@
 
                     <StackPanel>
                         <TextBlock Classes="label" Text="Kiểu xác thực" />
-                        <ComboBox ItemsSource="{Binding AuthTypes}" SelectedItem="{Binding AuthType}" HorizontalAlignment="Stretch" />
+                        <ComboBox ItemsSource="{Binding AuthTypeOptions}" SelectedItem="{Binding SelectedAuthType}" HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:HisSettingsViewModel+AuthTypeOption">
+                                    <TextBlock Text="{Binding Label}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                     </StackPanel>
 
                     <!-- api-key -->

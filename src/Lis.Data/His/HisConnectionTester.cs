@@ -27,6 +27,11 @@ public sealed class HisConnectionTester(HttpClient http)
 
         try
         {
+            if (profile.AuthType == "api-key" && string.IsNullOrWhiteSpace(profile.ApiKeyHeader))
+            {
+                return new HisTestResult(false, "Chưa nhập tên header chứa khóa API");
+            }
+
             string? bearerToken = null;
 
             if (profile.AuthType == "bearer-login")

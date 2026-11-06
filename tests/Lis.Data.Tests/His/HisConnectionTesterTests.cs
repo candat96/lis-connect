@@ -23,7 +23,8 @@ public sealed class HisConnectionTesterTests
         });
 
         var profile = HisProfile.Empty with { BaseUrl = server.BaseUrl, AuthType = "none", OrdersPath = "/api/v1/system/info" };
-        var tester = new HisConnectionTester(new HttpClient());
+        using var httpClient = new HttpClient();
+        var tester = new HisConnectionTester(httpClient);
 
         var result = await tester.TestAsync(profile, TestContext.Current.CancellationToken);
 
@@ -41,7 +42,8 @@ public sealed class HisConnectionTesterTests
         });
 
         var profile = HisProfile.Empty with { BaseUrl = server.BaseUrl, AuthType = "none", OrdersPath = "/orders" };
-        var tester = new HisConnectionTester(new HttpClient());
+        using var httpClient = new HttpClient();
+        var tester = new HisConnectionTester(httpClient);
 
         var result = await tester.TestAsync(profile, TestContext.Current.CancellationToken);
 
@@ -59,7 +61,8 @@ public sealed class HisConnectionTesterTests
         });
 
         var profile = HisProfile.Empty with { BaseUrl = server.BaseUrl, AuthType = "none", OrdersPath = "/orders" };
-        var tester = new HisConnectionTester(new HttpClient());
+        using var httpClient = new HttpClient();
+        var tester = new HisConnectionTester(httpClient);
 
         var result = await tester.TestAsync(profile, TestContext.Current.CancellationToken);
 
@@ -74,7 +77,8 @@ public sealed class HisConnectionTesterTests
         var freePort = GetFreePort();
 
         var profile = HisProfile.Empty with { BaseUrl = $"http://127.0.0.1:{freePort}", AuthType = "none", OrdersPath = "/orders" };
-        var tester = new HisConnectionTester(new HttpClient());
+        using var httpClient = new HttpClient();
+        var tester = new HisConnectionTester(httpClient);
 
         var result = await tester.TestAsync(profile, TestContext.Current.CancellationToken);
 
@@ -109,7 +113,8 @@ public sealed class HisConnectionTesterTests
             Secret = "matkhau",
             OrdersPath = "/orders",
         };
-        var tester = new HisConnectionTester(new HttpClient());
+        using var httpClient = new HttpClient();
+        var tester = new HisConnectionTester(httpClient);
 
         var result = await tester.TestAsync(profile, TestContext.Current.CancellationToken);
 
@@ -147,7 +152,8 @@ public sealed class HisConnectionTesterTests
             Secret = "matkhau",
             OrdersPath = "/orders",
         };
-        var tester = new HisConnectionTester(new HttpClient());
+        using var httpClient = new HttpClient();
+        var tester = new HisConnectionTester(httpClient);
 
         var result = await tester.TestAsync(profile, TestContext.Current.CancellationToken);
 
@@ -175,12 +181,42 @@ public sealed class HisConnectionTesterTests
             Secret = "khoa-bi-mat",
             OrdersPath = "/api/v1/system/info",
         };
-        var tester = new HisConnectionTester(new HttpClient());
+        using var httpClient = new HttpClient();
+        var tester = new HisConnectionTester(httpClient);
 
         var result = await tester.TestAsync(profile, TestContext.Current.CancellationToken);
 
         result.Ok.ShouldBeTrue();
         receivedHeader.ShouldBe("khoa-bi-mat");
+    }
+
+    [Fact]
+    public async Task TestAsync_ApiKey_MissingHeaderName_ReturnsVietnameseMessage_WithoutSendingRequest()
+    {
+        var requestSent = false;
+        using var server = FakeHisServer.Start(request =>
+        {
+            requestSent = true;
+            request.Response.StatusCode = 200;
+            WriteAndClose(request.Response, "{\"ok\":true}");
+        });
+
+        var profile = HisProfile.Empty with
+        {
+            BaseUrl = server.BaseUrl,
+            AuthType = "api-key",
+            ApiKeyHeader = "",
+            Secret = "khoa-bi-mat",
+            OrdersPath = "/api/v1/system/info",
+        };
+        using var httpClient = new HttpClient();
+        var tester = new HisConnectionTester(httpClient);
+
+        var result = await tester.TestAsync(profile, TestContext.Current.CancellationToken);
+
+        result.Ok.ShouldBeFalse();
+        result.Message.ShouldBe("Chưa nhập tên header chứa khóa API");
+        requestSent.ShouldBeFalse();
     }
 
     private static void WriteAndClose(HttpListenerResponse response, string body)
