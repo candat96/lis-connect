@@ -25,6 +25,7 @@ public static class Migrator
     public static MigrationResult Upgrade(string connectionString)
     {
         // Chạy script hỗ trợ uuidv7 cho PostgreSQL < 18 trước DbUp migration
+        // (plays the role of a DbUp always-run script, idempotent)
         EnsureUuidv7Compat(connectionString);
 
         var upgrader = DeployChanges.To

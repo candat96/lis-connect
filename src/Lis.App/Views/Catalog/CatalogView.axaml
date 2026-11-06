@@ -31,7 +31,10 @@
                 </ListBox>
             </Border>
 
-            <Button Grid.Row="2" Content="+ Dịch vụ mới" Command="{Binding NewServiceCommand}" Margin="0,8,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+            <StackPanel Grid.Row="2" Spacing="8" Margin="0,8,0,0">
+                <Button Content="+ Dịch vụ mới" Command="{Binding NewServiceCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                <Button Content="📥 Nhập Excel…" Command="{Binding ImportExcelCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsEnabled="{Binding CanImportExcel}" />
+            </StackPanel>
 
         </Grid>
 

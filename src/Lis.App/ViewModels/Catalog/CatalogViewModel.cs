@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lis.Data.Catalog;
@@ -267,5 +268,21 @@ public partial class CatalogViewModel : ObservableObject
         {
             ErrorMessage = $"Không lưu được dịch vụ: {ex.Message}";
         }
+    }
+
+    [ObservableProperty]
+    private bool _canImportExcel = true;
+
+    /// <summary>Mở dialog chọn tệp Excel danh mục để nhập (chỉ admin).</summary>
+    [RelayCommand]
+    public async Task ImportExcelAsync()
+    {
+        ErrorMessage = null;
+        // TODO: Thực hiện import Excel với file picker, dryRun preview, confirm, và reload danh mục.
+        // Bước 1: Mở file picker qua StorageProvider (được inject từ View)
+        // Bước 2: Chạy CatalogExcelImporter.ImportAsync(..., dryRun: true)
+        // Bước 3: Hiển thị dialog báo cáo (created/updated/errors)
+        // Bước 4: Nếu xác nhận, chạy lại với dryRun: false
+        // Bước 5: Gọi LoadAsync() để reload danh sách
     }
 }

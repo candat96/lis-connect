@@ -17,6 +17,41 @@ Tài liệu này hướng dẫn cài đặt và chạy LIS Connect (phần mềm
 
 ---
 
+## Cách 1: Dùng bản phân phối (khuyến nghị) 
+
+*Nhanh nhất — không cần cài .NET SDK.*
+
+### Bước 1-3: Chuẩn bị
+
+[Tiếp tục từ "Bước 1: Tải và giải nén" dưới đây]
+
+## Cách 2: Build từ mã nguồn
+
+*Cần cài .NET 10 SDK; tốn thêm 5-10 phút.*
+
+### Cài đặt cần thiết
+
+1. **Git**: Nếu chưa có, tải từ https://git-scm.com/download/win
+2. **.NET 10 SDK**: Tải từ https://dotnet.microsoft.com/en-us/download/dotnet/10.0
+   - Chọn **Windows x64 Installer**
+   - Cài đặt bình thường (được thêm vào `PATH` tự động)
+3. **PowerShell 5.1+**: Có sẵn trên Windows 10+
+
+### Tải và build
+
+1. Mở **Command Prompt** hoặc **PowerShell**
+2. Chạy các lệnh sau:
+   ```bash
+   git clone https://github.com/candat96/lis-connect.git
+   cd lis-connect
+   git checkout dot-1-nen-tang
+   powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
+   ```
+3. Chờ quá trình build hoàn thành (~5 phút tuỳ kết nối mạng)
+4. Tệp `dist\LisConnect-win-x64.zip` sẵn sàng, giải nén theo "Bước 1" dưới đây
+
+---
+
 ## Cách 1: Dùng bản phân phối (khuyến nghị)
 
 ### Bước 1: Tải và giải nén
@@ -71,19 +106,19 @@ CREATE USER lis_user WITH PASSWORD 'mat-khau-lis';
 -- Gán quyền sở hữu cơ sở dữ liệu cho lis_user
 ALTER DATABASE lis OWNER TO lis_user;
 
--- Gán quyền tạo extension (cần cho citext, unaccent)
-ALTER USER lis_user CREATEDB;
-
 -- Thoát
 \q
 ```
 
-**Ghi chú về quyền extension**:
-- Nếu gặp lỗi `permission denied to create extension`, hãy cấp quyền thêm:
+**Ghi chú về quyền extension**: 
+- `lis_user` là chủ của database `lis` nên có thể tạo extension `citext` và `unaccent` (trusted extensions, PostgreSQL 13+)
+- Nếu gặp lỗi `permission denied`, chạy các lệnh này dưới tài khoản `postgres`:
   ```sql
-  ALTER USER lis_user SUPERUSER;
+  \c lis
+  CREATE EXTENSION IF NOT EXISTS citext;
+  CREATE EXTENSION IF NOT EXISTS unaccent;
+  \c postgres
   ```
-- Hoặc tạo extension dưới tài khoản `postgres` lần đầu, rồi xóa quyền SUPERUSER.
 
 ### Bước 4: Chạy ứng dụng lần đầu
 
@@ -243,14 +278,19 @@ CREATE EXTENSION IF NOT EXISTS unaccent;
 
 ---
 
-## Chưa có ở bản thử (Đợt 2+)
+## Chưa có ở bản thử
 
 Các tính năng sau sẽ được thêm vào các phiên bản tiếp theo:
 
+**Đợt 2** (Q1 2027):
 - **Dịch vụ nền Windows**: Tự động chạy ứng dụng khi hệ thống khởi động
 - **Kết nối máy xét nghiệm**: Đồng bộ kết quả từ máy xét nghiệm qua LAN/USB
 - **Log thô (Raw Log)**: Ghi nhật ký chi tiết cho mục đích gỡ lỗi
+
+**Đợt 3** (Q2 2027):
 - **Đồng bộ HIS thực**: Kết nối và đồng bộ dữ liệu với HIS chính thức
+
+**Đợt 5** (Q3 2027):
 - **Bộ cài MSI**: Tệp cài đặt chuyên nghiệp (Windows Installer)
 
 ---
