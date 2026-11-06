@@ -39,3 +39,56 @@ jobs:
       - name: Test Lis.Data.Tests (cần Docker)
         if: matrix.os == 'ubuntu-latest'
         run: dotnet test tests/Lis.Data.Tests --no-build --ignore-exit-code 8
+
+  publish-win-x64:
+    needs: build-and-test
+    runs-on: windows-latest
+    if: success()
+
+    steps:
+      - name: Lấy mã nguồn
+        uses: actions/checkout@v4
+
+      - name: Cài .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish Lis.App (win-x64)
+        run: >
+          dotnet publish src/Lis.App
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o dist/LisConnect-win-x64/app
+
+      - name: Publish Lis.SeedTool (win-x64)
+        run: >
+          dotnet publish tools/Lis.SeedTool
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o dist/LisConnect-win-x64/seedtool
+
+      - name: Copy seed data and documentation
+        run: |
+          Copy-Item tools/seed/mau-danh-muc.xlsx dist/LisConnect-win-x64/
+          Copy-Item docs/CHAY-THU-WINDOWS.md dist/LisConnect-win-x64/
+        shell: pwsh
+
+      - name: Create archive
+        run: |
+          $DistPath = "dist/LisConnect-win-x64"
+          Compress-Archive -Path $DistPath -DestinationPath dist/LisConnect-win-x64.zip
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LisConnect-win-x64
+          path: dist/LisConnect-win-x64.zip
+          retention-days: 30
