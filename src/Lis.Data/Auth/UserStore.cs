@@ -1,4 +1,5 @@
 using Dapper;
+using Lis.Core.Auth;
 using Npgsql;
 
 namespace Lis.Data.Auth;
@@ -57,6 +58,29 @@ public sealed class UserStore(Db db)
         var rolesArray = roles.ToArray();
 
         await using var connection = await db.OpenAsync();
+
+        // Không bao giờ để hệ thống còn 0 tài khoản quản trị đang hoạt động. Chỉ cần kiểm khi
+        // tài khoản đang sửa HIỆN ĐANG là quản trị đang hoạt động và sẽ KHÔNG còn như vậy sau khi
+        // lưu (bị khóa hoặc mất vai trò quan-tri) — sửa một tài khoản chưa từng là quản trị
+        // (vd khóa một kỹ thuật viên) không bao giờ bị chặn ở đây.
+        var current = await connection.QuerySingleOrDefaultAsync<CurrentAdminRow>(
+            "SELECT active, roles FROM app_user WHERE id = @id", new { id });
+        var wasActiveAdmin = current is { Active: true } && current.Roles.Contains(Roles.QuanTri);
+        var willStayActiveAdmin = active && roles.Contains(Roles.QuanTri);
+
+        if (wasActiveAdmin && !willStayActiveAdmin)
+        {
+            var otherActiveAdmins = await connection.ExecuteScalarAsync<long>(
+                "SELECT count(*) FROM app_user WHERE id <> @id AND active = true AND @quanTri = ANY(roles)",
+                new { id, quanTri = Roles.QuanTri });
+
+            if (otherActiveAdmins == 0)
+            {
+                throw new InvalidOperationException(
+                    "Phải còn ít nhất một tài khoản Quản trị đang hoạt động — không thể khóa hoặc bỏ vai trò Quản trị của tài khoản này");
+            }
+        }
+
         if (newPassword is null)
         {
             await connection.ExecuteAsync(
@@ -91,6 +115,12 @@ public sealed class UserStore(Db db)
         {
             throw new ArgumentException("Mật khẩu tối thiểu 8 ký tự", nameof(password));
         }
+    }
+
+    private sealed record CurrentAdminRow
+    {
+        public bool Active { get; init; }
+        public string[] Roles { get; init; } = [];
     }
 
     private sealed record UserRow

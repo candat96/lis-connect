@@ -50,7 +50,7 @@ public partial class MainViewModel : ObservableObject
         Results = new ResultsViewModel(results, currentUser, reportPrinter);
         Unmatched = new UnmatchedViewModel(unmatched, currentUser);
         Instruments = new InstrumentsViewModel(instruments, catalogStore, currentUser);
-        Users = new UsersViewModel(users);
+        Users = new UsersViewModel(users, currentUser);
 
         var dbConnection = currentUser.Can(Permission.QuanTri)
             ? new DbConnectionViewModel(setupService, configStore, localConfig)

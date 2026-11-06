@@ -11,6 +11,7 @@ namespace Lis.App.ViewModels.Admin;
 public sealed partial class UsersViewModel : ObservableObject
 {
     private readonly UserStore _userStore;
+    private readonly CurrentUser _currentUser;
 
     [ObservableProperty]
     private string errorMessage = "";
@@ -66,9 +67,10 @@ public sealed partial class UsersViewModel : ObservableObject
                         u.FullName.Contains(FilterText, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-    public UsersViewModel(UserStore userStore)
+    public UsersViewModel(UserStore userStore, CurrentUser currentUser)
     {
         _userStore = userStore;
+        _currentUser = currentUser;
         _ = LoadUsersCommand.ExecuteAsync(null);
     }
 
@@ -161,6 +163,25 @@ public sealed partial class UsersViewModel : ObservableObject
             }
             else if (SelectedUser is not null)
             {
+                // Tự khóa tài khoản của chính mình hoặc tự bỏ vai trò Quản trị của chính mình —
+                // chặn ngay ở đây (CSDL cũng chặn khi đó là quản trị đang hoạt động cuối cùng, xem
+                // UserStore.UpdateAsync, nhưng người dùng đang sửa chính mình cần biết ngay, kể cả
+                // khi còn quản trị khác đang hoạt động).
+                if (SelectedUser.Id == _currentUser.User.Id)
+                {
+                    if (!EditActive)
+                    {
+                        ErrorMessage = "Không thể tự khóa tài khoản của chính mình";
+                        return;
+                    }
+
+                    if (!EditRoles.Contains(Roles.QuanTri))
+                    {
+                        ErrorMessage = "Không thể tự bỏ vai trò Quản trị của chính mình";
+                        return;
+                    }
+                }
+
                 await _userStore.UpdateAsync(
                     SelectedUser.Id,
                     EditFullName,
@@ -232,4 +253,8 @@ public sealed record UserListItemViewModel(
     string FullName,
     string? Title,
     IReadOnlyList<string> Roles,
-    bool Active);
+    bool Active)
+{
+    /// <summary>Hiện ở danh sách tài khoản thay cho "True"/"False".</summary>
+    public string StatusText => Active ? "Đang dùng" : "Đã khóa";
+}

@@ -87,7 +87,7 @@ internal static class Program
             // Lệnh tải thật (gọi tự động từ constructor UsersViewModel) nhắm CSDL không có
             // thật, có thể báo lỗi muộn hơn lần ghi đè đầu — chờ một chút rồi ghi đè lại.
             ApplyFakeUsers(usersViewModel);
-            Thread.Sleep(1500);
+            Thread.Sleep(3000);
             ApplyFakeUsers(usersViewModel);
         });
         Capture(outputDirectory, "14-cai-dat-thong-tin-co-so.png", CreateFacilityInfoWindow());
@@ -290,7 +290,8 @@ internal static class Program
         // AfterShow (chạy sau Dispatcher.UIThread.RunJobs đầu, xem Capture) mới ghi dữ liệu giả
         // đè lên, lúc đó lệnh tải thật đã chắc chắn xong (lỗi phân giải tên máy chủ rất nhanh).
         var unusedDb = Db.Create("Host=invalid-host-dung-de-chup-anh;Database=unused;Username=unused;Password=unused;Timeout=1");
-        var viewModel = new UsersViewModel(new UserStore(unusedDb));
+        var currentUser = new CurrentUser(new UserInfo(Guid.NewGuid(), "quantri.thu", "Nguyễn Văn Thử", "Quản trị", [Roles.QuanTri], true));
+        var viewModel = new UsersViewModel(new UserStore(unusedDb), currentUser);
 
         var view = new UsersView { DataContext = viewModel };
 

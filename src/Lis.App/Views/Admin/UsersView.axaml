@@ -25,7 +25,7 @@
                                     <TextBlock Text="{Binding Username}" FontWeight="SemiBold" />
                                     <TextBlock Text="{Binding FullName}" FontSize="11" Classes="muted" />
                                 </StackPanel>
-                                <TextBlock Grid.Column="1" Text="{Binding Active, StringFormat={}{0}}" FontSize="10" Classes="muted" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="{Binding StatusText}" FontSize="10" Classes="muted" VerticalAlignment="Center" />
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

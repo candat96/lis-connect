@@ -1,6 +1,8 @@
 using ClosedXML.Excel;
+using Lis.Core;
 using Lis.Core.Results;
 using Lis.Data.Instruments;
+using Npgsql;
 
 namespace Lis.Data.Catalog;
 
@@ -12,7 +14,11 @@ public record ImportReport(int Created, int Updated, IReadOnlyList<string> Error
 
 /// <summary>
 /// Nhập danh mục dịch vụ, chỉ số con, khoảng tham chiếu và ánh xạ máy từ workbook Excel.
-/// Toàn bộ nhập trong một giao dịch: lỗi nào thì rollback hết.
+/// Toàn bộ nhập trong một giao dịch: lỗi nào thì rollback hết — mọi câu ghi phải đi qua kết nối
+/// và giao dịch của <see cref="Db.InTransactionAsync{T}"/> (các bản <c>...InTransactionAsync</c>
+/// tĩnh trên <see cref="CatalogStore"/>/<see cref="InstrumentStore"/>), không gọi các phương
+/// thức công khai thường (tự mở kết nối riêng, tự commit) — nếu không, lỗi ở dòng sau sẽ không
+/// rollback được các dòng đã ghi trước đó.
 /// </summary>
 public sealed class CatalogExcelImporter(Db db)
 {
@@ -36,21 +42,33 @@ public sealed class CatalogExcelImporter(Db db)
 
             if (dryRun)
             {
-                // Dry run: kiểm tra nhưng không ghi
-                await ImportSheetsAsync(workbook, dryRun: true);
+                // Dry run: kiểm tra nhưng không ghi — không cần kết nối/giao dịch.
+                await ImportSheetsAsync(workbook, connection: null, transaction: null, dryRun: true);
             }
             else
             {
-                // Ghi thực: dùng transaction
-                var result = await _db.InTransactionAsync(async (conn, tx) =>
+                try
                 {
-                    await ImportSheetsAsync(workbook, dryRun: false);
-                    return !_errors.Any();
-                });
+                    // Ghi thực: toàn bộ các sheet ghi chung một giao dịch. Lỗi nghiệp vụ (dòng
+                    // thiếu trường, trùng mã...) không tự ném ngoại lệ ra khỏi ImportSheetsAsync
+                    // (chỉ ghi vào _errors rồi dừng sớm) — Db.InTransactionAsync chỉ rollback khi
+                    // "work" ném ngoại lệ, nên phải tự ném RollbackSignal khi có lỗi, nếu không
+                    // giao dịch vẫn commit các dòng đã ghi trước dòng lỗi.
+                    await _db.InTransactionAsync(async (conn, tx) =>
+                    {
+                        await ImportSheetsAsync(workbook, conn, tx, dryRun: false);
+                        if (_errors.Any())
+                        {
+                            throw new RollbackSignal();
+                        }
 
-                if (!result)
+                        return true;
+                    });
+                }
+                catch (RollbackSignal)
                 {
-                    // Rollback happened, reset counts
+                    // Giao dịch đã rollback thật (xem Db.InTransactionAsync) — _errors đã có
+                    // thông báo từng dòng, chỉ cần đưa bộ đếm về 0.
                     _created = 0;
                     _updated = 0;
                 }
@@ -66,40 +84,44 @@ public sealed class CatalogExcelImporter(Db db)
         return new ImportReport(_created, _updated, _errors.AsReadOnly());
     }
 
-    private async Task ImportSheetsAsync(XLWorkbook workbook, bool dryRun)
+    /// <summary>Ném nội bộ để báo <see cref="Db.InTransactionAsync{T}"/> rollback khi có lỗi nghiệp vụ (xem <see cref="ImportAsync"/>).</summary>
+    private sealed class RollbackSignal : Exception;
+
+    private async Task ImportSheetsAsync(XLWorkbook workbook, NpgsqlConnection? connection, NpgsqlTransaction? transaction, bool dryRun)
     {
         var catalogStore = new CatalogStore(_db);
-        var instrumentStore = new InstrumentStore(_db);
 
         // Lấy danh sách loại mẫu — LoaiMau trong sheet DichVu chấp nhận mã loại mẫu
         // (vd "EDTA", xem specimen_type.code) để tệp mẫu dùng được trên mọi CSDL (id là
         // uuidv7 sinh ngẫu nhiên lúc migrate, không cố định); vẫn chấp nhận GUID trực tiếp
-        // để không phá các workbook cũ đã dùng id.
+        // để không phá các workbook cũ đã dùng id. Đọc ngoài giao dịch ghi: specimen_type
+        // không bị sửa bởi lần nhập này nên không cần nhất quán với các dòng đang ghi.
         var specimenTypes = await catalogStore.SpecimenTypesAsync();
         var specimenTypeMap = specimenTypes.ToDictionary(x => x.Code, x => x.Id, StringComparer.OrdinalIgnoreCase);
 
         // Import DichVu sheet
-        var serviceMap = await ImportDichVuAsync(workbook, catalogStore, specimenTypeMap, dryRun);
+        var serviceMap = await ImportDichVuAsync(workbook, connection, transaction, specimenTypeMap, dryRun);
         if (_errors.Any())
             return;
 
         // Import ChiSoCon sheet (service children)
-        await ImportChiSoConAsync(workbook, catalogStore, serviceMap, dryRun);
+        await ImportChiSoConAsync(workbook, connection, transaction, serviceMap, dryRun);
         if (_errors.Any())
             return;
 
         // Import KhoangThamChieu sheet (reference ranges)
-        await ImportKhoangThamChieuAsync(workbook, catalogStore, serviceMap, dryRun);
+        await ImportKhoangThamChieuAsync(workbook, connection, transaction, serviceMap, dryRun);
         if (_errors.Any())
             return;
 
         // Import MapMay sheet (instrument channels)
-        await ImportMapMayAsync(workbook, instrumentStore, serviceMap, dryRun);
+        await ImportMapMayAsync(workbook, connection, transaction, serviceMap, dryRun);
     }
 
     private async Task<Dictionary<string, Guid>> ImportDichVuAsync(
         XLWorkbook workbook,
-        CatalogStore catalogStore,
+        NpgsqlConnection? connection,
+        NpgsqlTransaction? transaction,
         IReadOnlyDictionary<string, Guid> specimenTypeMap,
         bool dryRun)
     {
@@ -166,7 +188,7 @@ public sealed class CatalogExcelImporter(Db db)
 
                 if (!dryRun)
                 {
-                    var serviceId = await catalogStore.SaveServiceAsync(service);
+                    var serviceId = await CatalogStore.SaveServiceInTransactionAsync(connection!, transaction, service);
                     serviceMap[code] = serviceId;
                 }
                 else
@@ -190,7 +212,8 @@ public sealed class CatalogExcelImporter(Db db)
 
     private async Task ImportChiSoConAsync(
         XLWorkbook workbook,
-        CatalogStore catalogStore,
+        NpgsqlConnection? connection,
+        NpgsqlTransaction? transaction,
         Dictionary<string, Guid> serviceMap,
         bool dryRun)
     {
@@ -214,7 +237,7 @@ public sealed class CatalogExcelImporter(Db db)
 
                 if (!dryRun)
                 {
-                    await catalogStore.SetChildrenAsync(parentId, [childId]);
+                    await CatalogStore.SetChildrenInTransactionAsync(connection!, transaction!, parentId, [childId]);
                 }
                 _updated++;
             }
@@ -230,7 +253,8 @@ public sealed class CatalogExcelImporter(Db db)
 
     private async Task ImportKhoangThamChieuAsync(
         XLWorkbook workbook,
-        CatalogStore catalogStore,
+        NpgsqlConnection? connection,
+        NpgsqlTransaction? transaction,
         Dictionary<string, Guid> serviceMap,
         bool dryRun)
     {
@@ -250,10 +274,6 @@ public sealed class CatalogExcelImporter(Db db)
                 var ageFromStr = GetCellValue(row, 3)?.Trim();
                 var ageToStr = GetCellValue(row, 4)?.Trim();
                 var ageUnit = GetCellValue(row, 5)?.Trim();
-                var lowStr = GetCellValue(row, 6)?.Trim();
-                var highStr = GetCellValue(row, 7)?.Trim();
-                var criticalLowStr = GetCellValue(row, 8)?.Trim();
-                var criticalHighStr = GetCellValue(row, 9)?.Trim();
                 var textRange = GetCellValue(row, 10)?.Trim();
 
                 if (string.IsNullOrEmpty(code) || !serviceMap.TryGetValue(code, out var serviceId))
@@ -272,10 +292,13 @@ public sealed class CatalogExcelImporter(Db db)
                     ageToDays = ConvertAgeToDays(ageTo, ageUnit ?? "nam");
                 }
 
-                decimal? low = string.IsNullOrEmpty(lowStr) ? null : decimal.Parse(lowStr);
-                decimal? high = string.IsNullOrEmpty(highStr) ? null : decimal.Parse(highStr);
-                decimal? criticalLow = string.IsNullOrEmpty(criticalLowStr) ? null : decimal.Parse(criticalLowStr);
-                decimal? criticalHigh = string.IsNullOrEmpty(criticalHighStr) ? null : decimal.Parse(criticalHighStr);
+                // Số thập phân đọc trực tiếp từ ô số (không qua chuỗi) hoặc qua DecimalInput cho
+                // ô chữ — không bao giờ decimal.Parse thẳng chuỗi (phụ thuộc văn hóa máy chạy,
+                // vd "4.5" đọc thành 45 trên máy đặt vi-VN).
+                var low = GetDecimalCell(row, 6, "Thap");
+                var high = GetDecimalCell(row, 7, "Cao");
+                var criticalLow = GetDecimalCell(row, 8, "NguyHiemThap");
+                var criticalHigh = GetDecimalCell(row, 9, "NguyHiemCao");
 
                 var range = new ReferenceRange(
                     Guid.Empty,
@@ -309,7 +332,7 @@ public sealed class CatalogExcelImporter(Db db)
         {
             foreach (var (serviceId, ranges) in rangesByService)
             {
-                await catalogStore.SaveRangesAsync(serviceId, ranges);
+                await CatalogStore.SaveRangesInTransactionAsync(connection!, transaction!, serviceId, ranges);
                 _updated++;
             }
         }
@@ -321,7 +344,8 @@ public sealed class CatalogExcelImporter(Db db)
 
     private async Task ImportMapMayAsync(
         XLWorkbook workbook,
-        InstrumentStore instrumentStore,
+        NpgsqlConnection? connection,
+        NpgsqlTransaction? transaction,
         Dictionary<string, Guid> serviceMap,
         bool dryRun)
     {
@@ -340,7 +364,6 @@ public sealed class CatalogExcelImporter(Db db)
                 var channelCode = GetCellValue(row, 2)?.Trim();
                 var serviceCode = GetCellValue(row, 3)?.Trim();
                 var decimalsStr = GetCellValue(row, 4)?.Trim();
-                var factorStr = GetCellValue(row, 5)?.Trim();
                 var keepComparatorStr = GetCellValue(row, 6)?.Trim();
                 var sendOnQueryStr = GetCellValue(row, 7)?.Trim();
 
@@ -360,7 +383,7 @@ public sealed class CatalogExcelImporter(Db db)
                     var instrument = new InstrumentInfo(Guid.Empty, instrumentName, null, null, null, null, null, true);
                     if (!dryRun)
                     {
-                        instrumentId = await instrumentStore.SaveAsync(instrument);
+                        instrumentId = await InstrumentStore.SaveInTransactionAsync(connection!, transaction, instrument);
                     }
                     else
                     {
@@ -370,20 +393,16 @@ public sealed class CatalogExcelImporter(Db db)
                 }
 
                 int? decimals = string.IsNullOrEmpty(decimalsStr) ? null : (int?)int.Parse(decimalsStr);
-                decimal? factor = string.IsNullOrEmpty(factorStr) ? null : (decimal?)decimal.Parse(factorStr);
+                decimal? factor = GetDecimalCell(row, 5, "HeSo");
                 bool keepComparator = string.IsNullOrEmpty(keepComparatorStr) ? false : bool.Parse(keepComparatorStr);
                 bool sendOnQuery = string.IsNullOrEmpty(sendOnQueryStr) ? false : bool.Parse(sendOnQueryStr);
 
                 var channel = new ChannelMap(Guid.Empty, instrumentId, channelCode, serviceId, decimals, factor, keepComparator, sendOnQuery);
                 if (!dryRun)
                 {
-                    await instrumentStore.SaveChannelAsync(channel);
+                    await InstrumentStore.SaveChannelInTransactionAsync(connection!, transaction!, channel);
                 }
                 _created++;
-            }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("channel already mapped") || ex.Message.Contains("Kênh"))
-            {
-                _errors.Add($"Sheet MapMay dòng {rowNum}: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -406,6 +425,37 @@ public sealed class CatalogExcelImporter(Db db)
             return null;
 
         return cell.GetString()?.Trim();
+    }
+
+    /// <summary>
+    /// Đọc một ô số thập phân: ô kiểu Number đọc thẳng giá trị (không qua chuỗi, không phụ
+    /// thuộc văn hóa máy chạy); ô kiểu chữ qua <see cref="DecimalInput.TryParse"/> (chấp nhận cả
+    /// dấu phẩy lẫn dấu chấm thập phân, không đoán ý khi có cả hai). <paramref name="columnName"/>
+    /// chỉ dùng để ghép thông báo lỗi.
+    /// </summary>
+    private static decimal? GetDecimalCell(IXLRow row, int columnIndex, string columnName)
+    {
+        var lastCol = row.LastCellUsed()?.Address.ColumnNumber ?? 0;
+        if (columnIndex < 1 || columnIndex > lastCol)
+            return null;
+
+        var cell = row.Cell(columnIndex);
+        if (cell.IsEmpty())
+            return null;
+
+        if (cell.DataType == XLDataType.Number)
+        {
+            return cell.GetValue<decimal>();
+        }
+
+        var text = cell.GetString()?.Trim();
+        if (string.IsNullOrEmpty(text))
+            return null;
+
+        if (!DecimalInput.TryParse(text, out var value))
+            throw new InvalidOperationException($"{columnName} \"{text}\" không phải số hợp lệ");
+
+        return value;
     }
 
     private static bool IsValidValueType(string valueType) =>

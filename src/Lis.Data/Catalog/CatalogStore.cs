@@ -85,7 +85,17 @@ public sealed class CatalogStore(Db db) : IServiceLookup
     public async Task<Guid> SaveServiceAsync(ServiceInfo s)
     {
         await using var connection = await db.OpenAsync();
+        return await SaveServiceInTransactionAsync(connection, null, s);
+    }
 
+    /// <summary>
+    /// Bản ghi dịch vụ dùng kết nối/giao dịch của bên gọi — để các việc nhiều bước (vd nhập
+    /// Excel ở <see cref="CatalogExcelImporter"/>) ghi chung một giao dịch thay vì mỗi câu lệnh
+    /// tự mở kết nối riêng (tự commit), khiến "một giao dịch, lỗi thì rollback hết" không còn
+    /// đúng. <paramref name="transaction"/> có thể null khi gọi ngoài giao dịch (tự commit).
+    /// </summary>
+    internal static async Task<Guid> SaveServiceInTransactionAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, ServiceInfo s)
+    {
         try
         {
             if (s.Id == Guid.Empty)
@@ -100,7 +110,7 @@ public sealed class CatalogStore(Db db) : IServiceLookup
                          @PrintOrder, @IsPanel, @AutoApprove, @Active, @HisCode)
                     RETURNING id
                     """,
-                    s);
+                    s, transaction);
             }
 
             await connection.ExecuteAsync(
@@ -111,7 +121,7 @@ public sealed class CatalogStore(Db db) : IServiceLookup
                     is_panel = @IsPanel, auto_approve = @AutoApprove, active = @Active, his_code = @HisCode
                 WHERE id = @Id
                 """,
-                s);
+                s, transaction);
             return s.Id;
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -125,20 +135,27 @@ public sealed class CatalogStore(Db db) : IServiceLookup
     /// Dịch vụ cha không thể tự làm con của mình; chỉ số con không thể là panel (không cho
     /// lồng nhiều cấp).
     /// </summary>
-    public async Task SetChildrenAsync(Guid panelId, IReadOnlyList<Guid> childIds)
+    public async Task SetChildrenAsync(Guid panelId, IReadOnlyList<Guid> childIds) =>
+        await db.InTransactionAsync(async (connection, transaction) =>
+        {
+            await SetChildrenInTransactionAsync(connection, transaction, panelId, childIds);
+            return true;
+        });
+
+    /// <summary>Như <see cref="SetChildrenAsync"/> nhưng dùng kết nối/giao dịch của bên gọi — xem <see cref="SaveServiceInTransactionAsync"/>.</summary>
+    internal static async Task SetChildrenInTransactionAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, Guid panelId, IReadOnlyList<Guid> childIds)
     {
         if (childIds.Contains(panelId))
         {
             throw new InvalidOperationException("Dịch vụ không thể là con của chính nó");
         }
 
-        await using var connection = await db.OpenAsync();
-
         if (childIds.Count > 0)
         {
             var panelAmongChildren = await connection.ExecuteScalarAsync<long>(
                 "SELECT count(*) FROM service WHERE id = ANY(@childIds) AND is_panel = true",
-                new { childIds = childIds.ToArray() });
+                new { childIds = childIds.ToArray() }, transaction);
 
             if (panelAmongChildren > 0)
             {
@@ -146,21 +163,16 @@ public sealed class CatalogStore(Db db) : IServiceLookup
             }
         }
 
-        await db.InTransactionAsync(async (conn, tx) =>
+        await connection.ExecuteAsync("DELETE FROM service_child WHERE parent_id = @panelId", new { panelId }, transaction);
+
+        var sortOrder = 0;
+        foreach (var childId in childIds)
         {
-            await conn.ExecuteAsync("DELETE FROM service_child WHERE parent_id = @panelId", new { panelId }, tx);
-
-            var sortOrder = 0;
-            foreach (var childId in childIds)
-            {
-                await conn.ExecuteAsync(
-                    "INSERT INTO service_child (parent_id, child_id, sort_order) VALUES (@panelId, @childId, @sortOrder)",
-                    new { panelId, childId, sortOrder }, tx);
-                sortOrder++;
-            }
-
-            return true;
-        });
+            await connection.ExecuteAsync(
+                "INSERT INTO service_child (parent_id, child_id, sort_order) VALUES (@panelId, @childId, @sortOrder)",
+                new { panelId, childId, sortOrder }, transaction);
+            sortOrder++;
+        }
     }
 
     /// <summary>Khoảng tham chiếu của một chỉ số, theo giới tính rồi tuổi.</summary>
@@ -180,41 +192,45 @@ public sealed class CatalogStore(Db db) : IServiceLookup
     }
 
     /// <summary>Thay toàn bộ khoảng tham chiếu của một chỉ số bằng danh sách truyền vào.</summary>
-    public async Task SaveRangesAsync(Guid serviceId, IReadOnlyList<ReferenceRange> ranges)
-    {
-        await db.InTransactionAsync(async (conn, tx) =>
+    public async Task SaveRangesAsync(Guid serviceId, IReadOnlyList<ReferenceRange> ranges) =>
+        await db.InTransactionAsync(async (connection, transaction) =>
         {
-            await conn.ExecuteAsync("DELETE FROM reference_range WHERE service_id = @serviceId", new { serviceId }, tx);
-
-            foreach (var range in ranges)
-            {
-                await conn.ExecuteAsync(
-                    """
-                    INSERT INTO reference_range
-                        (service_id, sex, age_from_days, age_to_days, instrument_id,
-                         low, high, critical_low, critical_high, text_range)
-                    VALUES
-                        (@serviceId, @sex, @ageFromDays, @ageToDays, @instrumentId,
-                         @low, @high, @criticalLow, @criticalHigh, @textRange)
-                    """,
-                    new
-                    {
-                        serviceId,
-                        sex = range.Sex?.ToString(),
-                        ageFromDays = range.AgeFromDays,
-                        ageToDays = range.AgeToDays,
-                        instrumentId = range.InstrumentId,
-                        low = range.Low,
-                        high = range.High,
-                        criticalLow = range.CriticalLow,
-                        criticalHigh = range.CriticalHigh,
-                        textRange = range.TextRange,
-                    },
-                    tx);
-            }
-
+            await SaveRangesInTransactionAsync(connection, transaction, serviceId, ranges);
             return true;
         });
+
+    /// <summary>Như <see cref="SaveRangesAsync"/> nhưng dùng kết nối/giao dịch của bên gọi — xem <see cref="SaveServiceInTransactionAsync"/>.</summary>
+    internal static async Task SaveRangesInTransactionAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, Guid serviceId, IReadOnlyList<ReferenceRange> ranges)
+    {
+        await connection.ExecuteAsync("DELETE FROM reference_range WHERE service_id = @serviceId", new { serviceId }, transaction);
+
+        foreach (var range in ranges)
+        {
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO reference_range
+                    (service_id, sex, age_from_days, age_to_days, instrument_id,
+                     low, high, critical_low, critical_high, text_range)
+                VALUES
+                    (@serviceId, @sex, @ageFromDays, @ageToDays, @instrumentId,
+                     @low, @high, @criticalLow, @criticalHigh, @textRange)
+                """,
+                new
+                {
+                    serviceId,
+                    sex = range.Sex?.ToString(),
+                    ageFromDays = range.AgeFromDays,
+                    ageToDays = range.AgeToDays,
+                    instrumentId = range.InstrumentId,
+                    low = range.Low,
+                    high = range.High,
+                    criticalLow = range.CriticalLow,
+                    criticalHigh = range.CriticalHigh,
+                    textRange = range.TextRange,
+                },
+                transaction);
+        }
     }
 
     /// <summary>Quy tắc quy đổi định tính của một chỉ số.</summary>

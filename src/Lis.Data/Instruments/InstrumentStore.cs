@@ -71,6 +71,17 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
             throw new ArgumentException("Nhập tên máy");
         }
 
+        await using var connection = await db.OpenAsync();
+        return await SaveInTransactionAsync(connection, null, instrument);
+    }
+
+    /// <summary>
+    /// Như <see cref="SaveAsync"/> nhưng dùng kết nối/giao dịch của bên gọi — để các việc nhiều
+    /// bước (vd nhập Excel ở <see cref="Catalog.CatalogExcelImporter"/>) ghi chung một giao
+    /// dịch. Không kiểm tra <see cref="InstrumentInfo.Name"/> trống — bên gọi tự kiểm trước.
+    /// </summary>
+    internal static async Task<Guid> SaveInTransactionAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, InstrumentInfo instrument)
+    {
         var parameters = new
         {
             id = instrument.Id,
@@ -83,8 +94,6 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
             active = instrument.Active,
         };
 
-        await using var connection = await db.OpenAsync();
-
         if (instrument.Id == Guid.Empty)
         {
             return await connection.ExecuteScalarAsync<Guid>(
@@ -93,7 +102,7 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
                 VALUES (@name, @model, @protocolFamily, @driverConfig::jsonb, @connection::jsonb, @workstationCode, @active)
                 RETURNING id
                 """,
-                parameters);
+                parameters, transaction);
         }
 
         var updated = await connection.ExecuteAsync(
@@ -104,7 +113,7 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
                 workstation_code = @workstationCode, active = @active
             WHERE id = @id
             """,
-            parameters);
+            parameters, transaction);
 
         if (updated == 0)
         {
@@ -143,64 +152,7 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
         try
         {
             return await db.InTransactionAsync(async (connection, transaction) =>
-            {
-                // Kiểm tra trùng trong cùng giao dịch để báo tên chỉ số đã map; ràng buộc UNIQUE
-                // (instrument_id, channel_code) vẫn là chốt chặn cuối khi hai máy trạm lưu cùng lúc.
-                var existingServiceName = await connection.ExecuteScalarAsync<string?>(
-                    """
-                    SELECT sv.name
-                    FROM instrument_channel ic
-                    JOIN service sv ON sv.id = ic.service_id
-                    WHERE ic.instrument_id = @instrumentId AND ic.channel_code = @channelCode AND ic.id <> @id
-                    """,
-                    new { channel.InstrumentId, channelCode, channel.Id }, transaction);
-
-                if (existingServiceName is not null)
-                {
-                    throw DuplicateChannel(channelCode, existingServiceName);
-                }
-
-                var isPanel = await connection.ExecuteScalarAsync<bool?>(
-                    "SELECT is_panel FROM service WHERE id = @serviceId", new { channel.ServiceId }, transaction)
-                    ?? throw new InvalidOperationException("Không tìm thấy chỉ số");
-                if (isPanel)
-                {
-                    throw new InvalidOperationException("Kênh máy chỉ map tới chỉ số lá, không map tới dịch vụ cha (panel)");
-                }
-
-                var parameters = new
-                {
-                    channel.Id,
-                    channel.InstrumentId,
-                    channelCode,
-                    channel.ServiceId,
-                    channel.Decimals,
-                    channel.Factor,
-                    channel.KeepComparator,
-                    channel.SendOnQuery,
-                };
-
-                if (channel.Id == Guid.Empty)
-                {
-                    return await connection.ExecuteScalarAsync<Guid>(
-                        """
-                        INSERT INTO instrument_channel (instrument_id, channel_code, service_id, decimals, factor, keep_comparator, send_on_query)
-                        VALUES (@InstrumentId, @channelCode, @ServiceId, @Decimals, @Factor, @KeepComparator, @SendOnQuery)
-                        RETURNING id
-                        """,
-                        parameters, transaction);
-                }
-
-                await connection.ExecuteAsync(
-                    """
-                    UPDATE instrument_channel SET
-                        channel_code = @channelCode, service_id = @ServiceId, decimals = @Decimals, factor = @Factor,
-                        keep_comparator = @KeepComparator, send_on_query = @SendOnQuery
-                    WHERE id = @Id
-                    """,
-                    parameters, transaction);
-                return channel.Id;
-            });
+                await SaveChannelInTransactionAsync(connection, transaction, channel with { ChannelCode = channelCode }));
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
         {
@@ -213,6 +165,74 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
                 new { channel.InstrumentId, channelCode });
             throw DuplicateChannel(channelCode, serviceName ?? "?");
         }
+    }
+
+    /// <summary>
+    /// Như <see cref="SaveChannelAsync"/> nhưng dùng kết nối/giao dịch của bên gọi — để các việc
+    /// nhiều bước (vd nhập Excel ở <see cref="Catalog.CatalogExcelImporter"/>) ghi chung một
+    /// giao dịch. Không kiểm tra <see cref="ChannelMap.ChannelCode"/> trống/<see cref="ChannelMap.Factor"/>
+    /// — bên gọi tự kiểm trước (xem <see cref="SaveChannelAsync"/>).
+    /// </summary>
+    internal static async Task<Guid> SaveChannelInTransactionAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, ChannelMap channel)
+    {
+        var channelCode = channel.ChannelCode;
+
+        // Kiểm tra trùng trong cùng giao dịch để báo tên chỉ số đã map; ràng buộc UNIQUE
+        // (instrument_id, channel_code) vẫn là chốt chặn cuối khi hai máy trạm lưu cùng lúc.
+        var existingServiceName = await connection.ExecuteScalarAsync<string?>(
+            """
+            SELECT sv.name
+            FROM instrument_channel ic
+            JOIN service sv ON sv.id = ic.service_id
+            WHERE ic.instrument_id = @instrumentId AND ic.channel_code = @channelCode AND ic.id <> @id
+            """,
+            new { channel.InstrumentId, channelCode, channel.Id }, transaction);
+
+        if (existingServiceName is not null)
+        {
+            throw DuplicateChannel(channelCode, existingServiceName);
+        }
+
+        var isPanel = await connection.ExecuteScalarAsync<bool?>(
+            "SELECT is_panel FROM service WHERE id = @serviceId", new { channel.ServiceId }, transaction)
+            ?? throw new InvalidOperationException("Không tìm thấy chỉ số");
+        if (isPanel)
+        {
+            throw new InvalidOperationException("Kênh máy chỉ map tới chỉ số lá, không map tới dịch vụ cha (panel)");
+        }
+
+        var parameters = new
+        {
+            channel.Id,
+            channel.InstrumentId,
+            channelCode,
+            channel.ServiceId,
+            channel.Decimals,
+            channel.Factor,
+            channel.KeepComparator,
+            channel.SendOnQuery,
+        };
+
+        if (channel.Id == Guid.Empty)
+        {
+            return await connection.ExecuteScalarAsync<Guid>(
+                """
+                INSERT INTO instrument_channel (instrument_id, channel_code, service_id, decimals, factor, keep_comparator, send_on_query)
+                VALUES (@InstrumentId, @channelCode, @ServiceId, @Decimals, @Factor, @KeepComparator, @SendOnQuery)
+                RETURNING id
+                """,
+                parameters, transaction);
+        }
+
+        await connection.ExecuteAsync(
+            """
+            UPDATE instrument_channel SET
+                channel_code = @channelCode, service_id = @ServiceId, decimals = @Decimals, factor = @Factor,
+                keep_comparator = @KeepComparator, send_on_query = @SendOnQuery
+            WHERE id = @Id
+            """,
+            parameters, transaction);
+        return channel.Id;
     }
 
     public async Task DeleteChannelAsync(Guid channelId)
