@@ -26,4 +26,39 @@ public partial class SimpleMessageBoxWindow : Window
         window.MessageText.Text = message;
         window.Show();
     }
+
+    /// <summary>
+    /// Giống <see cref="Show(string, string)"/> nhưng thay nút "Đồng ý" mặc định bằng các nút
+    /// hành động tùy chỉnh — dùng khi cần người dùng chọn giữa nhiều lựa chọn (vd lỗi CSDL lúc
+    /// khởi động: "Thử lại" / "Cài đặt lại kết nối") thay vì chỉ đóng thông báo. Mỗi nút chạy
+    /// hành động của nó TRƯỚC khi đóng cửa sổ này — nếu hành động mở một cửa sổ khác, cửa sổ đó
+    /// đã hiện trước khi hộp thoại này đóng, tránh khoảnh khắc không còn cửa sổ nào mở khiến
+    /// <c>ShutdownMode.OnLastWindowClose</c> thoát ứng dụng (cùng lý do như App.ShowSetupWizard).
+    /// </summary>
+    public static void ShowWithActions(string title, string message, params (string Label, Action OnClick)[] actions)
+    {
+        var window = new SimpleMessageBoxWindow();
+        window.TitleText.Text = title;
+        window.MessageText.Text = message;
+        window.ButtonsPanel.Children.Clear();
+
+        foreach (var (label, onClick) in actions)
+        {
+            var button = new Button
+            {
+                Content = label,
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                MinWidth = 100,
+            };
+            button.Classes.Add("primary");
+            button.Click += (_, _) =>
+            {
+                onClick();
+                window.Close();
+            };
+            window.ButtonsPanel.Children.Add(button);
+        }
+
+        window.Show();
+    }
 }

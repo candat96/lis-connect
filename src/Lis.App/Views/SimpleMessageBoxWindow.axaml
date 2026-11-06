@@ -13,12 +13,13 @@
         <StackPanel Spacing="16">
             <TextBlock Name="TitleText" Classes="title" />
             <TextBlock Name="MessageText" TextWrapping="Wrap" />
-            <Button Name="OkButton"
-                    Classes="primary"
-                    Content="Đồng ý"
-                    HorizontalAlignment="Right"
-                    HorizontalContentAlignment="Center"
-                    MinWidth="100" />
+            <StackPanel Name="ButtonsPanel" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button Name="OkButton"
+                        Classes="primary"
+                        Content="Đồng ý"
+                        HorizontalContentAlignment="Center"
+                        MinWidth="100" />
+            </StackPanel>
         </StackPanel>
     </Border>
 

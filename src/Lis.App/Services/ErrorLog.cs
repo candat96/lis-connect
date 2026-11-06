@@ -15,14 +15,21 @@ public static class ErrorLog
 
     public static string LogFile => Path.Combine(LocalPaths.DataDirectory, "loi.log");
 
-    public static void Append(string context, Exception exception)
+    public static void Append(string context, Exception exception) => Append(context, exception.ToString());
+
+    /// <summary>
+    /// Giống <see cref="Append(string, Exception)"/> nhưng cho trường hợp không có
+    /// <see cref="Exception"/> sẵn (vd <c>MigrationResult.Ok == false</c> không kèm ngoại lệ) —
+    /// chỉ ghi một thông báo lỗi dạng chữ.
+    /// </summary>
+    public static void Append(string context, string message)
     {
         try
         {
             lock (WriteLock)
             {
                 Directory.CreateDirectory(LocalPaths.DataDirectory);
-                var line = $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}] {context}{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}";
+                var line = $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}] {context}{Environment.NewLine}{message}{Environment.NewLine}{Environment.NewLine}";
                 File.AppendAllText(LogFile, line);
             }
         }

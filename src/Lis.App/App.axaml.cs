@@ -39,6 +39,19 @@ public partial class App : Application
         {
             ErrorLog.Append("Dispatcher.UIThread.UnhandledException", e.Exception);
             e.Handled = true;
+
+            try
+            {
+                SimpleMessageBoxWindow.Show(
+                    "LIS Connect — Lỗi không mong muốn",
+                    $"Đã xảy ra lỗi không mong muốn. Chi tiết đã ghi vào {ErrorLog.LogFile}.");
+            }
+            catch (Exception showError)
+            {
+                // Hiện hộp thoại cũng lỗi (vd UI thread đang ở trạng thái bất thường ngay sau lỗi
+                // gốc) — chỉ ghi log, không thử hiện lại để tránh đệ quy.
+                ErrorLog.Append("Dispatcher.UIThread.UnhandledException (hiện hộp thoại lỗi)", showError);
+            }
         };
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
@@ -79,24 +92,65 @@ public partial class App : Application
         // Migrate ngay sau khi đọc cấu hình, trước khi hiện màn đăng nhập: CSDL có thể đã được
         // nâng cấp lên bản schema mới hơn (cập nhật ứng dụng) hoặc lần migrate trước đó (ở trình
         // hướng dẫn cài đặt hoặc lần chạy trước) đã lỗi giữa chừng — migration là idempotent nên
-        // gọi lại an toàn. Thất bại thì báo lỗi tiếng Việt và dừng ở đây, không mở màn đăng nhập
-        // với CSDL chưa đúng lược đồ.
-        var migration = Migrator.Upgrade(config.Db.ToConnectionString());
+        // gọi lại an toàn. StartupMigrationRunner bọc cả trường hợp Migrator.Upgrade ném ngoại lệ
+        // (vd CSDL không kết nối được — EnsureUuidv7Compat's connection.Open() ném ra ngay) lẫn
+        // trường hợp thất bại "sạch" (MigrationResult.Ok == false), để không bao giờ ném ra khỏi
+        // StartUp làm crash ứng dụng không kịp hiện gì.
+        var migration = StartupMigrationRunner.Run(() => Migrator.Upgrade(config.Db.ToConnectionString()));
         if (!migration.Ok)
         {
-            SimpleMessageBoxWindow.Show(
-                "LIS Connect — Lỗi cập nhật CSDL",
-                $"Không nâng cấp được lược đồ CSDL khi khởi động: {migration.Error}\n\n" +
-                "Kiểm tra máy chủ PostgreSQL đang chạy và tài khoản CSDL đủ quyền, sau đó mở lại ứng dụng để thử lại.");
+            if (migration.Exception is not null)
+            {
+                ErrorLog.Append("Migrator.Upgrade (startup)", migration.Exception);
+            }
+            else
+            {
+                ErrorLog.Append("Migrator.Upgrade (startup)", migration.ErrorMessage ?? "lỗi không rõ");
+            }
+
+            ShowMigrationFailureDialog(desktop, configStore, config, migration.ErrorMessage);
             return;
         }
 
         ShowLogin(desktop, config);
     }
 
-    private void ShowSetupWizard(IClassicDesktopStyleApplicationLifetime desktop, LocalConfigStore configStore)
+    /// <summary>
+    /// Hiện thông báo lỗi migration kèm hai lựa chọn: "Thử lại" (chạy lại toàn bộ luồng khởi
+    /// động — CSDL/PostgreSQL có thể đã được khởi động lại trong lúc này) hoặc "Cài đặt lại kết
+    /// nối" (mở trình hướng dẫn cài đặt, điền sẵn từ cấu hình hiện tại, để đổi host/port/tài
+    /// khoản nếu đó là nguyên nhân). Mỗi lựa chọn mở cửa sổ tiếp theo trước khi hộp thoại này
+    /// đóng (xem <see cref="SimpleMessageBoxWindow.ShowWithActions"/>).
+    /// </summary>
+    private void ShowMigrationFailureDialog(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        LocalConfigStore configStore,
+        LocalConfig config,
+        string? errorMessage)
+    {
+        var detail = string.IsNullOrWhiteSpace(errorMessage) ? "" : $"\n\nChi tiết: {errorMessage}";
+        SimpleMessageBoxWindow.ShowWithActions(
+            "LIS Connect — Lỗi cập nhật CSDL",
+            $"Không kết nối được CSDL {config.Db.Host}:{config.Db.Port}. Kiểm tra dịch vụ PostgreSQL " +
+            "đang chạy, rồi mở lại phần mềm. Nếu cần đổi kết nối, chọn 'Cài đặt lại kết nối'." + detail,
+            ("Thử lại", () => StartUp(desktop)),
+            ("Cài đặt lại kết nối", () => ShowSetupWizard(desktop, configStore, config)));
+    }
+
+    private void ShowSetupWizard(IClassicDesktopStyleApplicationLifetime desktop, LocalConfigStore configStore, LocalConfig? prefill = null)
     {
         var viewModel = new SetupWizardViewModel(new SetupService());
+        if (prefill is not null)
+        {
+            viewModel.Host = prefill.Db.Host;
+            viewModel.Port = prefill.Db.Port;
+            viewModel.Database = prefill.Db.Database;
+            viewModel.Username = prefill.Db.Username;
+            viewModel.Password = prefill.Db.Password;
+            viewModel.RequireSsl = prefill.Db.RequireSsl;
+            viewModel.WorkstationCode = prefill.WorkstationCode;
+        }
+
         var window = new SetupWizardWindow { DataContext = viewModel };
 
         viewModel.Completed += (_, config) =>
