@@ -70,6 +70,39 @@ public class SetupServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task Test_NoConnectPrivilegeOnDatabase_VietnameseMessage()
+    {
+        // Finding 9 rà soát toàn nhánh: lỗi "không có quyền" (42501) phải có thông báo riêng,
+        // không gộp chung vào "không kết nối được máy chủ".
+        var connectionString = await fixture.NewDatabaseAsync();
+        var adminBuilder = new NpgsqlConnectionStringBuilder(connectionString);
+
+        var restrictedUser = $"lis_no_connect_{Guid.NewGuid():N}"[..28];
+        await using (var adminConnection = new NpgsqlConnection(connectionString))
+        {
+            await adminConnection.OpenAsync(TestContext.Current.CancellationToken);
+            await using var createRole = adminConnection.CreateCommand();
+            createRole.CommandText = $"CREATE ROLE \"{restrictedUser}\" LOGIN PASSWORD '{ValidPassword}'";
+            await createRole.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+
+            // Theo mặc định PostgreSQL, PUBLIC có quyền CONNECT trên mọi CSDL — REVOKE riêng cho
+            // một role không đủ, phải thu hồi khỏi PUBLIC trên đúng CSDL test này (không ảnh
+            // hưởng CSDL khác, mỗi test dùng một CSDL tên ngẫu nhiên riêng).
+            await using var revoke = adminConnection.CreateCommand();
+            revoke.CommandText = $"REVOKE CONNECT ON DATABASE \"{adminBuilder.Database}\" FROM PUBLIC";
+            await revoke.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        var settings = new DbSettings(adminBuilder.Host!, adminBuilder.Port, adminBuilder.Database!, restrictedUser, ValidPassword, RequireSsl: false);
+
+        var service = new SetupService();
+        var result = await service.TestAsync(settings);
+
+        result.Ok.ShouldBeFalse();
+        result.Message.ShouldContain("không có quyền");
+    }
+
+    [Fact]
     public async Task Test_Ok_ReportsDatabaseEmpty()
     {
         var connectionString = await fixture.NewEmptyDatabaseAsync();
