@@ -38,7 +38,11 @@ public sealed class AppServices
         Unmatched = new UnmatchedService(Db, TimeProvider.System);
         Instruments = new InstrumentStore(Db);
         HisProfiles = new HisProfileStore(Db, SecretProtectors.ForCurrentOs(LocalPaths.DataDirectory));
-        HisConnectionTester = new HisConnectionTester(new HttpClient());
+        // HisConnectionTester tự áp một CancellationTokenSource ~10s cho mỗi lần gọi, nhưng đặt
+        // thêm HttpClient.Timeout ở đây làm lớp bảo vệ thứ hai — nếu có đường gọi nào sau này
+        // dùng lại HttpClient này mà quên truyền CancellationToken, vẫn không treo vô hạn
+        // (mặc định của HttpClient.Timeout là 100s).
+        HisConnectionTester = new HisConnectionTester(new HttpClient { Timeout = TimeSpan.FromSeconds(15) });
         CatalogExcelImporter = new CatalogExcelImporter(Db);
         FilePicker = new AvaloniaFilePicker();
     }

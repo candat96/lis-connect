@@ -664,6 +664,9 @@ internal static class Program
         public Task<bool> NeedsFirstAdminAsync(DbSettings settings) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
 
+        public Task<bool> NeedsFacilityInfoAsync(DbSettings settings) =>
+            throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
+
         public Task CreateFirstAdminAsync(DbSettings settings, string username, string fullName, string password) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
     }

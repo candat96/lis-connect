@@ -32,6 +32,14 @@ public interface ISetupService
     Task<bool> NeedsFirstAdminAsync(DbSettings settings);
 
     /// <summary>
+    /// true nếu CSDL chưa có thông tin cơ sở — cần hiện bước "Thông tin cơ sở". Không chỉ đúng
+    /// lúc CSDL vừa tạo mới: trình hướng dẫn có thể bị tắt giữa chừng (vd mất điện) sau khi đã
+    /// tạo tài khoản quản trị nhưng trước khi lưu thông tin cơ sở — lần kết nối sau phải hiện
+    /// lại đúng bước đang thiếu, không chỉ dựa vào "CSDL trống hay không".
+    /// </summary>
+    Task<bool> NeedsFacilityInfoAsync(DbSettings settings);
+
+    /// <summary>
     /// Tạo tài khoản quản trị đầu tiên, luôn gán vai trò <see cref="Roles.QuanTri"/>.
     /// Ném <see cref="InvalidOperationException"/> nếu CSDL đã có tài khoản.
     /// </summary>
@@ -101,6 +109,12 @@ public sealed class SetupService : ISetupService
     {
         var store = CreateUserStore(settings);
         return !await store.AnyAsync();
+    }
+
+    public async Task<bool> NeedsFacilityInfoAsync(DbSettings settings)
+    {
+        var store = new Lis.Data.Facility.FacilityStore(Db.Create(settings.ToConnectionString()));
+        return await store.GetAsync() is null;
     }
 
     public async Task CreateFirstAdminAsync(DbSettings settings, string username, string fullName, string password)

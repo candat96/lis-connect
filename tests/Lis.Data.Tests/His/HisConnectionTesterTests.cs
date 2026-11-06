@@ -86,6 +86,30 @@ public sealed class HisConnectionTesterTests
         result.Message.ShouldContain("Không kết nối được máy chủ HIS");
     }
 
+    [Fact(Timeout = 15_000)]
+    public async Task TestAsync_ServerNeverResponds_TimesOutAroundTenSeconds()
+    {
+        // Finding 8 của rà soát toàn nhánh: xác nhận timeout ~10s thật sự có hiệu lực (không
+        // chỉ đọc code) — máy chủ giả không bao giờ trả lời, kiểm tra TestAsync vẫn trả về lỗi
+        // tiếng Việt trong khoảng 10s, không treo vô hạn chờ máy chủ HIS không phản hồi.
+        using var server = FakeHisServer.Start(request =>
+        {
+            Thread.Sleep(Timeout.Infinite - 1); // không bao giờ trả lời trong thời gian test chạy
+        });
+
+        var profile = HisProfile.Empty with { BaseUrl = server.BaseUrl, AuthType = "none", OrdersPath = "/orders" };
+        using var httpClient = new HttpClient();
+        var tester = new HisConnectionTester(httpClient);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await tester.TestAsync(profile, TestContext.Current.CancellationToken);
+        stopwatch.Stop();
+
+        result.Ok.ShouldBeFalse();
+        result.Message.ShouldContain("hết thời gian chờ");
+        stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(14));
+    }
+
     [Fact]
     public async Task TestAsync_BearerLogin_MissingToken_ReturnsVietnameseMessage()
     {

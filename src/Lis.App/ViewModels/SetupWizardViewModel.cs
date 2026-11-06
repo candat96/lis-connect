@@ -74,12 +74,29 @@ public partial class SetupWizardViewModel : ObservableObject
     [ObservableProperty]
     private string? _connectionMessage;
 
+    partial void OnHostChanged(string value) => ResetConnectionTest();
+    partial void OnPortChanged(int value) => ResetConnectionTest();
+    partial void OnDatabaseChanged(string value) => ResetConnectionTest();
+    partial void OnUsernameChanged(string value) => ResetConnectionTest();
+    partial void OnPasswordChanged(string value) => ResetConnectionTest();
+    partial void OnRequireSslChanged(bool value) => ResetConnectionTest();
+
+    /// <summary>
+    /// Sửa bất kỳ ô kết nối nào sau khi đã "Thử kết nối" thành công phải tắt "Tiếp theo" ngay —
+    /// nếu không, người dùng có thể đổi mật khẩu/host rồi bấm "Tiếp theo" dựa trên kết quả thử
+    /// của giá trị CŨ, kết nối CSDL bằng giá trị MỚI chưa từng được kiểm chứng.
+    /// </summary>
+    private void ResetConnectionTest()
+    {
+        ConnectionOk = false;
+        ConnectionMessage = null;
+    }
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(TestConnectionCommand))]
     [NotifyCanExecuteChangedFor(nameof(NextCommand))]
     private bool _isBusy;
 
-    private bool _databaseEmpty;
     private bool _needsFirstAdmin;
 
     // Bước 2: tài khoản quản trị đầu tiên.
@@ -127,7 +144,6 @@ public partial class SetupWizardViewModel : ObservableObject
             var result = await _setupService.TestAsync(BuildDbSettings());
             ConnectionOk = result.Ok;
             ConnectionMessage = result.Message;
-            _databaseEmpty = result.DatabaseEmpty;
         }
         catch (Exception ex)
         {
@@ -198,8 +214,14 @@ public partial class SetupWizardViewModel : ObservableObject
         if (_needsFirstAdmin)
         {
             Step = SetupWizardStep.FirstAdmin;
+            return;
         }
-        else if (_databaseEmpty)
+
+        // Không chỉ dựa vào "CSDL vừa tạo mới" (_databaseEmpty) — trình hướng dẫn có thể đã bị
+        // đóng giữa chừng ở một lần chạy trước (vd mất điện), sau khi tạo tài khoản quản trị
+        // nhưng trước khi lưu thông tin cơ sở. Kiểm tra thẳng CSDL còn thiếu bước nào thì hiện
+        // lại đúng bước đó, không bỏ qua và kết thúc trình hướng dẫn với dữ liệu thiếu.
+        if (await _setupService.NeedsFacilityInfoAsync(settings))
         {
             Step = SetupWizardStep.FacilityInfo;
         }
@@ -220,7 +242,7 @@ public partial class SetupWizardViewModel : ObservableObject
         var settings = BuildDbSettings();
         await _setupService.CreateFirstAdminAsync(settings, AdminUsername, AdminFullName, AdminPassword);
 
-        if (_databaseEmpty)
+        if (await _setupService.NeedsFacilityInfoAsync(settings))
         {
             Step = SetupWizardStep.FacilityInfo;
         }

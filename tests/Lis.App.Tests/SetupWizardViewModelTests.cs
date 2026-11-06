@@ -20,6 +20,8 @@ internal sealed class FakeSetupService : ISetupService
 
     public bool NeedsFirstAdminResult { get; set; }
 
+    public bool NeedsFacilityInfoResult { get; set; }
+
     public Exception? CreateFirstAdminException { get; set; }
 
     public Action? OnMigrate { get; set; }
@@ -33,6 +35,8 @@ internal sealed class FakeSetupService : ISetupService
     }
 
     public Task<bool> NeedsFirstAdminAsync(DbSettings settings) => Task.FromResult(NeedsFirstAdminResult);
+
+    public Task<bool> NeedsFacilityInfoAsync(DbSettings settings) => Task.FromResult(NeedsFacilityInfoResult);
 
     public Task CreateFirstAdminAsync(DbSettings settings, string username, string fullName, string password) =>
         CreateFirstAdminException is not null ? Task.FromException(CreateFirstAdminException) : Task.CompletedTask;
@@ -116,6 +120,56 @@ public class SetupWizardViewModelTests
         vm.NextCommand.Execute(null);
 
         migrateCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Next_DatabaseNotEmptyButNoFacilityInfo_ShowsFacilityStep()
+    {
+        // Finding 6 rà soát toàn nhánh: trình hướng dẫn bị đóng giữa chừng ở lần chạy trước (vd
+        // mất điện) — có tài khoản quản trị rồi nhưng chưa lưu thông tin cơ sở. Lần kết nối sau
+        // (CSDL không còn trống) phải hiện lại bước 3, không được coi là đã cài đặt xong.
+        var vm = CreateViewModel(out var fake);
+        fake.NextTestResult = new ConnectionTest(true, "Kết nối thành công", false); // CSDL không trống
+        vm.TestConnectionCommand.Execute(null);
+        fake.NeedsFirstAdminResult = false; // đã có tài khoản quản trị
+        fake.NeedsFacilityInfoResult = true; // nhưng chưa có thông tin cơ sở
+
+        vm.NextCommand.Execute(null);
+
+        vm.Step.ShouldBe(SetupWizardStep.FacilityInfo);
+    }
+
+    [Fact]
+    public void Next_DatabaseNotEmptyAndComplete_Finishes()
+    {
+        var vm = CreateViewModel(out var fake);
+        fake.NextTestResult = new ConnectionTest(true, "Kết nối thành công", false);
+        vm.TestConnectionCommand.Execute(null);
+        fake.NeedsFirstAdminResult = false;
+        fake.NeedsFacilityInfoResult = false;
+
+        LocalConfig? completed = null;
+        vm.Completed += (_, cfg) => completed = cfg;
+
+        vm.NextCommand.Execute(null);
+
+        completed.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void EditingConnectionField_AfterSuccessfulTest_ResetsConnectionOk()
+    {
+        // Finding 7 rà soát toàn nhánh: sửa ô kết nối sau khi đã thử thành công phải tắt "Tiếp
+        // theo" ngay, để không lưu/kết nối bằng giá trị mới chưa từng kiểm chứng.
+        var vm = CreateViewModel(out var fake);
+        fake.NextTestResult = new ConnectionTest(true, "Kết nối thành công", false);
+        vm.TestConnectionCommand.Execute(null);
+        vm.ConnectionOk.ShouldBeTrue();
+
+        vm.Password = "mật-khẩu-mới";
+
+        vm.ConnectionOk.ShouldBeFalse();
+        vm.NextCommand.CanExecute(null).ShouldBeFalse();
     }
 
     [Fact]
