@@ -24,6 +24,9 @@ public static class Migrator
     /// </summary>
     public static MigrationResult Upgrade(string connectionString)
     {
+        // Chạy script hỗ trợ uuidv7 cho PostgreSQL < 18 trước DbUp migration
+        EnsureUuidv7Compat(connectionString);
+
         var upgrader = DeployChanges.To
             .PostgresqlDatabase(connectionString)
             .WithScriptsEmbeddedInAssembly(Assembly.GetExecutingAssembly())
@@ -34,6 +37,49 @@ public static class Migrator
         var applied = result.Scripts.Select(script => script.Name).ToList();
 
         return new MigrationResult(result.Successful, applied, result.Successful ? null : result.Error?.Message);
+    }
+
+    /// <summary>
+    /// Đảm bảo hàm uuidv7() tồn tại trước khi chạy migrations.
+    /// Chỉ tạo hàm khi phiên bản PostgreSQL &lt; 18; là idempotent.
+    /// </summary>
+    private static void EnsureUuidv7Compat(string connectionString)
+    {
+        using var connection = new NpgsqlConnection(connectionString);
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            DO $outer$
+            BEGIN
+              IF current_setting('server_version_num')::int < 180000 THEN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.routines
+                               WHERE routine_schema = 'public' AND routine_name = 'uuidv7') THEN
+                  CREATE FUNCTION public.uuidv7()
+                  RETURNS uuid
+                  LANGUAGE plpgsql
+                  AS $func$
+                    DECLARE
+                      v_timestamp_ms bigint;
+                    BEGIN
+                      v_timestamp_ms := (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint;
+
+                      RETURN (
+                        LPAD(TO_HEX(v_timestamp_ms), 12, '0') ||
+                        '7' ||
+                        LPAD(TO_HEX((random() * 4095)::bigint), 3, '0') ||
+                        LPAD(TO_HEX(32768 + ((random() * 16383)::bigint)), 4, '0') ||
+                        LPAD(TO_HEX((random() * 281474976710655)::bigint), 12, '0')
+                      )::uuid;
+                    END;
+                  $func$;
+                END IF;
+              END IF;
+            END
+            $outer$;
+            """;
+
+        command.ExecuteNonQuery();
     }
 
     /// <summary>
