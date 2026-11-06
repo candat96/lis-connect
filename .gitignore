@@ -11,3 +11,6 @@ TestResults/
 
 # Ảnh chụp giao diện (tools/Lis.Screenshots) — chỉ dùng kiểm tra cục bộ, không đưa vào repo
 artifacts/
+
+# Build output
+dist/
