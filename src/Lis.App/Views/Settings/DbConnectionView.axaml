@@ -6,7 +6,7 @@
 
     <StackPanel Spacing="12">
 
-        <Border Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+        <Border CornerRadius="{StaticResource RadiusCard}" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
             <StackPanel Spacing="12">
                 <TextBlock Classes="heading" Text="Kết nối CSDL" />
                 <TextBlock Classes="muted" Text="Đổi thông tin kết nối sẽ đăng xuất và mở lại màn đăng nhập sau khi lưu." TextWrapping="Wrap" />

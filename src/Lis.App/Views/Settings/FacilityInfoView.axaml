@@ -6,7 +6,7 @@
 
     <StackPanel Spacing="12">
 
-        <Border Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+        <Border CornerRadius="{StaticResource RadiusCard}" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
             <StackPanel Spacing="12">
                 <TextBlock Classes="heading" Text="Thông tin cơ sở" />
 

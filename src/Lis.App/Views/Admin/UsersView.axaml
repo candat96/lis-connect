@@ -14,7 +14,7 @@
                 <TextBox Text="{Binding FilterText}" PlaceholderText="Tên đăng nhập..." />
             </StackPanel>
 
-            <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
                 <ListBox Name="UserList"
                          ItemsSource="{Binding FilteredUsers}"
                          SelectedItem="{Binding SelectedUser}">
@@ -40,7 +40,7 @@
         <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*">
 
             <!-- Form -->
-            <Border Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
                 <ScrollViewer>
                     <StackPanel Spacing="12">
 

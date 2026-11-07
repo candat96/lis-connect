@@ -12,27 +12,41 @@
         x:DataType="vm:MainViewModel"
         Icon="avares://LisConnect/Assets/app-icon.ico"
         Title="LIS Connect"
-        Width="1024"
-        Height="720"
+        Width="1280"
+        Height="800"
         WindowStartupLocation="CenterScreen">
 
-    <Grid ColumnDefinitions="220,*">
+    <Grid ColumnDefinitions="236,*">
 
         <!-- Thanh điều hướng trái -->
         <Border Grid.Column="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,1,0">
             <DockPanel>
-                <StackPanel DockPanel.Dock="Top" Margin="16,20,16,16" Spacing="2">
-                    <TextBlock Classes="heading" Text="LIS Connect" />
-                    <TextBlock Classes="muted" Text="{Binding CurrentUser.User.FullName}" />
+                <StackPanel DockPanel.Dock="Top" Margin="16,20,16,16" Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Border Width="34" Height="34" CornerRadius="10" Background="{StaticResource BrushPrimary}">
+                            <TextBlock Text="XN" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="LIS Connect" FontWeight="Bold" FontSize="16" />
+                            <TextBlock Classes="muted" Text="Quản lý xét nghiệm" FontSize="12" />
+                        </StackPanel>
+                    </StackPanel>
+                    <Border Background="{StaticResource BrushMuted}" CornerRadius="10" Padding="10,8">
+                        <StackPanel Spacing="1">
+                            <TextBlock Classes="muted" Text="Đang đăng nhập" FontSize="12" />
+                            <TextBlock Text="{Binding CurrentUser.User.FullName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <ListBox Name="NavList"
+                         Classes="nav"
                          ItemsSource="{Binding NavItems}"
                          SelectedItem="{Binding SelectedItem}"
-                         Margin="8,0">
+                         Margin="10,0">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:NavItem">
-                            <TextBlock Text="{Binding Label}" Padding="8,10" />
+                            <TextBlock Text="{Binding Label}" />
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
@@ -41,7 +55,7 @@
 
         <!-- Nội dung -->
         <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="24">
-            <TextBlock Grid.Row="0" Classes="title" Text="{Binding PageTitle}" Margin="0,0,0,16" />
+            <TextBlock Grid.Row="0" Classes="title" Text="{Binding PageTitle}" Margin="0,0,0,18" />
 
             <!-- Panel giữ DataContext=MainViewModel cho IsVisible; View bên trong tự đổi DataContext. -->
             <Panel Grid.Row="1" IsVisible="{Binding IsCatalogSelected}">

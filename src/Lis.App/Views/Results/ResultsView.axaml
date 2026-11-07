@@ -43,7 +43,7 @@
                 <TextBox Name="SearchBox" Text="{Binding SearchText}" PlaceholderText="Barcode / mã / họ tên..." />
             </StackPanel>
 
-            <Border Grid.Row="3" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="3" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
                 <ListBox ItemsSource="{Binding Samples}" SelectedItem="{Binding SelectedSample}">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:SampleListItemViewModel">
@@ -84,7 +84,7 @@
             </StackPanel>
 
             <!-- Lý do hủy duyệt -->
-            <Border Grid.Row="3" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushDanger}" BorderThickness="1" Padding="12" Margin="0,0,0,8"
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="3" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushDanger}" BorderThickness="1" Padding="12" Margin="0,0,0,8"
                     IsVisible="{Binding IsUnapprovePromptVisible}">
                 <StackPanel Spacing="6">
                     <TextBlock Classes="label" Text="Lý do hủy duyệt (bắt buộc)" />
@@ -96,7 +96,7 @@
                 </StackPanel>
             </Border>
 
-            <Border Grid.Row="4" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="4" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
                 <Grid RowDefinitions="Auto,*">
                     <Grid Grid.Row="0" ColumnDefinitions="90,*,130,70,130,110,Auto" Margin="8,6" ColumnSpacing="8">
                         <TextBlock Grid.Column="0" Classes="label" Text="Mã" Margin="0" />

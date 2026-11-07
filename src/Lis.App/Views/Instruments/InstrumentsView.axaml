@@ -9,7 +9,7 @@
 
         <!-- Trái: danh sách máy -->
         <Grid Grid.Column="0" RowDefinitions="*,Auto">
-            <Border Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
                 <ListBox Name="InstrumentList" ItemsSource="{Binding Instruments}" SelectedItem="{Binding SelectedInstrument}">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="instruments:InstrumentInfo">
@@ -25,7 +25,7 @@
         </Grid>
 
         <!-- Giữa: form sửa máy -->
-        <Border Grid.Column="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16" VerticalAlignment="Top">
+        <Border CornerRadius="{StaticResource RadiusCard}" Grid.Column="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16" VerticalAlignment="Top">
             <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
 
                 <Grid ColumnDefinitions="*,*" Margin="0,0,0,8">
@@ -82,7 +82,7 @@
                 trong ScrollViewer cuộn ngang: khi cửa sổ hẹp hơn tổng độ rộng cột, bảng cuộn thay
                 vì co cột "Chỉ số" về 0.
             -->
-            <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <Grid RowDefinitions="Auto,*" MinWidth="560">
                         <Grid Grid.Row="0" ColumnDefinitions="56,150,42,42,64,64,48,48" Margin="8,6" ColumnSpacing="6">

@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Media;
 using Lis.App.Services;
 
 namespace Lis.App;
@@ -31,7 +32,7 @@ internal static class Program
     {
         return AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            .WithInterFont()
+            .With(new FontManagerOptions { DefaultFamilyName = "avares://LisConnect/Assets/Fonts#Be Vietnam Pro" })
             .LogToTrace();
     }
 }

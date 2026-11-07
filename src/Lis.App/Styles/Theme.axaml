@@ -2,46 +2,97 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
   <!--
-    Bảng màu và khoảng cách dùng chung cho toàn bộ giao diện LIS Connect. Mọi màn hình dùng
-    các tài nguyên ở đây thay vì đặt màu/khoảng cách trực tiếp trong view, để đổi một chỗ
-    là đổi toàn bộ.
+    Bộ giao diện dùng chung của LIS Connect — theo phong cách clinic-web (MedOne):
+    xanh lục y tế #0A6B45, bo góc 12px, font Be Vietnam Pro (nhúng sẵn ở Assets/Fonts, giấy phép OFL).
+    Quy tắc 60-30-10: nền trung tính, chữ/viền, màu chính chỉ cho nút chính, mục đang chọn, điểm nhấn.
+    Mọi màn hình lấy màu/khoảng cách từ đây, không đặt mã màu trong view.
   -->
   <Styles.Resources>
     <ResourceDictionary>
 
-      <Color x:Key="ColorPrimary">#2563EB</Color>
-      <Color x:Key="ColorPrimaryHover">#1D4ED8</Color>
-      <Color x:Key="ColorBackground">#F4F6F9</Color>
+      <!-- Bảng màu (đồng bộ clinic-web/src/app/theme/tokens.ts) -->
+      <Color x:Key="ColorPrimary">#0A6B45</Color>
+      <Color x:Key="ColorPrimaryHover">#075437</Color>
+      <Color x:Key="ColorPrimaryTint">#DCF3E7</Color>
+      <Color x:Key="ColorBackground">#F5F5F7</Color>
       <Color x:Key="ColorSurface">#FFFFFF</Color>
-      <Color x:Key="ColorBorder">#D7DCE3</Color>
-      <Color x:Key="ColorText">#1F2933</Color>
-      <Color x:Key="ColorTextMuted">#6B7280</Color>
-      <Color x:Key="ColorDanger">#DC2626</Color>
-      <Color x:Key="ColorSuccess">#15803D</Color>
-      <Color x:Key="ColorNavSelected">#E8EFFD</Color>
+      <Color x:Key="ColorMuted">#EEF2F3</Color>
+      <Color x:Key="ColorBorder">#E5E7E8</Color>
+      <Color x:Key="ColorInputBorder">#C8D1D3</Color>
+      <Color x:Key="ColorText">#121A1A</Color>
+      <Color x:Key="ColorTextMuted">#434A4F</Color>
+      <Color x:Key="ColorPlaceholder">#7A8287</Color>
+      <Color x:Key="ColorDanger">#C8102E</Color>
+      <Color x:Key="ColorDangerTint">#FDE6E8</Color>
+      <Color x:Key="ColorSuccess">#16A260</Color>
+      <Color x:Key="ColorWarning">#C77C0E</Color>
+      <Color x:Key="ColorWarningTint">#FDF1DC</Color>
+      <Color x:Key="ColorInfo">#2F6FB0</Color>
+      <Color x:Key="ColorInfoTint">#E3EEF9</Color>
+      <Color x:Key="ColorNavSelected">#DCF3E7</Color>
 
-      <!-- Màu cờ kết quả (màn Kết quả): cao, thấp, nguy hiểm, bất thường (định tính). -->
+      <!-- Cờ kết quả (màn Kết quả): cao, thấp, nguy hiểm, bất thường (định tính). -->
       <Color x:Key="ColorFlagHigh">#B45309</Color>
-      <Color x:Key="ColorFlagLow">#1D4ED8</Color>
-      <Color x:Key="ColorFlagCritical">#B91C1C</Color>
+      <Color x:Key="ColorFlagLow">#2F6FB0</Color>
+      <Color x:Key="ColorFlagCritical">#C8102E</Color>
       <Color x:Key="ColorFlagAbnormal">#7E22CE</Color>
-      <Color x:Key="ColorPanelRow">#EEF2F7</Color>
+      <Color x:Key="ColorPanelRow">#EEF2F3</Color>
+
+      <!-- Màu nhấn của FluentTheme (ô tích, ô chọn, thanh cuộn, viền ô đang gõ…) theo màu chính -->
+      <Color x:Key="SystemAccentColor">#0A6B45</Color>
+      <Color x:Key="SystemAccentColorDark1">#075437</Color>
+      <Color x:Key="SystemAccentColorDark2">#05402A</Color>
+      <Color x:Key="SystemAccentColorDark3">#032C1D</Color>
+      <Color x:Key="SystemAccentColorLight1">#1B8A5E</Color>
+      <Color x:Key="SystemAccentColorLight2">#5AD49A</Color>
+      <Color x:Key="SystemAccentColorLight3">#DCF3E7</Color>
 
       <SolidColorBrush x:Key="BrushPrimary" Color="{StaticResource ColorPrimary}" />
       <SolidColorBrush x:Key="BrushPrimaryHover" Color="{StaticResource ColorPrimaryHover}" />
+      <SolidColorBrush x:Key="BrushPrimaryTint" Color="{StaticResource ColorPrimaryTint}" />
       <SolidColorBrush x:Key="BrushBackground" Color="{StaticResource ColorBackground}" />
       <SolidColorBrush x:Key="BrushSurface" Color="{StaticResource ColorSurface}" />
+      <SolidColorBrush x:Key="BrushMuted" Color="{StaticResource ColorMuted}" />
       <SolidColorBrush x:Key="BrushBorder" Color="{StaticResource ColorBorder}" />
+      <SolidColorBrush x:Key="BrushInputBorder" Color="{StaticResource ColorInputBorder}" />
       <SolidColorBrush x:Key="BrushText" Color="{StaticResource ColorText}" />
       <SolidColorBrush x:Key="BrushTextMuted" Color="{StaticResource ColorTextMuted}" />
+      <SolidColorBrush x:Key="BrushPlaceholder" Color="{StaticResource ColorPlaceholder}" />
       <SolidColorBrush x:Key="BrushDanger" Color="{StaticResource ColorDanger}" />
+      <SolidColorBrush x:Key="BrushDangerTint" Color="{StaticResource ColorDangerTint}" />
       <SolidColorBrush x:Key="BrushSuccess" Color="{StaticResource ColorSuccess}" />
+      <SolidColorBrush x:Key="BrushWarning" Color="{StaticResource ColorWarning}" />
+      <SolidColorBrush x:Key="BrushWarningTint" Color="{StaticResource ColorWarningTint}" />
+      <SolidColorBrush x:Key="BrushInfo" Color="{StaticResource ColorInfo}" />
+      <SolidColorBrush x:Key="BrushInfoTint" Color="{StaticResource ColorInfoTint}" />
       <SolidColorBrush x:Key="BrushNavSelected" Color="{StaticResource ColorNavSelected}" />
       <SolidColorBrush x:Key="BrushFlagHigh" Color="{StaticResource ColorFlagHigh}" />
       <SolidColorBrush x:Key="BrushFlagLow" Color="{StaticResource ColorFlagLow}" />
       <SolidColorBrush x:Key="BrushFlagCritical" Color="{StaticResource ColorFlagCritical}" />
       <SolidColorBrush x:Key="BrushFlagAbnormal" Color="{StaticResource ColorFlagAbnormal}" />
       <SolidColorBrush x:Key="BrushPanelRow" Color="{StaticResource ColorPanelRow}" />
+
+      <!-- Ghi đè cọ của FluentTheme cho ô nhập / danh sách / tab — đồng bộ bảng màu trên -->
+      <SolidColorBrush x:Key="TextControlBorderBrush" Color="{StaticResource ColorInputBorder}" />
+      <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="{StaticResource ColorPrimary}" />
+      <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="{StaticResource ColorPrimary}" />
+      <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{StaticResource ColorPlaceholder}" />
+      <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="{StaticResource ColorInputBorder}" />
+      <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="{StaticResource ColorPrimary}" />
+      <SolidColorBrush x:Key="ListBoxItemBackgroundPointerOver" Color="{StaticResource ColorMuted}" />
+      <SolidColorBrush x:Key="ListBoxItemBackgroundSelected" Color="{StaticResource ColorPrimaryTint}" />
+      <SolidColorBrush x:Key="ListBoxItemBackgroundSelectedPointerOver" Color="{StaticResource ColorPrimaryTint}" />
+      <SolidColorBrush x:Key="ListBoxItemBackgroundPressed" Color="{StaticResource ColorPrimaryTint}" />
+      <SolidColorBrush x:Key="ListBoxItemBackgroundSelectedPressed" Color="{StaticResource ColorPrimaryTint}" />
+      <SolidColorBrush x:Key="TabItemHeaderForegroundUnselected" Color="{StaticResource ColorTextMuted}" />
+      <SolidColorBrush x:Key="TabItemHeaderForegroundSelected" Color="{StaticResource ColorPrimary}" />
+      <SolidColorBrush x:Key="TabItemHeaderForegroundUnselectedPointerOver" Color="{StaticResource ColorPrimary}" />
+      <SolidColorBrush x:Key="TabItemHeaderForegroundSelectedPointerOver" Color="{StaticResource ColorPrimaryHover}" />
+      <SolidColorBrush x:Key="TabItemHeaderSelectedPipeFill" Color="{StaticResource ColorPrimary}" />
+      <x:Double x:Key="TabItemHeaderFontSize">14</x:Double>
+      <x:Double x:Key="TabItemMinHeight">40</x:Double>
+      <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+      <CornerRadius x:Key="OverlayCornerRadius">12</CornerRadius>
 
       <x:Double x:Key="SpacingSmall">8</x:Double>
       <x:Double x:Key="SpacingMedium">16</x:Double>
@@ -50,14 +101,20 @@
       <x:Double x:Key="FontSizeBase">14</x:Double>
       <x:Double x:Key="FontSizeLabel">13</x:Double>
       <x:Double x:Key="FontSizeHeading">16</x:Double>
-      <x:Double x:Key="FontSizeTitle">20</x:Double>
+      <x:Double x:Key="FontSizeTitle">22</x:Double>
+
+      <CornerRadius x:Key="RadiusCard">12</CornerRadius>
+      <CornerRadius x:Key="RadiusControl">10</CornerRadius>
 
     </ResourceDictionary>
   </Styles.Resources>
 
+  <!-- ===== Nền, chữ ===== -->
   <Style Selector="Window">
     <Setter Property="Background" Value="{StaticResource BrushBackground}" />
     <Setter Property="FontSize" Value="{StaticResource FontSizeBase}" />
+    <Setter Property="FontFamily" Value="avares://LisConnect/Assets/Fonts#Be Vietnam Pro" />
+    <Setter Property="Foreground" Value="{StaticResource BrushText}" />
   </Style>
 
   <Style Selector="TextBlock">
@@ -67,7 +124,7 @@
 
   <Style Selector="TextBlock.heading">
     <Setter Property="FontSize" Value="{StaticResource FontSizeHeading}" />
-    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontWeight" Value="Bold" />
   </Style>
 
   <Style Selector="TextBlock.title">
@@ -75,10 +132,12 @@
     <Setter Property="FontWeight" Value="Bold" />
   </Style>
 
+  <!-- Nhãn ô nhập: đậm vừa (600), cùng màu chữ chính như clinic-web -->
   <Style Selector="TextBlock.label">
     <Setter Property="FontSize" Value="{StaticResource FontSizeLabel}" />
-    <Setter Property="Foreground" Value="{StaticResource BrushTextMuted}" />
-    <Setter Property="Margin" Value="0,0,0,4" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+    <Setter Property="Margin" Value="0,0,0,6" />
   </Style>
 
   <Style Selector="TextBlock.muted">
@@ -87,58 +146,171 @@
 
   <Style Selector="TextBlock.error">
     <Setter Property="Foreground" Value="{StaticResource BrushDanger}" />
+    <Setter Property="FontWeight" Value="Medium" />
   </Style>
 
   <Style Selector="TextBlock.success">
     <Setter Property="Foreground" Value="{StaticResource BrushSuccess}" />
+    <Setter Property="FontWeight" Value="Medium" />
   </Style>
 
-  <!-- Cờ kết quả trên bảng chỉ số (màn Kết quả) — gắn class theo cờ, màu lấy từ bảng màu ở trên. -->
+  <!-- Cờ kết quả trên bảng chỉ số (màn Kết quả) -->
   <Style Selector="TextBlock.flagHigh">
     <Setter Property="Foreground" Value="{StaticResource BrushFlagHigh}" />
     <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
-
   <Style Selector="TextBlock.flagLow">
     <Setter Property="Foreground" Value="{StaticResource BrushFlagLow}" />
     <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
-
   <Style Selector="TextBlock.flagCritical">
     <Setter Property="Foreground" Value="{StaticResource BrushFlagCritical}" />
     <Setter Property="FontWeight" Value="Bold" />
   </Style>
-
   <Style Selector="TextBlock.flagAbnormal">
     <Setter Property="Foreground" Value="{StaticResource BrushFlagAbnormal}" />
     <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
 
-  <Style Selector="TextBox, NumericUpDown">
-    <Setter Property="FontSize" Value="{StaticResource FontSizeBase}" />
-    <Setter Property="Padding" Value="8,6" />
-    <Setter Property="MinHeight" Value="34" />
+  <!-- ===== Thẻ (vùng nội dung có nền trắng, bo góc, viền nhạt) ===== -->
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{StaticResource BrushSurface}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusCard}" />
+    <Setter Property="Padding" Value="16" />
   </Style>
 
+  <!-- ===== Ô nhập ===== -->
+  <Style Selector="TextBox, NumericUpDown, ComboBox, DatePicker, CalendarDatePicker">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeBase}" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushInputBorder}" />
+    <Setter Property="Background" Value="{StaticResource BrushSurface}" />
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="Padding" Value="10,7" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="Padding" Value="10,6" />
+  </Style>
+  <Style Selector="CheckBox">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeBase}" />
+  </Style>
+
+  <!-- ===== Nút ===== -->
+  <!-- Nút mặc định (phụ): nền trắng, viền xám, chữ đậm vừa -->
   <Style Selector="Button">
     <Setter Property="Padding" Value="16,8" />
-    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
     <Setter Property="FontSize" Value="{StaticResource FontSizeBase}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Background" Value="{StaticResource BrushSurface}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushInputBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushMuted}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushPrimary}" />
+    <Setter Property="Foreground" Value="{StaticResource BrushPrimaryHover}" />
+  </Style>
+  <Style Selector="Button:pressed /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushPrimaryTint}" />
+  </Style>
+  <Style Selector="Button:disabled /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushMuted}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushBorder}" />
+    <Setter Property="Foreground" Value="{StaticResource BrushPlaceholder}" />
   </Style>
 
-  <!-- Nút hành động chính (vd Thử kết nối, Tiếp theo, Đăng nhập) — nổi bật, dễ nhận biết. -->
+  <!-- Nút hành động chính: nền xanh chính, chữ trắng -->
   <Style Selector="Button.primary">
     <Setter Property="Background" Value="{StaticResource BrushPrimary}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushPrimary}" />
     <Setter Property="Foreground" Value="White" />
-    <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
-
   <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
     <Setter Property="Background" Value="{StaticResource BrushPrimaryHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushPrimaryHover}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.primary:pressed /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushPrimaryHover}" />
+  </Style>
+  <Style Selector="Button.primary:disabled /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushPrimary}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushPrimary}" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="Opacity" Value="0.45" />
   </Style>
 
-  <Style Selector="Button.primary:disabled /template/ ContentPresenter">
-    <Setter Property="Opacity" Value="0.5" />
+  <!-- Nút nguy hiểm (Hủy duyệt, Xóa, Bỏ qua…) -->
+  <Style Selector="Button.danger">
+    <Setter Property="Foreground" Value="{StaticResource BrushDanger}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushDanger}" />
+  </Style>
+  <Style Selector="Button.danger:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushDangerTint}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushDanger}" />
+    <Setter Property="Foreground" Value="{StaticResource BrushDanger}" />
+  </Style>
+
+  <!-- ===== Danh sách (ListBox): dòng bo góc, hover xám nhạt, chọn xanh nhạt ===== -->
+  <Style Selector="ListBox">
+    <Setter Property="Background" Value="{StaticResource BrushSurface}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushBorder}" />
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusCard}" />
+  </Style>
+  <Style Selector="ListBoxItem">
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Margin" Value="4,1" />
+  </Style>
+  <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushMuted}" />
+  </Style>
+  <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushPrimaryTint}" />
+  </Style>
+  <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushPrimaryTint}" />
+  </Style>
+  <Style Selector="ListBoxItem:selected:focus /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushPrimaryTint}" />
+  </Style>
+  <Style Selector="ListBoxItem:selected TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource BrushPrimaryHover}" />
+  </Style>
+
+  <!-- ===== Tab: chữ 14 đậm vừa, tab đang chọn chữ xanh + vạch xanh ===== -->
+  <Style Selector="TabItem">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="MinHeight" Value="40" />
+  </Style>
+
+  <!-- ===== Menu trái (MainWindow): mục bo góc 10, mục chọn nền xanh nhạt chữ xanh đậm ===== -->
+  <Style Selector="ListBox.nav">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="ListBox.nav ListBoxItem">
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Margin" Value="0,2" />
+    <Setter Property="Padding" Value="12,10" />
+  </Style>
+  <Style Selector="ListBox.nav ListBoxItem TextBlock">
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="ListBox.nav ListBoxItem:selected TextBlock">
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource BrushPrimaryHover}" />
   </Style>
 
 </Styles>

@@ -26,7 +26,7 @@
                 <Button Grid.Column="1" Content="Tải lại" Command="{Binding RefreshCommand}" Padding="10,4" />
             </Grid>
 
-            <Border Grid.Row="2" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="2" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
                 <Grid RowDefinitions="Auto,*">
                     <Grid Grid.Row="0" ColumnDefinitions="130,110,*,110,130,130" Margin="8,6" ColumnSpacing="8">
                         <TextBlock Grid.Column="0" Classes="label" Text="Máy" Margin="0" />
@@ -69,7 +69,7 @@
             </StackPanel>
 
             <!-- Ô "Gán vào mẫu…" -->
-            <Border Grid.Row="3" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="12" Margin="0,0,0,12"
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="3" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="12" Margin="0,0,0,12"
                     IsVisible="{Binding AssignPanel.IsVisible}">
                 <Grid DataContext="{Binding AssignPanel}" x:DataType="vm:AssignPanelViewModel" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
                     <TextBlock Grid.Row="0" Classes="label" Text="{Binding Title}" TextWrapping="Wrap" Margin="0,0,0,8" />
@@ -100,7 +100,7 @@
             </Border>
 
             <!-- Hộp lý do bỏ qua -->
-            <Border Grid.Row="4" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushDanger}" BorderThickness="1" Padding="12" VerticalAlignment="Top"
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="4" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushDanger}" BorderThickness="1" Padding="12" VerticalAlignment="Top"
                     IsVisible="{Binding IsDismissPromptVisible}">
                 <StackPanel Spacing="6">
                     <TextBlock Classes="label" Text="Lý do bỏ qua (bắt buộc) — Enter để xác nhận" />

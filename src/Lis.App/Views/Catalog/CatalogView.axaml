@@ -16,7 +16,7 @@
                 <TextBox Name="FilterBox" Text="{Binding FilterText}" PlaceholderText="Nhập mã hoặc tên dịch vụ..." />
             </StackPanel>
 
-            <Border Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
                 <ListBox Name="ServiceList"
                          ItemsSource="{Binding FilteredServices}"
                          SelectedItem="{Binding SelectedService}">
@@ -43,7 +43,7 @@
         <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*">
 
             <!-- Form sửa dịch vụ -->
-            <Border Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
+            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
                 <StackPanel Spacing="8">
 
                     <Grid ColumnDefinitions="*,*,*" Margin="0,0,0,8">

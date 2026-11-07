@@ -1,4 +1,5 @@
 using Avalonia;
+
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Markup.Xaml.Styling;
@@ -62,7 +63,7 @@ internal static class Program
         AppBuilder.Configure<ScreenshotApp>()
             .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
             .UseSkia()
-            .WithInterFont()
+            .With(new Avalonia.Media.FontManagerOptions { DefaultFamilyName = "avares://LisConnect/Assets/Fonts#Be Vietnam Pro" })
             .SetupWithoutStarting();
 
         Capture(outputDirectory, "01-cai-dat-ket-noi-csdl.png", CreateWizardWindow(SetupWizardStep.ConnectDb, withConnectionOk: false));
