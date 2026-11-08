@@ -1,0 +1,100 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lis.App.ViewModels.Instruments"
+             xmlns:instruments="using:Lis.Data.Instruments"
+             x:Class="Lis.App.Views.Instruments.RawLogView"
+             x:DataType="vm:RawLogViewModel">
+
+    <Grid ColumnDefinitions="240,*" ColumnSpacing="16">
+
+        <!-- Trái: chọn máy -->
+        <Border Grid.Column="0" Classes="table">
+            <Grid RowDefinitions="Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,96">
+                    <Border Grid.Column="0" Classes="th"><TextBlock Text="Máy" /></Border>
+                    <Border Grid.Column="1" Classes="th last"><TextBlock Text="Họ giao thức" /></Border>
+                </Grid>
+                <ListBox Grid.Row="1" Classes="table" ItemsSource="{Binding Instruments}" SelectedItem="{Binding SelectedInstrument}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="instruments:InstrumentInfo">
+                            <Grid ColumnDefinitions="*,96">
+                                <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" /></Border>
+                                <Border Grid.Column="1" Classes="td last"><TextBlock Text="{Binding ProtocolFamily}" Classes="muted" FontSize="12" TextWrapping="Wrap" /></Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <!-- Phải: bộ lọc + bảng log -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,*">
+
+            <WrapPanel Grid.Row="0" Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Ngày" />
+                    <ComboBox ItemsSource="{Binding Dates}" SelectedItem="{Binding SelectedDate}" Width="130" />
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Phiên" />
+                    <ComboBox ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" Width="200" />
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Chiều" />
+                    <ComboBox ItemsSource="{Binding DirectionOptions}" SelectedItem="{Binding SelectedDirection}" Width="130" />
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Classes="label" Text="Tìm (mã vạch, mã test…)" />
+                    <TextBox Text="{Binding SearchText}" Width="200" />
+                </StackPanel>
+            </WrapPanel>
+
+            <WrapPanel Grid.Row="1" Orientation="Horizontal" ItemSpacing="16" LineSpacing="4" Margin="0,8,0,0">
+                <CheckBox Content="Ẩn ACK lẻ" IsChecked="{Binding HideLoneAcks}" />
+                <CheckBox Content="Xem dạng hex" IsChecked="{Binding ShowHex}" />
+                <CheckBox Content="Tự cập nhật (trực tiếp)" IsChecked="{Binding AutoRefresh}" />
+                <Button Content="Tải lại" Command="{Binding ReloadCommand}" />
+                <Button Name="CopyButton" Content="Chép các dòng đang hiện" />
+                <Button Content="Mở thư mục log" Command="{Binding OpenFolderCommand}" />
+            </WrapPanel>
+
+            <StackPanel Grid.Row="2" Margin="0,8">
+                <TextBlock Text="{Binding Summary}" Classes="muted" />
+                <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border Grid.Row="3" Classes="table">
+                <Grid RowDefinitions="Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="100,92,64,130,*">
+                        <Border Grid.Column="0" Classes="th"><TextBlock Text="Giờ" /></Border>
+                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Chiều" /></Border>
+                        <Border Grid.Column="2" Classes="th"><TextBlock Text="Byte" /></Border>
+                        <Border Grid.Column="3" Classes="th"><TextBlock Text="Phiên" /></Border>
+                        <Border Grid.Column="4" Classes="th last"><TextBlock Text="Nội dung" /></Border>
+                    </Grid>
+                    <ListBox Grid.Row="1" Classes="table" Name="LogList" ItemsSource="{Binding Rows}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:RawLogRowViewModel">
+                                <Grid ColumnDefinitions="100,92,64,130,*">
+                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Time}" FontFamily="Consolas,Menlo,monospace" FontSize="12" Classes="muted" VerticalAlignment="Top" /></Border>
+                                    <Border Grid.Column="1" Classes="td">
+                                        <Panel VerticalAlignment="Top">
+                                            <TextBlock Text="{Binding DirectionText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrushPrimary}" IsVisible="{Binding IsIn}" />
+                                            <TextBlock Text="{Binding DirectionText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrushInfo}" IsVisible="{Binding IsOut}" />
+                                            <TextBlock Text="{Binding DirectionText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrushWarning}" IsVisible="{Binding IsEvent}" />
+                                        </Panel>
+                                    </Border>
+                                    <Border Grid.Column="2" Classes="td"><TextBlock Text="{Binding ByteCountText}" FontSize="12" Classes="muted" HorizontalAlignment="Right" VerticalAlignment="Top" /></Border>
+                                    <Border Grid.Column="3" Classes="td"><TextBlock Text="{Binding Session}" FontSize="12" Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Top" /></Border>
+                                    <Border Grid.Column="4" Classes="td last"><SelectableTextBlock Text="{Binding Text}" FontFamily="Consolas,Menlo,monospace" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Top" /></Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+        </Grid>
+    </Grid>
+
+</UserControl>

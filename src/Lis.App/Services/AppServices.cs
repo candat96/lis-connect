@@ -45,7 +45,15 @@ public sealed class AppServices
         HisConnectionTester = new HisConnectionTester(new HttpClient { Timeout = TimeSpan.FromSeconds(15) });
         CatalogExcelImporter = new CatalogExcelImporter(Db);
         FilePicker = new AvaloniaFilePicker();
+        SerialPorts = new SerialPortService();
+        RawLogs = new RawLogStore(RawLogStore.DefaultRoot);
     }
+
+    /// <summary>Liệt kê / nghe thử cổng COM trên máy trạm (màn dò cổng).</summary>
+    public ISerialPortService SerialPorts { get; }
+
+    /// <summary>Log thô từng máy, trên đĩa máy trạm (<c>%ProgramData%\LIS Connect\rawlog</c>).</summary>
+    public IRawLogStore RawLogs { get; }
 
     public LocalConfig Config { get; }
 

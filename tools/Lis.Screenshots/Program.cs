@@ -24,6 +24,7 @@ using Lis.App.Views.Results;
 using Lis.App.Views.Settings;
 using Lis.App.Views.Unmatched;
 using Lis.Core.Auth;
+using Lis.Core.Instruments;
 using Lis.Data;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
@@ -96,6 +97,7 @@ internal static class Program
         Capture(outputDirectory, "15-cai-dat-barcode-tem.png", CreateBarcodeSettingsWindow());
         Capture(outputDirectory, "16-cai-dat-ket-noi-csdl.png", CreateDbConnectionWindow());
         Capture(outputDirectory, "17-cai-dat-ket-noi-his.png", CreateHisSettingsWindow());
+        Capture(outputDirectory, "19-log-tho.png", CreateRawLogWindow());
         Capture(outputDirectory, "18-danh-muc-nhap-excel.png", CreateCatalogImportResultWindow());
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
@@ -258,7 +260,7 @@ internal static class Program
     {
         var instrumentId = Guid.NewGuid();
         var instrument = new InstrumentInfo(
-            instrumentId, "Máy thử XN-1000", "XN-1000", "astm", """{"frame": "lis2a2"}""", """{"port": "COM3", "baud": 9600}""", "XN-01", true);
+            instrumentId, "Máy thử XN-1000", "XN-1000", "astm-e1394", """{"frame": "lis2a2"}""", """{"type":"serial","port":"COM3","baudRate":9600,"dataBits":8,"parity":"None","stopBits":1}""", "XN-01", true);
 
         var wbcId = Guid.NewGuid();
         var hgbId = Guid.NewGuid();
@@ -269,10 +271,16 @@ internal static class Program
         };
 
         var user = new UserInfo(Guid.NewGuid(), "quantri.thu", "Nguyễn Văn Thử", "Quản trị", [Roles.QuanTri], true);
-        var viewModel = new InstrumentsViewModel(new SeededInstrumentStore(instrument, channels), new UnusedServiceLookup(), new CurrentUser(user));
+        var viewModel = new InstrumentsViewModel(
+            new SeededInstrumentStore(instrument, channels), new UnusedServiceLookup(), new CurrentUser(user), new FakeSerialPorts());
         viewModel.LoadAsync().GetAwaiter().GetResult();
         viewModel.SelectedInstrument = viewModel.Instruments.First();
         viewModel.ChannelEditor.LoadAsync(instrumentId).GetAwaiter().GetResult();
+
+        // Bảng dò cổng: COM3 nhận khung ASTM, COM4 im lặng, COM5 bị LIS cũ chiếm.
+        viewModel.PortScanner.ListenSeconds = 10;
+        viewModel.PortScanner.RefreshCommand.Execute(null);
+        viewModel.PortScanner.ListenAllCommand.ExecuteAsync(null).GetAwaiter().GetResult();
 
         var view = new InstrumentsView { DataContext = viewModel };
 
@@ -283,6 +291,68 @@ internal static class Program
             Height = 820,
             Content = view,
         };
+    }
+
+    /// <summary>
+    /// Màn "Log thô" với log giả của một máy ASTM (sự kiện mở cổng, ENQ/ACK, các khung H/P/O/R/L,
+    /// một lần mất kết nối) ghi vào thư mục tạm.
+    /// </summary>
+    private static Window CreateRawLogWindow()
+    {
+        var instrumentId = Guid.NewGuid();
+        var instrument = new InstrumentInfo(
+            instrumentId, "Cell-Dyn Ruby", "Abbott Cell-Dyn Ruby", "astm-e1394", null, """{"type":"serial","port":"COM4","baudRate":9600}""", "DK10.3", true);
+
+        var root = Path.Combine(Path.GetTempPath(), "lis-screenshots-rawlog-" + Guid.NewGuid().ToString("N"));
+        var logs = new RawLogStore(root);
+        var t = new DateTimeOffset(DateTime.Today.AddHours(8).AddMinutes(12).AddSeconds(5));
+        void Add(double seconds, RawLogDirection direction, string text, string? note = null) =>
+            logs.Append(instrumentId, new RawLogEntry(t = t.AddSeconds(seconds), direction, "phien-1", System.Text.Encoding.Latin1.GetBytes(text), note));
+
+        Add(0, RawLogDirection.Event, "", "Mở cổng COM4 · 9600 8N1");
+        Add(42.3, RawLogDirection.In, "\u0005");
+        Add(0.04, RawLogDirection.Out, "\u0006");
+        Add(0.05, RawLogDirection.In, "\u00021H|\\^&|||CELL-DYN Ruby^1.0|||||||P|1|20261108081247\r\u000346\r\n");
+        Add(0.03, RawLogDirection.Out, "\u0006");
+        Add(0.05, RawLogDirection.In, "\u00022P|1||||Nguyen^Van Mau\r\u00034E\r\n");
+        Add(0.03, RawLogDirection.Out, "\u0006");
+        Add(0.05, RawLogDirection.In, "\u00023O|1|9261108012||^^^ALL|R\r\u000391\r\n");
+        Add(0.03, RawLogDirection.Out, "\u0006");
+        Add(0.05, RawLogDirection.In, "\u00024R|1|^^^WBC|7.2|10^9/L||N||F\r\u0003C2\r\n");
+        Add(0.03, RawLogDirection.Out, "\u0006");
+        Add(0.05, RawLogDirection.In, "\u00025R|2|^^^HGB|132|g/L||N||F\r\u0003A9\r\n");
+        Add(0.03, RawLogDirection.Out, "\u0006");
+        Add(0.05, RawLogDirection.In, "\u00026L|1|N\r\u000309\r\n");
+        Add(0.03, RawLogDirection.Out, "\u0006");
+        Add(0.05, RawLogDirection.In, "\u0004");
+        Add(612.4, RawLogDirection.In, "\u00022R|3|^^^");
+        Add(15.0, RawLogDirection.Event, "", "Lỗi: hết thời gian chờ khung tiếp theo (15 s), bỏ bản tin dở");
+
+        var viewModel = new RawLogViewModel(new SeededInstrumentStore(instrument, []), logs);
+        viewModel.LoadAsync().GetAwaiter().GetResult();
+
+        return new Window
+        {
+            Title = "LIS Connect — Log thô",
+            Width = 1360,
+            Height = 820,
+            Content = new RawLogView { DataContext = viewModel },
+        };
+    }
+
+    /// <summary>Cổng COM giả cho ảnh chụp màn dò cổng.</summary>
+    private sealed class FakeSerialPorts : ISerialPortService
+    {
+        public IReadOnlyList<SerialPortEntry> ListPorts() =>
+            [new("COM3", "USB-SERIAL CH340"), new("COM4", "Communications Port"), new("COM5", "Prolific USB-to-Serial")];
+
+        public Task<byte[]> ListenAsync(Lis.Core.Instruments.ConnectionSettings settings, TimeSpan duration, Action<byte[]>? onBytes, CancellationToken ct) =>
+            settings.PortName switch
+            {
+                "COM3" => Task.FromResult(System.Text.Encoding.Latin1.GetBytes("\u0005\u00021H|\\^&|||CS-T240|||||||P|1\r\u00034F\r\n")),
+                "COM5" => Task.FromException<byte[]>(new SerialPortBusyException("COM5", new UnauthorizedAccessException())),
+                _ => Task.FromResult(Array.Empty<byte>()),
+            };
     }
 
     /// <summary>

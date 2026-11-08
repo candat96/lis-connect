@@ -82,6 +82,10 @@
                 <instruments:InstrumentsView DataContext="{Binding Instruments}" />
             </Panel>
 
+            <Panel Grid.Row="1" IsVisible="{Binding IsRawLogSelected}">
+                <instruments:RawLogView DataContext="{Binding RawLog}" />
+            </Panel>
+
             <Panel Grid.Row="1" IsVisible="{Binding IsUsersSelected}">
                 <admin:UsersView DataContext="{Binding Users}" />
             </Panel>

@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Lis.App.Services;
 using Lis.App.ViewModels.Admin;
@@ -43,7 +44,8 @@ public partial class MainViewModel : ObservableObject
         IUnmatchedService unmatched, IInstrumentStore instruments, UserStore users,
         ISetupService setupService, LocalConfigStore configStore, LocalConfig localConfig,
         HisProfileStore hisProfileStore, HisConnectionTester hisConnectionTester,
-        ICatalogExcelImporter catalogExcelImporter, IFilePicker filePicker)
+        ICatalogExcelImporter catalogExcelImporter, IFilePicker filePicker,
+        ISerialPortService? serialPorts = null, IRawLogStore? rawLogs = null)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
@@ -52,7 +54,21 @@ public partial class MainViewModel : ObservableObject
         Reception = new ReceptionViewModel(orders, catalogStore, facility, currentUser, labelPrinter);
         Results = new ResultsViewModel(results, currentUser, reportPrinter);
         Unmatched = new UnmatchedViewModel(unmatched, currentUser);
-        Instruments = new InstrumentsViewModel(instruments, catalogStore, currentUser);
+        rawLogs ??= new RawLogStore(RawLogStore.DefaultRoot);
+        Instruments = new InstrumentsViewModel(instruments, catalogStore, currentUser, serialPorts, rawLogs, action => Dispatcher.UIThread.Post(action));
+        RawLog = new RawLogViewModel(instruments, rawLogs);
+        Instruments.OpenRawLogRequested += (_, instrumentId) =>
+        {
+            var item = NavItems.FirstOrDefault(n => n.Label == "Log thô");
+            if (item is null)
+            {
+                return;
+            }
+
+            _rawLogLoaded = true;
+            SelectedItem = item;
+            _ = RawLog.ShowInstrumentAsync(instrumentId);
+        };
         Users = new UsersViewModel(users, currentUser);
 
         var dbConnection = currentUser.Can(Permission.QuanTri)
@@ -99,6 +115,9 @@ public partial class MainViewModel : ObservableObject
     /// <summary>ViewModel của màn "Máy &amp; map" — tải khi người dùng mở mục "Máy &amp; map" lần đầu.</summary>
     public InstrumentsViewModel Instruments { get; }
 
+    /// <summary>ViewModel của màn "Log thô" — tải khi người dùng mở mục "Log thô" lần đầu.</summary>
+    public RawLogViewModel RawLog { get; }
+
     /// <summary>ViewModel của màn "Tài khoản" — tải khi người dùng mở mục "Tài khoản" lần đầu.</summary>
     public UsersViewModel Users { get; }
 
@@ -116,6 +135,8 @@ public partial class MainViewModel : ObservableObject
 
     private bool _usersLoaded;
 
+    private bool _rawLogLoaded;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PageTitle))]
     [NotifyPropertyChangedFor(nameof(IsCatalogSelected))]
@@ -125,6 +146,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsUnmatchedSelected))]
     [NotifyPropertyChangedFor(nameof(IsInstrumentsSelected))]
     [NotifyPropertyChangedFor(nameof(IsUsersSelected))]
+    [NotifyPropertyChangedFor(nameof(IsRawLogSelected))]
     [NotifyPropertyChangedFor(nameof(IsPlaceholderSelected))]
     private NavItem? _selectedItem;
 
@@ -144,9 +166,11 @@ public partial class MainViewModel : ObservableObject
 
     public bool IsUsersSelected => SelectedItem?.Label == "Tài khoản";
 
+    public bool IsRawLogSelected => SelectedItem?.Label == "Log thô";
+
     public bool IsPlaceholderSelected =>
         !IsCatalogSelected && !IsReceptionSelected && !IsResultsSelected && !IsSettingsSelected
-        && !IsUnmatchedSelected && !IsInstrumentsSelected && !IsUsersSelected;
+        && !IsUnmatchedSelected && !IsInstrumentsSelected && !IsUsersSelected && !IsRawLogSelected;
 
     partial void OnSelectedItemChanged(NavItem? value)
     {
@@ -186,6 +210,12 @@ public partial class MainViewModel : ObservableObject
             _ = Instruments.LoadAsync();
         }
 
+        if (IsRawLogSelected && !_rawLogLoaded)
+        {
+            _rawLogLoaded = true;
+            _ = RawLog.LoadAsync();
+        }
+
         if (IsUsersSelected && !_usersLoaded)
         {
             _usersLoaded = true;
@@ -202,6 +232,7 @@ public partial class MainViewModel : ObservableObject
             new("Chưa ghép", Permission.GhepTay),
             new("Danh mục", Permission.QuanTri),
             new("Máy & map", Permission.QuanTri),
+            new("Log thô", Permission.XemLogTho),
             new("Tài khoản", Permission.QuanTri),
             new("Cài đặt", Permission.QuanTri),
         ];

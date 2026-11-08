@@ -9,23 +9,31 @@
 
         <!-- Trái: danh sách máy -->
         <Grid Grid.Column="0" RowDefinitions="*,Auto">
-            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
-                <ListBox Name="InstrumentList" ItemsSource="{Binding Instruments}" SelectedItem="{Binding SelectedInstrument}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="instruments:InstrumentInfo">
-                            <StackPanel Margin="0,2">
-                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                <TextBlock Text="{Binding ProtocolFamily}" Classes="muted" FontSize="12" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+            <Border Classes="table" Grid.Row="0">
+                <Grid RowDefinitions="Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="*,100">
+                        <Border Grid.Column="0" Classes="th"><TextBlock Text="Tên máy" /></Border>
+                        <Border Grid.Column="1" Classes="th last"><TextBlock Text="Họ giao thức" /></Border>
+                    </Grid>
+                    <ListBox Grid.Row="1" Classes="table" Name="InstrumentList" ItemsSource="{Binding Instruments}" SelectedItem="{Binding SelectedInstrument}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="instruments:InstrumentInfo">
+                                <Grid ColumnDefinitions="*,100">
+                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="1" Classes="td last"><TextBlock Text="{Binding ProtocolFamily}" Classes="muted" FontSize="12" TextWrapping="Wrap" /></Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
             </Border>
             <Button Grid.Row="1" Content="+ Máy mới" Command="{Binding NewInstrumentCommand}" Margin="0,8,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
         </Grid>
 
-        <!-- Giữa: form sửa máy -->
-        <Border CornerRadius="{StaticResource RadiusCard}" Grid.Column="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16" VerticalAlignment="Top">
+        <!-- Giữa: form sửa máy (cuộn dọc vì có thêm phần kết nối + dò cổng) -->
+        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="16">
+        <Border CornerRadius="{StaticResource RadiusCard}" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16" VerticalAlignment="Top">
             <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
 
                 <Grid ColumnDefinitions="*,*" Margin="0,0,0,8">
@@ -50,14 +58,54 @@
                     </StackPanel>
                 </Grid>
 
-                <StackPanel Spacing="4" Margin="0,0,0,8">
-                    <TextBlock Classes="label" Text="Cấu hình driver (JSON thô — đợt 2 thay bằng form theo họ giao thức)" />
-                    <TextBox Text="{Binding EditDriverConfig}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace" MinHeight="70" />
+                <!-- Kết nối -->
+                <StackPanel Spacing="8" Margin="0,0,0,8" DataContext="{Binding Connection}" x:DataType="vm:ConnectionEditorViewModel">
+                    <TextBlock Classes="heading" Text="Kết nối" />
+                    <StackPanel>
+                        <TextBlock Classes="label" Text="Kiểu kết nối" />
+                        <ComboBox ItemsSource="{Binding Kinds}" SelectedItem="{Binding SelectedKind}" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="2*,*,*,*,*" ColumnSpacing="8" IsVisible="{Binding IsSerial}">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Classes="label" Text="Cổng COM" />
+                            <ComboBox ItemsSource="{Binding PortOptions}" SelectedItem="{Binding PortName}" HorizontalAlignment="Stretch" PlaceholderText="Quét cổng bên dưới" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Classes="label" Text="Baud" />
+                            <ComboBox ItemsSource="{Binding BaudRates}" SelectedItem="{Binding BaudRate}" HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Classes="label" Text="Bit dữ liệu" />
+                            <ComboBox ItemsSource="{Binding DataBitsOptions}" SelectedItem="{Binding DataBits}" HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="3">
+                            <TextBlock Classes="label" Text="Parity" />
+                            <ComboBox ItemsSource="{Binding ParityOptions}" SelectedItem="{Binding Parity}" HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Classes="label" Text="Stop bit" />
+                            <ComboBox ItemsSource="{Binding StopBitsOptions}" SelectedItem="{Binding StopBits}" HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="2*,*" ColumnSpacing="8" IsVisible="{Binding IsTcp}">
+                        <StackPanel Grid.Column="0" IsVisible="{Binding IsTcpClient}">
+                            <TextBlock Classes="label" Text="Địa chỉ IP của máy" />
+                            <TextBox Text="{Binding Host}" PlaceholderText="192.168.1.20" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Classes="label" Text="Cổng TCP" />
+                            <TextBox Text="{Binding TcpPortText}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Classes="error" Text="{Binding Warning}" TextWrapping="Wrap" IsVisible="{Binding Warning, Converter={x:Static ObjectConverters.IsNotNull}}" />
                 </StackPanel>
 
                 <StackPanel Spacing="4" Margin="0,0,0,8">
-                    <TextBlock Classes="label" Text="Kết nối (JSON thô)" />
-                    <TextBox Text="{Binding EditConnection}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace" MinHeight="70" />
+                    <TextBlock Classes="label" Text="Cấu hình driver (JSON thô — chốt theo từng họ giao thức ở Đợt 2)" />
+                    <TextBox Text="{Binding EditDriverConfig}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace" MinHeight="50" />
                 </StackPanel>
 
                 <CheckBox Content="Đang dùng" IsChecked="{Binding EditActive}" Margin="0,0,0,8" />
@@ -65,10 +113,83 @@
                 <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" />
                 <TextBlock Classes="success" Text="{Binding SuccessMessage}" TextWrapping="Wrap" />
 
-                <Button Classes="primary" Content="Lưu máy" Command="{Binding SaveCommand}" HorizontalAlignment="Right" Margin="0,8,0,0" />
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
+                    <Button Content="Xem log thô" Command="{Binding OpenRawLogCommand}" />
+                    <Button Classes="primary" Content="Lưu máy" Command="{Binding SaveCommand}" />
+                </StackPanel>
 
             </StackPanel>
         </Border>
+
+        <!-- Dò cổng COM trên máy trạm này -->
+        <Border CornerRadius="{StaticResource RadiusCard}" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16"
+                DataContext="{Binding PortScanner}" x:DataType="vm:PortScannerViewModel">
+            <StackPanel Spacing="8">
+                <TextBlock Classes="heading" Text="Dò cổng COM trên máy này" />
+                <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="12"
+                           Text="Bấm &quot;Quét cổng&quot;, rồi &quot;Nghe tất cả&quot; và cho từng máy xét nghiệm gửi lại một kết quả. Cổng nào hiện dữ liệu là cổng của máy đó — bấm &quot;Dùng cổng này&quot; rồi &quot;Lưu máy&quot;. Nghe dùng baud / bit / parity đang chọn ở phần Kết nối; chỉ đọc, không gửi gì ra máy. Cổng đang bị phần mềm khác (LIS cũ) mở thì không nghe được." />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Quét cổng" Command="{Binding RefreshCommand}" IsEnabled="{Binding IsIdle}" />
+                    <ComboBox ItemsSource="{Binding DurationOptions}" SelectedItem="{Binding ListenSeconds}" Width="90" IsEnabled="{Binding IsIdle}" />
+                    <TextBlock Classes="muted" Text="giây" VerticalAlignment="Center" />
+                    <Button Classes="primary" Content="Nghe tất cả" Command="{Binding ListenAllCommand}" IsEnabled="{Binding IsIdle}" />
+                    <Button Content="Dừng" Command="{Binding StopCommand}" IsEnabled="{Binding IsListening}" />
+                </StackPanel>
+                <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
+
+                <Border Classes="table" IsVisible="{Binding !!Ports.Count}">
+                    <Grid RowDefinitions="Auto,Auto">
+                        <Grid Grid.Row="0" ColumnDefinitions="70,*,130,190">
+                            <Border Grid.Column="0" Classes="th"><TextBlock Text="Cổng" /></Border>
+                            <Border Grid.Column="1" Classes="th"><TextBlock Text="Thiết bị / đã khai cho máy" /></Border>
+                            <Border Grid.Column="2" Classes="th"><TextBlock Text="Trạng thái" /></Border>
+                            <Border Grid.Column="3" Classes="th last"><TextBlock Text="Thao tác" /></Border>
+                        </Grid>
+                        <ItemsControl Grid.Row="1" Classes="table" ItemsSource="{Binding Ports}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PortScanRowViewModel">
+                                    <Grid ColumnDefinitions="70,*,130,190" RowDefinitions="Auto,Auto">
+                                        <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding PortName}" FontWeight="SemiBold" /></Border>
+                                        <Border Grid.Column="1" Classes="td">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Description}" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding UsedBy}" Classes="muted" FontSize="12" TextWrapping="Wrap"
+                                                           IsVisible="{Binding UsedBy, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Grid.Column="2" Classes="td"><TextBlock Text="{Binding State}" Classes="muted" FontSize="12" TextWrapping="Wrap" /></Border>
+                                        <Border Grid.Column="3" Classes="td input last">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Button Content="Nghe" Command="{Binding ListenCommand}" Padding="8,2" />
+                                                <Button Content="Dùng cổng này" Command="{Binding UseCommand}" Padding="8,2" />
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- Dòng chi tiết (chỉ khi đã nhận dữ liệu): đoán giao thức + byte thô, trải hết bề ngang -->
+                                        <Border Grid.Row="1" Grid.ColumnSpan="4" Classes="td last" IsVisible="{Binding HasData}">
+                                            <StackPanel Spacing="4">
+                                                <TextBlock Text="{Binding GuessText}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource BrushPrimary}" />
+                                                <CheckBox Content="Xem dạng hex" IsChecked="{Binding ShowHex}" FontSize="12" />
+                                                <Border Background="{StaticResource BrushBackground}" CornerRadius="6" Padding="8" MaxHeight="160">
+                                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                                                        <Panel>
+                                                            <SelectableTextBlock Text="{Binding Preview}" FontFamily="Consolas,Menlo,monospace" FontSize="12" IsVisible="{Binding !ShowHex}" />
+                                                            <SelectableTextBlock Text="{Binding HexPreview}" FontFamily="Consolas,Menlo,monospace" FontSize="12" IsVisible="{Binding ShowHex}" />
+                                                        </Panel>
+                                                    </ScrollViewer>
+                                                </Border>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </Border>
+        </StackPanel>
+        </ScrollViewer>
 
         <!-- Phải: bảng map kênh -->
         <Grid Grid.Column="2" DataContext="{Binding ChannelEditor}" x:DataType="vm:ChannelMapEditorViewModel" RowDefinitions="Auto,*,Auto,Auto" IsEnabled="{Binding HasInstrument}">
@@ -76,36 +197,38 @@
             <TextBlock Grid.Row="0" Classes="heading" Text="Map kênh" Margin="0,0,0,8" />
 
             <!--
-                Tiêu đề và từng dòng dùng CHUNG một chuỗi ColumnDefinitions cố định bằng pixel
-                (không "*") để cột luôn thẳng hàng — mỗi Grid (tiêu đề, mỗi dòng trong ListBox) tự
-                tính độ rộng cột riêng, "*" sẽ co giãn độc lập giữa các Grid và làm lệch cột. Bọc
-                trong ScrollViewer cuộn ngang: khi cửa sổ hẹp hơn tổng độ rộng cột, bảng cuộn thay
-                vì co cột "Chỉ số" về 0.
+                Tiêu đề và từng dòng dùng CHUNG một chuỗi ColumnDefinitions cố định bằng pixel để cột
+                luôn thẳng hàng; bọc ScrollViewer cuộn ngang khi cột rộng hơn khung.
             -->
-            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+            <Border Classes="table" Grid.Row="1">
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                    <Grid RowDefinitions="Auto,*" MinWidth="560">
-                        <Grid Grid.Row="0" ColumnDefinitions="56,150,42,42,64,64,48,48" Margin="8,6" ColumnSpacing="6">
-                            <TextBlock Grid.Column="0" Classes="label" Text="Mã kênh" Margin="0" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="1" Classes="label" Text="Chỉ số" Margin="0" />
-                            <TextBlock Grid.Column="2" Classes="label" Text="Số lẻ" Margin="0" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="3" Classes="label" Text="Hệ số" Margin="0" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="4" Classes="label" Text="Giữ dấu so sánh" Margin="0" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="5" Classes="label" Text="Gửi khi máy hỏi" Margin="0" TextWrapping="Wrap" />
+                    <Grid RowDefinitions="Auto,*" HorizontalAlignment="Left">
+                        <Grid Grid.Row="0" ColumnDefinitions="64,150,48,52,68,68,104">
+                            <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã kênh" /></Border>
+                            <Border Grid.Column="1" Classes="th"><TextBlock Text="Chỉ số" /></Border>
+                            <Border Grid.Column="2" Classes="th"><TextBlock Text="Số lẻ" /></Border>
+                            <Border Grid.Column="3" Classes="th"><TextBlock Text="Hệ số" /></Border>
+                            <Border Grid.Column="4" Classes="th"><TextBlock Text="Giữ dấu so sánh" /></Border>
+                            <Border Grid.Column="5" Classes="th"><TextBlock Text="Gửi khi máy hỏi" /></Border>
+                            <Border Grid.Column="6" Classes="th last"><TextBlock Text="" /></Border>
                         </Grid>
 
-                        <ListBox Grid.Row="1" Name="ChannelList" ItemsSource="{Binding Channels}">
+                        <ListBox Grid.Row="1" Classes="table" Name="ChannelList" ItemsSource="{Binding Channels}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ChannelRowViewModel">
-                                    <Grid ColumnDefinitions="56,150,42,42,64,64,48,48" ColumnSpacing="6" Margin="0,2">
-                                        <TextBlock Grid.Column="0" Text="{Binding ChannelCode}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Column="1" Text="{Binding ServiceText}" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Text="{Binding DecimalsText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="3" Text="{Binding FactorText}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="4" Text="{Binding KeepComparatorText}" Classes="muted" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                                        <TextBlock Grid.Column="5" Text="{Binding SendOnQueryText}" Classes="muted" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                                        <Button Grid.Column="6" Content="Sửa" Command="{Binding EditCommand}" Padding="6,2" />
-                                        <Button Grid.Column="7" Content="Xóa" Command="{Binding RemoveCommand}" Padding="6,2" />
+                                    <Grid ColumnDefinitions="64,150,48,52,68,68,104">
+                                        <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding ChannelCode}" FontWeight="SemiBold" TextWrapping="Wrap" /></Border>
+                                        <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding ServiceText}" TextWrapping="Wrap" /></Border>
+                                        <Border Grid.Column="2" Classes="td"><TextBlock Text="{Binding DecimalsText}" Classes="muted" FontSize="12" /></Border>
+                                        <Border Grid.Column="3" Classes="td"><TextBlock Text="{Binding FactorText}" Classes="muted" FontSize="12" /></Border>
+                                        <Border Grid.Column="4" Classes="td"><TextBlock Text="{Binding KeepComparatorText}" Classes="muted" FontSize="12" HorizontalAlignment="Center" /></Border>
+                                        <Border Grid.Column="5" Classes="td"><TextBlock Text="{Binding SendOnQueryText}" Classes="muted" FontSize="12" HorizontalAlignment="Center" /></Border>
+                                        <Border Grid.Column="6" Classes="td input last">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Button Content="Sửa" Command="{Binding EditCommand}" Padding="6,2" />
+                                                <Button Content="Xóa" Command="{Binding RemoveCommand}" Padding="6,2" />
+                                            </StackPanel>
+                                        </Border>
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>

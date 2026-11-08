@@ -204,7 +204,8 @@ public partial class App : Application
             services.Results, services.ReportPrinter, services.Unmatched, services.Instruments, services.Users,
             new SetupService(), configStore, config,
             services.HisProfiles, services.HisConnectionTester,
-            services.CatalogExcelImporter, services.FilePicker);
+            services.CatalogExcelImporter, services.FilePicker,
+            services.SerialPorts, services.RawLogs);
         var window = new MainWindow { DataContext = viewModel };
 
         // Lưu cấu hình CSDL mới ở tab "Kết nối CSDL" -> đăng xuất: mở màn đăng nhập với cấu
