@@ -26,27 +26,27 @@
                 <Button Grid.Column="1" Content="Tải lại" Command="{Binding RefreshCommand}" Padding="10,4" />
             </Grid>
 
-            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="2" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+            <Border Classes="table" Grid.Row="2">
                 <Grid RowDefinitions="Auto,*">
-                    <Grid Grid.Row="0" ColumnDefinitions="130,110,*,110,130,130" Margin="8,6" ColumnSpacing="8">
-                        <TextBlock Grid.Column="0" Classes="label" Text="Máy" Margin="0" />
-                        <TextBlock Grid.Column="1" Classes="label" Text="Barcode" Margin="0" />
-                        <TextBlock Grid.Column="2" Classes="label" Text="Kênh → chỉ số" Margin="0" />
-                        <TextBlock Grid.Column="3" Classes="label" Text="Giá trị" Margin="0" />
-                        <TextBlock Grid.Column="4" Classes="label" Text="Lý do" Margin="0" />
-                        <TextBlock Grid.Column="5" Classes="label" Text="Nhận lúc" Margin="0" />
+                    <Grid Grid.Row="0" ColumnDefinitions="130,110,*,110,130,130">
+                        <Border Grid.Column="0" Classes="th"><TextBlock Text="Máy" /></Border>
+                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Barcode" /></Border>
+                        <Border Grid.Column="2" Classes="th"><TextBlock Text="Kênh → chỉ số" /></Border>
+                        <Border Grid.Column="3" Classes="th"><TextBlock Text="Giá trị" /></Border>
+                        <Border Grid.Column="4" Classes="th"><TextBlock Text="Lý do" /></Border>
+                        <Border Grid.Column="5" Classes="th last"><TextBlock Text="Nhận lúc" /></Border>
                     </Grid>
 
-                    <ListBox Grid.Row="1" Name="RowsList" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow}">
+                    <ListBox Grid.Row="1" Classes="table" Name="RowsList" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow}">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:UnmatchedRowViewModel">
-                                <Grid ColumnDefinitions="130,110,*,110,130,130" ColumnSpacing="8" Margin="0,2">
-                                    <TextBlock Grid.Column="0" Text="{Binding InstrumentName}" TextWrapping="Wrap" />
-                                    <TextBlock Grid.Column="1" Text="{Binding Barcode}" FontFamily="Consolas,Menlo,monospace" />
-                                    <TextBlock Grid.Column="2" Text="{Binding ChannelText}" TextWrapping="Wrap" />
-                                    <TextBlock Grid.Column="3" Text="{Binding ValueText}" />
-                                    <TextBlock Grid.Column="4" Text="{Binding ReasonLabel}" Classes="flagAbnormal" />
-                                    <TextBlock Grid.Column="5" Text="{Binding ReceivedAtText}" Classes="muted" FontSize="12" />
+                                <Grid ColumnDefinitions="130,110,*,110,130,130">
+                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding InstrumentName}" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding Barcode}" FontFamily="Consolas,Menlo,monospace" /></Border>
+                                    <Border Grid.Column="2" Classes="td"><TextBlock Text="{Binding ChannelText}" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="3" Classes="td"><TextBlock Text="{Binding ValueText}" /></Border>
+                                    <Border Grid.Column="4" Classes="td"><TextBlock Text="{Binding ReasonLabel}" Classes="flagAbnormal" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="5" Classes="td last"><TextBlock Text="{Binding ReceivedAtText}" Classes="muted" FontSize="12" /></Border>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -81,16 +81,24 @@
 
                     <TextBlock Grid.Row="2" Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" Margin="0,0,0,8" />
 
-                    <ListBox Grid.Row="3" Name="AssignItemsList" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}" MaxHeight="220" Margin="0,0,0,8">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:SampleLeafItemViewModel">
-                                <Grid ColumnDefinitions="*,Auto" Margin="0,2">
-                                    <TextBlock Grid.Column="0" Text="{Binding Label}" />
-                                    <TextBlock Grid.Column="1" Text="{Binding CurrentValueText}" Classes="muted" FontSize="12" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                    <Border Grid.Row="3" Classes="table" Margin="0,0,0,8">
+                        <Grid RowDefinitions="Auto,*">
+                            <Grid Grid.Row="0" ColumnDefinitions="*,110">
+                                <Border Grid.Column="0" Classes="th"><TextBlock Text="Chỉ số trong mẫu" /></Border>
+                                <Border Grid.Column="1" Classes="th last"><TextBlock Text="Giá trị hiện có" /></Border>
+                            </Grid>
+                            <ListBox Grid.Row="1" Classes="table" Name="AssignItemsList" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}" MaxHeight="220">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SampleLeafItemViewModel">
+                                        <Grid ColumnDefinitions="*,110">
+                                            <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Label}" TextWrapping="Wrap" /></Border>
+                                            <Border Grid.Column="1" Classes="td last"><TextBlock Text="{Binding CurrentValueText}" Classes="muted" FontSize="12" /></Border>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
 
                     <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8">
                         <Button Classes="primary" Content="Gán" Command="{Binding ConfirmCommand}" IsEnabled="{Binding CanConfirm}" />

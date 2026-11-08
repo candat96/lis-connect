@@ -37,6 +37,7 @@
       <Color x:Key="ColorFlagCritical">#C8102E</Color>
       <Color x:Key="ColorFlagAbnormal">#7E22CE</Color>
       <Color x:Key="ColorPanelRow">#EEF2F3</Color>
+      <Color x:Key="ColorTableAltRow">#F7F9FA</Color>
 
       <!-- Màu nhấn của FluentTheme (ô tích, ô chọn, thanh cuộn, viền ô đang gõ…) theo màu chính -->
       <Color x:Key="SystemAccentColor">#0A6B45</Color>
@@ -71,6 +72,7 @@
       <SolidColorBrush x:Key="BrushFlagCritical" Color="{StaticResource ColorFlagCritical}" />
       <SolidColorBrush x:Key="BrushFlagAbnormal" Color="{StaticResource ColorFlagAbnormal}" />
       <SolidColorBrush x:Key="BrushPanelRow" Color="{StaticResource ColorPanelRow}" />
+      <SolidColorBrush x:Key="BrushTableAltRow" Color="{StaticResource ColorTableAltRow}" />
 
       <!-- Ghi đè cọ của FluentTheme cho ô nhập / danh sách / tab — đồng bộ bảng màu trên -->
       <SolidColorBrush x:Key="TextControlBorderBrush" Color="{StaticResource ColorInputBorder}" />
@@ -285,6 +287,89 @@
   </Style>
   <Style Selector="ListBoxItem:selected TextBlock">
     <Setter Property="Foreground" Value="{StaticResource BrushPrimaryHover}" />
+  </Style>
+
+  <!--
+    ===== Bảng (table) có viền: dùng cho MỌI danh sách dữ liệu =====
+    Khuôn chung:
+      <Border Classes="table">                       viền ngoài
+        <Grid RowDefinitions="Auto,*">
+          <Grid ColumnDefinitions="...">              dòng tiêu đề
+            <Border Classes="th"><TextBlock .../></Border> … ô cuối thêm class "last"
+          </Grid>
+          <ListBox Classes="table" Grid.Row="1">      các dòng (ItemsControl Classes="table" nếu không chọn dòng)
+            <DataTemplate> <Grid ColumnDefinitions="... giống hệt tiêu đề">
+              <Border Classes="td">…</Border> … ô cuối thêm class "last"
+    Tiêu đề và dòng dùng CHUNG một chuỗi ColumnDefinitions (cột cố định bằng pixel + tối đa một
+    cột "*") để cột luôn thẳng hàng. Mỗi ô kẻ viền phải + dưới; ô cuối chỉ kẻ dưới (viền phải là
+    viền ngoài của bảng).
+  -->
+  <Style Selector="Border.table">
+    <Setter Property="BorderBrush" Value="{StaticResource BrushInputBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Background" Value="{StaticResource BrushSurface}" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+  <Style Selector="Border.th">
+    <Setter Property="Background" Value="{StaticResource BrushMuted}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BrushInputBorder}" />
+    <Setter Property="BorderThickness" Value="0,0,1,2" />
+    <Setter Property="Padding" Value="8,6" />
+  </Style>
+  <Style Selector="Border.th.last">
+    <Setter Property="BorderThickness" Value="0,0,0,2" />
+  </Style>
+  <Style Selector="Border.th TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource BrushTextMuted}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.td">
+    <Setter Property="BorderBrush" Value="{StaticResource BrushInputBorder}" />
+    <Setter Property="BorderThickness" Value="0,0,1,1" />
+    <Setter Property="Padding" Value="8,4" />
+    <Setter Property="MinHeight" Value="32" />
+  </Style>
+  <Style Selector="Border.td.last">
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+  <!-- Ô chứa ô nhập / nút: đệm nhỏ hơn để ô nhập gần chạm đường kẻ. -->
+  <Style Selector="Border.td.input">
+    <Setter Property="Padding" Value="3,2" />
+  </Style>
+  <Style Selector="Border.td > TextBlock">
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.td > SelectableTextBlock">
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ListBox.table">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="ListBox.table ListBoxItem">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="ListBox.table ListBoxItem:nth-child(2n) /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushTableAltRow}" />
+  </Style>
+  <Style Selector="ListBox.table ListBoxItem:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushMuted}" />
+  </Style>
+  <Style Selector="ListBox.table ListBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BrushPrimaryTint}" />
+  </Style>
+  <Style Selector="ItemsControl.table ContentPresenter:nth-child(2n)">
+    <Setter Property="Background" Value="{StaticResource BrushTableAltRow}" />
   </Style>
 
   <!-- ===== Tab: chữ 14 đậm vừa, tab đang chọn chữ xanh + vạch xanh ===== -->

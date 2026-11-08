@@ -16,20 +16,27 @@
                 <TextBox Name="FilterBox" Text="{Binding FilterText}" PlaceholderText="Nhập mã hoặc tên dịch vụ..." />
             </StackPanel>
 
-            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
-                <ListBox Name="ServiceList"
-                         ItemsSource="{Binding FilteredServices}"
-                         SelectedItem="{Binding SelectedService}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:ServiceListItemViewModel">
-                            <Grid ColumnDefinitions="80,*,70" Margin="0,2">
-                                <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="{Binding Name}" TextWrapping="Wrap" Margin="8,0" />
-                                <TextBlock Grid.Column="2" Text="{Binding Loai}" Classes="muted" FontSize="12" />
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+            <Border Classes="table" Grid.Row="1">
+                <Grid RowDefinitions="Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="80,*,72">
+                        <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã" /></Border>
+                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Tên dịch vụ" /></Border>
+                        <Border Grid.Column="2" Classes="th last"><TextBlock Text="Loại" /></Border>
+                    </Grid>
+                    <ListBox Grid.Row="1" Classes="table" Name="ServiceList"
+                             ItemsSource="{Binding FilteredServices}"
+                             SelectedItem="{Binding SelectedService}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ServiceListItemViewModel">
+                                <Grid ColumnDefinitions="80,*,72">
+                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Code}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /></Border>
+                                    <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding Name}" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="2" Classes="td last"><TextBlock Text="{Binding Loai}" Classes="muted" FontSize="12" /></Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
             </Border>
 
             <StackPanel Grid.Row="2" Spacing="8" Margin="0,8,0,0">
@@ -112,80 +119,106 @@
                             <Button Content="Thêm" Command="{Binding AddChildCommand}" />
                         </StackPanel>
                         <TextBlock Grid.Row="2" Classes="error" Text="{Binding ChildError}" Margin="0,4,0,0" />
-                        <ListBox Grid.Row="3" ItemsSource="{Binding Children}" Margin="0,8,0,0">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ChildServiceViewModel">
-                                    <Grid ColumnDefinitions="80,*,Auto,Auto,Auto" Margin="0,2">
-                                        <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" />
-                                        <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="8,0" />
-                                        <Button Grid.Column="2" Content="▲" Command="{Binding MoveUpCommand}" />
-                                        <Button Grid.Column="3" Content="▼" Command="{Binding MoveDownCommand}" Margin="4,0,0,0" />
-                                        <Button Grid.Column="4" Content="Xóa" Command="{Binding RemoveCommand}" Margin="4,0,0,0" />
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                        <Border Grid.Row="3" Classes="table" Margin="0,8,0,0">
+                            <Grid RowDefinitions="Auto,*">
+                                <Grid Grid.Row="0" ColumnDefinitions="100,*,150">
+                                    <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã" /></Border>
+                                    <Border Grid.Column="1" Classes="th"><TextBlock Text="Tên chỉ số con" /></Border>
+                                    <Border Grid.Column="2" Classes="th last"><TextBlock Text="Thứ tự / Xóa" /></Border>
+                                </Grid>
+                                <ListBox Grid.Row="1" Classes="table" ItemsSource="{Binding Children}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ChildServiceViewModel">
+                                            <Grid ColumnDefinitions="100,*,150">
+                                                <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Code}" FontWeight="SemiBold" /></Border>
+                                                <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding Name}" TextWrapping="Wrap" /></Border>
+                                                <Border Grid.Column="2" Classes="td last">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <Button Content="▲" Command="{Binding MoveUpCommand}" Padding="8,2" />
+                                                        <Button Content="▼" Command="{Binding MoveDownCommand}" Padding="8,2" />
+                                                        <Button Content="Xóa" Command="{Binding RemoveCommand}" Padding="8,2" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+                        </Border>
                     </Grid>
                 </TabItem>
 
                 <TabItem Header="Khoảng tham chiếu">
                     <Grid DataContext="{Binding RangesEditor}" x:DataType="vm:RangesEditorViewModel" RowDefinitions="Auto,*,Auto,Auto" Margin="0,12,0,0">
-                        <Grid Grid.Row="0" ColumnDefinitions="92,50,82,50,82,110,60,60,85,85,80,Auto" Margin="0,0,0,4">
-                            <TextBlock Grid.Column="0" Classes="label" Text="Giới" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="1" Classes="label" Text="Tuổi từ" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="2" Classes="label" Text="Đơn vị" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="3" Classes="label" Text="Tuổi đến" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="4" Classes="label" Text="Đơn vị" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="5" Classes="label" Text="Máy" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="6" Classes="label" Text="Thấp" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="7" Classes="label" Text="Cao" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="8" Classes="label" Text="Nguy hiểm thấp" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="9" Classes="label" Text="Nguy hiểm cao" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="10" Classes="label" Text="Khoảng chữ" TextWrapping="Wrap" />
-                        </Grid>
-                        <ListBox Grid.Row="1" Name="RangeList" ItemsSource="{Binding Ranges}">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ReferenceRangeRowViewModel">
-                                    <Grid ColumnDefinitions="92,50,82,50,82,110,60,60,85,85,80,Auto" Margin="0,2">
-                                        <ComboBox Grid.Column="0" SelectedItem="{Binding Sex}">
-                                            <ComboBox.Items>
-                                                <x:Null />
-                                                <x:String>M</x:String>
-                                                <x:String>F</x:String>
-                                            </ComboBox.Items>
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate>
-                                                    <TextBlock Text="{Binding Converter={x:Static conv:SexLabelConverter.Instance}}" />
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                        <TextBox Grid.Column="1" Text="{Binding AgeFromText}" Margin="2,0" />
-                                        <ComboBox Grid.Column="2" ItemsSource="{x:Static vm:AgeUnitExtensions.All}" SelectedItem="{Binding AgeFromUnit}">
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate>
-                                                    <TextBlock Text="{Binding Converter={x:Static conv:AgeUnitLabelConverter.Instance}}" />
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                        <TextBox Grid.Column="3" Text="{Binding AgeToText}" Margin="2,0" />
-                                        <ComboBox Grid.Column="4" ItemsSource="{x:Static vm:AgeUnitExtensions.All}" SelectedItem="{Binding AgeToUnit}">
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate>
-                                                    <TextBlock Text="{Binding Converter={x:Static conv:AgeUnitLabelConverter.Instance}}" />
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                        <ComboBox Grid.Column="5" ItemsSource="{Binding Instruments}" SelectedItem="{Binding Instrument}" Margin="2,0" HorizontalAlignment="Stretch" />
-                                        <TextBox Grid.Column="6" Text="{Binding LowText}" Margin="2,0" />
-                                        <TextBox Grid.Column="7" Text="{Binding HighText}" Margin="2,0" />
-                                        <TextBox Grid.Column="8" Text="{Binding CriticalLowText}" Margin="2,0" />
-                                        <TextBox Grid.Column="9" Text="{Binding CriticalHighText}" Margin="2,0" />
-                                        <TextBox Grid.Column="10" Text="{Binding TextRange}" Margin="2,0" />
-                                        <Button Grid.Column="11" Content="Xóa" Command="{Binding RemoveCommand}" Margin="4,0,0,0" />
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                        <ScrollViewer Grid.Row="0" Grid.RowSpan="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <Border Classes="table" HorizontalAlignment="Left">
+                            <Grid RowDefinitions="Auto,*">
+                                <Grid Grid.Row="0" ColumnDefinitions="92,58,90,58,90,120,70,70,90,90,90,64">
+                                    <Border Grid.Column="0" Classes="th"><TextBlock Text="Giới" /></Border>
+                                    <Border Grid.Column="1" Classes="th"><TextBlock Text="Tuổi từ" /></Border>
+                                    <Border Grid.Column="2" Classes="th"><TextBlock Text="Đơn vị" /></Border>
+                                    <Border Grid.Column="3" Classes="th"><TextBlock Text="Tuổi đến" /></Border>
+                                    <Border Grid.Column="4" Classes="th"><TextBlock Text="Đơn vị" /></Border>
+                                    <Border Grid.Column="5" Classes="th"><TextBlock Text="Máy" /></Border>
+                                    <Border Grid.Column="6" Classes="th"><TextBlock Text="Thấp" /></Border>
+                                    <Border Grid.Column="7" Classes="th"><TextBlock Text="Cao" /></Border>
+                                    <Border Grid.Column="8" Classes="th"><TextBlock Text="Nguy hiểm thấp" /></Border>
+                                    <Border Grid.Column="9" Classes="th"><TextBlock Text="Nguy hiểm cao" /></Border>
+                                    <Border Grid.Column="10" Classes="th"><TextBlock Text="Khoảng chữ" /></Border>
+                                    <Border Grid.Column="11" Classes="th last"><TextBlock Text="" /></Border>
+                                </Grid>
+                                <ListBox Grid.Row="1" Classes="table" Name="RangeList" ItemsSource="{Binding Ranges}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ReferenceRangeRowViewModel">
+                                            <Grid ColumnDefinitions="92,58,90,58,90,120,70,70,90,90,90,64">
+                                                <Border Grid.Column="0" Classes="td input">
+                                                    <ComboBox SelectedItem="{Binding Sex}" HorizontalAlignment="Stretch">
+                                                        <ComboBox.Items>
+                                                            <x:Null />
+                                                            <x:String>M</x:String>
+                                                            <x:String>F</x:String>
+                                                        </ComboBox.Items>
+                                                        <ComboBox.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <TextBlock Text="{Binding Converter={x:Static conv:SexLabelConverter.Instance}}" />
+                                                            </DataTemplate>
+                                                        </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                </Border>
+                                                <Border Grid.Column="1" Classes="td input"><TextBox Text="{Binding AgeFromText}" /></Border>
+                                                <Border Grid.Column="2" Classes="td input">
+                                                    <ComboBox ItemsSource="{x:Static vm:AgeUnitExtensions.All}" SelectedItem="{Binding AgeFromUnit}" HorizontalAlignment="Stretch">
+                                                        <ComboBox.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <TextBlock Text="{Binding Converter={x:Static conv:AgeUnitLabelConverter.Instance}}" />
+                                                            </DataTemplate>
+                                                        </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                </Border>
+                                                <Border Grid.Column="3" Classes="td input"><TextBox Text="{Binding AgeToText}" /></Border>
+                                                <Border Grid.Column="4" Classes="td input">
+                                                    <ComboBox ItemsSource="{x:Static vm:AgeUnitExtensions.All}" SelectedItem="{Binding AgeToUnit}" HorizontalAlignment="Stretch">
+                                                        <ComboBox.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <TextBlock Text="{Binding Converter={x:Static conv:AgeUnitLabelConverter.Instance}}" />
+                                                            </DataTemplate>
+                                                        </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                </Border>
+                                                <Border Grid.Column="5" Classes="td input"><ComboBox ItemsSource="{Binding Instruments}" SelectedItem="{Binding Instrument}" HorizontalAlignment="Stretch" /></Border>
+                                                <Border Grid.Column="6" Classes="td input"><TextBox Text="{Binding LowText}" /></Border>
+                                                <Border Grid.Column="7" Classes="td input"><TextBox Text="{Binding HighText}" /></Border>
+                                                <Border Grid.Column="8" Classes="td input"><TextBox Text="{Binding CriticalLowText}" /></Border>
+                                                <Border Grid.Column="9" Classes="td input"><TextBox Text="{Binding CriticalHighText}" /></Border>
+                                                <Border Grid.Column="10" Classes="td input"><TextBox Text="{Binding TextRange}" /></Border>
+                                                <Border Grid.Column="11" Classes="td input last"><Button Content="Xóa" Command="{Binding RemoveCommand}" Padding="8,2" /></Border>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+                        </Border>
+                        </ScrollViewer>
                         <ItemsControl Grid.Row="2" ItemsSource="{Binding Errors}" Margin="0,4,0,0">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="x:String">
@@ -202,31 +235,40 @@
 
                 <TabItem Header="Quy đổi định tính">
                     <Grid DataContext="{Binding QualitativeEditor}" x:DataType="vm:QualitativeRulesEditorViewModel" RowDefinitions="Auto,*,Auto,Auto" Margin="0,12,0,0">
-                        <Grid Grid.Row="0" ColumnDefinitions="160,140,140,150,Auto" Margin="0,0,0,4">
-                            <TextBlock Grid.Column="0" Classes="label" Text="Máy" />
-                            <TextBlock Grid.Column="1" Classes="label" Text="Giá trị thô" />
-                            <TextBlock Grid.Column="2" Classes="label" Text="Hiển thị" />
-                            <TextBlock Grid.Column="3" Classes="label" Text="Cờ" />
-                        </Grid>
-                        <ListBox Grid.Row="1" Name="QualitativeList" ItemsSource="{Binding Rules}">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate x:DataType="vm:QualitativeRuleRowViewModel">
-                                    <Grid ColumnDefinitions="160,140,140,150,Auto" Margin="0,2">
-                                        <ComboBox Grid.Column="0" ItemsSource="{Binding Instruments}" SelectedItem="{Binding Instrument}" HorizontalAlignment="Stretch" Margin="0,0,4,0" />
-                                        <TextBox Grid.Column="1" Text="{Binding RawValue}" Margin="4,0" />
-                                        <TextBox Grid.Column="2" Text="{Binding DisplayValue}" Margin="4,0" />
-                                        <ComboBox Grid.Column="3" ItemsSource="{x:Static vm:QualitativeRuleRowViewModel.FlagOptions}" SelectedItem="{Binding Flag}">
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate>
-                                                    <TextBlock Text="{Binding Converter={x:Static conv:ResultFlagLabelConverter.Instance}}" />
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                        <Button Grid.Column="4" Content="Xóa" Command="{Binding RemoveCommand}" Margin="4,0,0,0" />
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                        <ScrollViewer Grid.Row="0" Grid.RowSpan="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <Border Classes="table" HorizontalAlignment="Left">
+                            <Grid RowDefinitions="Auto,*">
+                                <Grid Grid.Row="0" ColumnDefinitions="170,150,150,160,70">
+                                    <Border Grid.Column="0" Classes="th"><TextBlock Text="Máy" /></Border>
+                                    <Border Grid.Column="1" Classes="th"><TextBlock Text="Giá trị thô" /></Border>
+                                    <Border Grid.Column="2" Classes="th"><TextBlock Text="Hiển thị" /></Border>
+                                    <Border Grid.Column="3" Classes="th"><TextBlock Text="Cờ" /></Border>
+                                    <Border Grid.Column="4" Classes="th last"><TextBlock Text="" /></Border>
+                                </Grid>
+                                <ListBox Grid.Row="1" Classes="table" Name="QualitativeList" ItemsSource="{Binding Rules}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:QualitativeRuleRowViewModel">
+                                            <Grid ColumnDefinitions="170,150,150,160,70">
+                                                <Border Grid.Column="0" Classes="td input"><ComboBox ItemsSource="{Binding Instruments}" SelectedItem="{Binding Instrument}" HorizontalAlignment="Stretch" /></Border>
+                                                <Border Grid.Column="1" Classes="td input"><TextBox Text="{Binding RawValue}" /></Border>
+                                                <Border Grid.Column="2" Classes="td input"><TextBox Text="{Binding DisplayValue}" /></Border>
+                                                <Border Grid.Column="3" Classes="td input">
+                                                    <ComboBox ItemsSource="{x:Static vm:QualitativeRuleRowViewModel.FlagOptions}" SelectedItem="{Binding Flag}" HorizontalAlignment="Stretch">
+                                                        <ComboBox.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <TextBlock Text="{Binding Converter={x:Static conv:ResultFlagLabelConverter.Instance}}" />
+                                                            </DataTemplate>
+                                                        </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                </Border>
+                                                <Border Grid.Column="4" Classes="td input last"><Button Content="Xóa" Command="{Binding RemoveCommand}" Padding="8,2" /></Border>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+                        </Border>
+                        </ScrollViewer>
                         <TextBlock Grid.Row="2" Classes="error" Text="{Binding ErrorMessage}" Margin="0,4,0,0" TextWrapping="Wrap" />
                         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
                             <Button Content="+ Thêm dòng" Command="{Binding AddRuleCommand}" />

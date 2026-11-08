@@ -21,18 +21,26 @@
                     <Button Grid.Column="1" Content="Người bệnh mới" Command="{Binding StartNewPatientCommand}" VerticalAlignment="Bottom" />
                 </Grid>
 
-                <ListBox Name="PatientResultsList" ItemsSource="{Binding PatientSearchResults}" MaxHeight="140"
-                         IsVisible="{Binding !!PatientSearchResults.Count}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="orders:PatientHit">
-                            <Grid ColumnDefinitions="100,*,100" Margin="0,2">
-                                <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="{Binding FullName}" Margin="8,0" />
-                                <TextBlock Grid.Column="2" Text="{Binding Phone}" Classes="muted" />
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                <Border Classes="table" IsVisible="{Binding !!PatientSearchResults.Count}">
+                    <Grid RowDefinitions="Auto,*">
+                        <Grid Grid.Row="0" ColumnDefinitions="110,*,120">
+                            <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã người bệnh" /></Border>
+                            <Border Grid.Column="1" Classes="th"><TextBlock Text="Họ tên" /></Border>
+                            <Border Grid.Column="2" Classes="th last"><TextBlock Text="Số điện thoại" /></Border>
+                        </Grid>
+                        <ListBox Grid.Row="1" Classes="table" Name="PatientResultsList" ItemsSource="{Binding PatientSearchResults}" MaxHeight="140">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="orders:PatientHit">
+                                    <Grid ColumnDefinitions="110,*,120">
+                                        <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Code}" FontWeight="SemiBold" /></Border>
+                                        <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding FullName}" /></Border>
+                                        <Border Grid.Column="2" Classes="td last"><TextBlock Text="{Binding Phone}" Classes="muted" /></Border>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
 
                 <TextBlock Text="{Binding SelectedPatientHit.FullName, StringFormat='Người bệnh đã chọn: {0}'}"
                            IsVisible="{Binding IsExistingPatient}" Classes="success" FontWeight="SemiBold" />
@@ -91,18 +99,26 @@
                 <TextBlock Classes="label" Text="Mã dịch vụ — gõ mã rồi Enter để thêm, gõ chữ để gợi ý" />
                 <TextBox Name="ServiceCodeBox" Text="{Binding ServiceCodeInput}" PlaceholderText="Mã dịch vụ hoặc tên..." />
 
-                <ListBox Name="SuggestionsList" ItemsSource="{Binding ServiceSuggestions}" MaxHeight="140"
-                         IsVisible="{Binding !!ServiceSuggestions.Count}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="catalog:ServiceInfo">
-                            <Grid ColumnDefinitions="80,*,70" Margin="0,2">
-                                <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="8,0" />
-                                <TextBlock Grid.Column="2" Text="{Binding IsPanel, Converter={x:Static conv:PanelLabelConverter.Instance}}" Classes="muted" FontSize="12" />
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                <Border Classes="table" IsVisible="{Binding !!ServiceSuggestions.Count}">
+                    <Grid RowDefinitions="Auto,*">
+                        <Grid Grid.Row="0" ColumnDefinitions="90,*,80">
+                            <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã" /></Border>
+                            <Border Grid.Column="1" Classes="th"><TextBlock Text="Tên dịch vụ" /></Border>
+                            <Border Grid.Column="2" Classes="th last"><TextBlock Text="Loại" /></Border>
+                        </Grid>
+                        <ListBox Grid.Row="1" Classes="table" Name="SuggestionsList" ItemsSource="{Binding ServiceSuggestions}" MaxHeight="140">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="catalog:ServiceInfo">
+                                    <Grid ColumnDefinitions="90,*,80">
+                                        <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Code}" FontWeight="SemiBold" /></Border>
+                                        <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding Name}" /></Border>
+                                        <Border Grid.Column="2" Classes="td last"><TextBlock Text="{Binding IsPanel, Converter={x:Static conv:PanelLabelConverter.Instance}}" Classes="muted" FontSize="12" /></Border>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
 
                 <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" />
             </StackPanel>
@@ -114,51 +130,72 @@
             <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto">
                 <TextBlock Grid.Row="0" Classes="heading" Text="Dịch vụ đã chọn" Margin="0,0,0,8" />
 
-                <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
-                    <ListBox ItemsSource="{Binding SelectedServices}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:SelectedServiceViewModel">
-                                <Grid ColumnDefinitions="80,*,90,Auto" Margin="0,2">
-                                    <TextBlock Grid.Column="0" Text="{Binding Code}" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="8,0" />
-                                    <TextBlock Grid.Column="2" Text="{Binding Loai}" Classes="muted" FontSize="12" />
-                                    <Button Grid.Column="3" Content="Xóa" Command="{Binding RemoveCommand}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                <Border Classes="table" Grid.Row="1">
+                    <Grid RowDefinitions="Auto,*">
+                        <Grid Grid.Row="0" ColumnDefinitions="90,*,96,64">
+                            <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã" /></Border>
+                            <Border Grid.Column="1" Classes="th"><TextBlock Text="Tên dịch vụ" /></Border>
+                            <Border Grid.Column="2" Classes="th"><TextBlock Text="Loại" /></Border>
+                            <Border Grid.Column="3" Classes="th last"><TextBlock Text="" /></Border>
+                        </Grid>
+                        <ListBox Grid.Row="1" Classes="table" ItemsSource="{Binding SelectedServices}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SelectedServiceViewModel">
+                                    <Grid ColumnDefinitions="90,*,96,64">
+                                        <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Code}" FontWeight="SemiBold" /></Border>
+                                        <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding Name}" TextWrapping="Wrap" /></Border>
+                                        <Border Grid.Column="2" Classes="td"><TextBlock Text="{Binding Loai}" Classes="muted" FontSize="12" /></Border>
+                                        <Border Grid.Column="3" Classes="td input last"><Button Content="Xóa" Command="{Binding RemoveCommand}" Padding="8,2" /></Border>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
                 </Border>
 
                 <TextBlock Grid.Row="2" Classes="label" Text="Xem trước nhóm mẫu" Margin="0,12,0,4" />
-                <ItemsControl Grid.Row="3" ItemsSource="{Binding GroupPreview}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:SampleGroupPreviewViewModel">
-                            <Border CornerRadius="{StaticResource RadiusCard}" Background="{StaticResource BrushBackground}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="8" Margin="0,0,0,4">
-                                <StackPanel>
-                                    <TextBlock Text="{Binding SpecimenName}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding ServiceNamesText}" Classes="muted" TextWrapping="Wrap" />
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <Border Grid.Row="3" Classes="table">
+                    <Grid RowDefinitions="Auto,Auto">
+                        <Grid Grid.Row="0" ColumnDefinitions="160,*">
+                            <Border Grid.Column="0" Classes="th"><TextBlock Text="Loại mẫu (1 tem)" /></Border>
+                            <Border Grid.Column="1" Classes="th last"><TextBlock Text="Dịch vụ trong mẫu" /></Border>
+                        </Grid>
+                        <ItemsControl Grid.Row="1" Classes="table" ItemsSource="{Binding GroupPreview}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SampleGroupPreviewViewModel">
+                                    <Grid ColumnDefinitions="160,*">
+                                        <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding SpecimenName}" FontWeight="SemiBold" TextWrapping="Wrap" /></Border>
+                                        <Border Grid.Column="1" Classes="td last"><TextBlock Text="{Binding ServiceNamesText}" Classes="muted" TextWrapping="Wrap" /></Border>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                </Border>
             </Grid>
 
             <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
                 <TextBlock Grid.Row="0" Classes="heading" Text="Barcode đã cấp" Margin="0,0,0,8" />
 
-                <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
-                    <ListBox ItemsSource="{Binding IssuedSamples}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="orders:CreatedSample">
-                                <StackPanel Margin="0,4" Spacing="2">
-                                    <TextBlock Text="{Binding Barcode}" FontWeight="Bold" FontFamily="Consolas,Menlo,monospace" FontSize="16" />
-                                    <TextBlock Text="{Binding SpecimenName}" />
-                                    <TextBlock Text="{Binding ServiceNames, Converter={x:Static conv:JoinNamesConverter.Instance}}" Classes="muted" TextWrapping="Wrap" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                <Border Classes="table" Grid.Row="1">
+                    <Grid RowDefinitions="Auto,*">
+                        <Grid Grid.Row="0" ColumnDefinitions="130,130,*">
+                            <Border Grid.Column="0" Classes="th"><TextBlock Text="Barcode" /></Border>
+                            <Border Grid.Column="1" Classes="th"><TextBlock Text="Loại mẫu" /></Border>
+                            <Border Grid.Column="2" Classes="th last"><TextBlock Text="Dịch vụ" /></Border>
+                        </Grid>
+                        <ListBox Grid.Row="1" Classes="table" ItemsSource="{Binding IssuedSamples}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="orders:CreatedSample">
+                                    <Grid ColumnDefinitions="130,130,*">
+                                        <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Barcode}" FontWeight="Bold" FontFamily="Consolas,Menlo,monospace" FontSize="15" /></Border>
+                                        <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding SpecimenName}" TextWrapping="Wrap" /></Border>
+                                        <Border Grid.Column="2" Classes="td last"><TextBlock Text="{Binding ServiceNames, Converter={x:Static conv:JoinNamesConverter.Instance}}" Classes="muted" TextWrapping="Wrap" /></Border>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
                 </Border>
 
                 <Button Grid.Row="2" Name="SaveButton" Classes="primary" Content="Lưu và in tem (F9)" Command="{Binding SaveCommand}"

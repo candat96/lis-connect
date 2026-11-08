@@ -14,22 +14,27 @@
                 <TextBox Text="{Binding FilterText}" PlaceholderText="Tên đăng nhập..." />
             </StackPanel>
 
-            <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="1" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
-                <ListBox Name="UserList"
-                         ItemsSource="{Binding FilteredUsers}"
-                         SelectedItem="{Binding SelectedUser}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:UserListItemViewModel">
-                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="{Binding Username}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding FullName}" FontSize="11" Classes="muted" />
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="{Binding StatusText}" FontSize="10" Classes="muted" VerticalAlignment="Center" />
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+            <Border Classes="table" Grid.Row="1">
+                <Grid RowDefinitions="Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="100,*,72">
+                        <Border Grid.Column="0" Classes="th"><TextBlock Text="Tên đăng nhập" /></Border>
+                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Họ tên" /></Border>
+                        <Border Grid.Column="2" Classes="th last"><TextBlock Text="Trạng thái" /></Border>
+                    </Grid>
+                    <ListBox Grid.Row="1" Classes="table" Name="UserList"
+                             ItemsSource="{Binding FilteredUsers}"
+                             SelectedItem="{Binding SelectedUser}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:UserListItemViewModel">
+                                <Grid ColumnDefinitions="100,*,72">
+                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Username}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /></Border>
+                                    <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding FullName}" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="2" Classes="td last"><TextBlock Text="{Binding StatusText}" FontSize="12" Classes="muted" /></Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
             </Border>
 
             <Button Grid.Row="2" Content="+ Tài khoản mới" Command="{Binding NewUserCommand}" Margin="0,8,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
