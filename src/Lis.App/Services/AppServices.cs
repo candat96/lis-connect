@@ -38,6 +38,7 @@ public sealed class AppServices
         ReportPrinter = new ReportPrinter(Results, Facility, Settings, PrintService, TimeProvider.System);
         Unmatched = new UnmatchedService(Db, TimeProvider.System);
         Instruments = new InstrumentStore(Db);
+        ChannelLearning = new ChannelMapLearning(Db, Instruments, Unmatched);
         HisProfiles = new HisProfileStore(Db, SecretProtectors.ForCurrentOs(LocalPaths.DataDirectory));
         // HisConnectionTester tự áp một CancellationTokenSource ~10s cho mỗi lần gọi, nhưng đặt
         // thêm HttpClient.Timeout ở đây làm lớp bảo vệ thứ hai — nếu có đường gọi nào sau này
@@ -87,6 +88,9 @@ public sealed class AppServices
     public IReportPrinter ReportPrinter { get; }
 
     public IUnmatchedService Unmatched { get; }
+
+    /// <summary>Gợi ý map kênh từ barcode (bảng map kênh).</summary>
+    public IChannelMapLearning ChannelLearning { get; }
 
     public IInstrumentStore Instruments { get; }
 

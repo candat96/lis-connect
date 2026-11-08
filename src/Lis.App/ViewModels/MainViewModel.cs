@@ -46,7 +46,8 @@ public partial class MainViewModel : ObservableObject
         HisProfileStore hisProfileStore, HisConnectionTester hisConnectionTester,
         ICatalogExcelImporter catalogExcelImporter, IFilePicker filePicker,
         ISerialPortService? serialPorts = null, IRawLogStore? rawLogs = null,
-        Lis.App.Services.Connections.IInstrumentConnections? connections = null, string? workstationCode = null)
+        Lis.App.Services.Connections.IInstrumentConnections? connections = null, string? workstationCode = null,
+        Lis.Data.Ingest.IChannelMapLearning? channelLearning = null)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
@@ -57,7 +58,7 @@ public partial class MainViewModel : ObservableObject
         Unmatched = new UnmatchedViewModel(unmatched, currentUser);
         rawLogs ??= new RawLogStore(RawLogStore.DefaultRoot);
         Instruments = new InstrumentsViewModel(
-            instruments, catalogStore, currentUser, serialPorts, rawLogs, action => Dispatcher.UIThread.Post(action), connections, workstationCode);
+            instruments, catalogStore, currentUser, serialPorts, rawLogs, action => Dispatcher.UIThread.Post(action), connections, workstationCode, channelLearning);
         RawLog = new RawLogViewModel(instruments, rawLogs);
         Instruments.OpenRawLogRequested += (_, instrumentId) =>
         {

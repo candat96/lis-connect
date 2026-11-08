@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lis.Core;
 using Lis.Data.Catalog;
+using Lis.Data.Ingest;
 using Lis.Data.Instruments;
 
 namespace Lis.App.ViewModels.Instruments;
@@ -47,7 +48,8 @@ public sealed partial class ChannelRowViewModel(ChannelMapItem item, Action<Chan
 /// thay vì thêm mới. Trùng kênh hoặc hệ số không hợp lệ thì lỗi của store hiện nguyên văn
 /// ("Mã kênh … đã map cho chỉ số …", "Hệ số phải lớn hơn 0").
 /// </summary>
-public partial class ChannelMapEditorViewModel(IInstrumentStore store, IServiceLookup services) : ObservableObject
+public partial class ChannelMapEditorViewModel(
+    IInstrumentStore store, IServiceLookup services, IChannelMapLearning? learning = null, Guid actorId = default) : ObservableObject
 {
     private Guid _instrumentId;
     private Guid _editingId = Guid.Empty;
@@ -61,7 +63,11 @@ public partial class ChannelMapEditorViewModel(IInstrumentStore store, IServiceL
     public ObservableCollection<ServiceInfo> ServiceResults { get; } = [];
 
     /// <summary>Kênh máy đã gửi nhưng chưa map — bấm một dòng để điền mã kênh.</summary>
-    public ObservableCollection<UnmappedChannel> Unmapped { get; } = [];
+    public ObservableCollection<UnmappedRowViewModel> Unmapped { get; } = [];
+
+    /// <summary>Thông báo sau khi xác nhận một gợi ý (vd "Đã map 001 → XN01, đưa 3 kết quả vào phiếu").</summary>
+    [ObservableProperty]
+    private string? _learningMessage;
 
     /// <summary>Tên máy đang map (tiêu đề cửa sổ map kênh).</summary>
     [ObservableProperty]
@@ -159,7 +165,7 @@ public partial class ChannelMapEditorViewModel(IInstrumentStore store, IServiceL
     }
 
     [RelayCommand]
-    private void UseUnmapped(UnmappedChannel channel)
+    private void UseUnmapped(UnmappedRowViewModel channel)
     {
         if (IsEditing)
         {
@@ -169,14 +175,41 @@ public partial class ChannelMapEditorViewModel(IInstrumentStore store, IServiceL
         NewChannelCode = channel.ChannelCode;
     }
 
+    /// <summary>Xác nhận gợi ý: lưu map và đưa kết quả cũ của mã kênh vào phiếu, rồi nạp lại bảng.</summary>
+    private async Task ConfirmHintAsync(string channelCode, ServiceRef service)
+    {
+        if (learning is null)
+        {
+            return;
+        }
+
+        try
+        {
+            ErrorMessage = null;
+            var applied = await learning.ConfirmAsync(_instrumentId, channelCode, service.Id, actorId);
+            LearningMessage = applied > 0
+                ? $"Đã map {channelCode} → {service.Code} {service.Name}, đưa {applied} kết quả cũ vào phiếu."
+                : $"Đã map {channelCode} → {service.Code} {service.Name}.";
+            await LoadAsync(_instrumentId);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Không map được: {ex.Message}";
+        }
+    }
+
     private async Task LoadUnmappedAsync()
     {
         Unmapped.Clear();
         try
         {
-            foreach (var channel in await store.UnmappedChannelsAsync(_instrumentId))
+            var channels = await store.UnmappedChannelsAsync(_instrumentId);
+            var hints = learning is null || channels.Count == 0
+                ? new Dictionary<string, ChannelMapHint>()
+                : (await learning.SuggestAsync(_instrumentId)).ToDictionary(h => h.ChannelCode, StringComparer.Ordinal);
+            foreach (var channel in channels)
             {
-                Unmapped.Add(channel);
+                Unmapped.Add(new UnmappedRowViewModel(channel, hints.GetValueOrDefault(channel.ChannelCode), ConfirmHintAsync));
             }
         }
         catch (Exception)

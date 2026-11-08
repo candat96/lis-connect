@@ -96,7 +96,8 @@ public partial class InstrumentsViewModel : ObservableObject
     public InstrumentsViewModel(
         IInstrumentStore store, IServiceLookup services, CurrentUser currentUser,
         ISerialPortService? serialPorts = null, IRawLogStore? rawLogs = null, Action<Action>? post = null,
-        IInstrumentConnections? connections = null, string? workstationCode = null)
+        IInstrumentConnections? connections = null, string? workstationCode = null,
+        Lis.Data.Ingest.IChannelMapLearning? channelLearning = null)
     {
         _store = store;
         _connections = connections;
@@ -115,7 +116,7 @@ public partial class InstrumentsViewModel : ObservableObject
 
         _currentUser = currentUser;
         _rawLogs = rawLogs;
-        ChannelEditor = new ChannelMapEditorViewModel(store, services);
+        ChannelEditor = new ChannelMapEditorViewModel(store, services, channelLearning, currentUser.User.Id);
         Connection = new ConnectionEditorViewModel();
         PortScanner = new PortScannerViewModel(serialPorts ?? new NoSerialPorts(), Connection, InstrumentsUsingPort, post, LogForPort);
         PortScanner.PropertyChanged += (_, e) =>

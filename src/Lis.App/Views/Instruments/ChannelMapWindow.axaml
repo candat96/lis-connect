@@ -1,7 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Lis.App.ViewModels.Instruments"
-        xmlns:inst="using:Lis.Data.Instruments"
         xmlns:cat="using:Lis.Data.Catalog"
         x:Class="Lis.App.Views.Instruments.ChannelMapWindow"
         x:DataType="vm:ChannelMapEditorViewModel"
@@ -123,34 +122,47 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Kênh máy đã gửi mà chưa map: cách map máy dùng mã do phòng khám tự đặt (vd số test AU480). -->
+                    <!-- Kênh máy đã gửi mà chưa map + gợi ý suy từ chỉ định của từng barcode. -->
                     <Border Classes="card" Padding="14">
                         <StackPanel Spacing="8">
                             <TextBlock Classes="heading" FontSize="15" Text="Kênh máy gửi chưa map" />
                             <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
-                                       Text="Máy đã gửi các mã này nhưng chưa trỏ tới chỉ số nào nên kết quả chưa vào phiếu. Nhìn giá trị để biết là xét nghiệm gì, bấm dòng để điền mã kênh rồi chọn chỉ số." />
+                                       Text="Phần mềm đối chiếu barcode: mã kênh xuất hiện ở mẫu nào thì phải là một chỉ số được chỉ định cho mẫu đó. Càng nhiều mẫu càng chắc. Kiểm tra giá trị rồi bấm gợi ý để map — kết quả cũ của mã đó tự vào phiếu." />
+                            <TextBlock Classes="success" FontSize="12" Text="{Binding LearningMessage}" TextWrapping="Wrap" IsVisible="{Binding LearningMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                             <TextBlock Classes="muted" FontSize="12" Text="Chưa có — khi máy chạy mẫu, mã lạ sẽ hiện ở đây." IsVisible="{Binding !HasUnmapped}" />
                             <Border Classes="table" IsVisible="{Binding HasUnmapped}">
                                 <Grid RowDefinitions="Auto,*">
-                                    <Grid Grid.Row="0" ColumnDefinitions="96,*,52">
+                                    <Grid Grid.Row="0" ColumnDefinitions="80,*">
                                         <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã kênh" /></Border>
-                                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Giá trị gần nhất" /></Border>
-                                        <Border Grid.Column="2" Classes="th last"><TextBlock Text="Lần" /></Border>
+                                        <Border Grid.Column="1" Classes="th last"><TextBlock Text="Giá trị gần nhất · gợi ý" /></Border>
                                     </Grid>
-                                    <ListBox Grid.Row="1" Classes="table" ItemsSource="{Binding Unmapped}" MaxHeight="260">
+                                    <ListBox Grid.Row="1" Classes="table" ItemsSource="{Binding Unmapped}" MaxHeight="420">
                                         <ListBox.ItemTemplate>
-                                            <DataTemplate x:DataType="inst:UnmappedChannel">
-                                                <Button Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                                        Command="{Binding $parent[Window].((vm:ChannelMapEditorViewModel)DataContext).UseUnmappedCommand}" CommandParameter="{Binding}"
-                                                        ToolTip.Tip="Điền mã kênh này vào form">
-                                                    <Grid ColumnDefinitions="96,*,52">
-                                                        <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding ChannelCode}" FontWeight="SemiBold" FontFamily="Consolas,Menlo,monospace" /></Border>
-                                                        <Border Grid.Column="1" Classes="td">
-                                                            <TextBlock TextWrapping="Wrap"><Run Text="{Binding LastValue}" /><Run Text=" " /><Run Text="{Binding LastUnit}" Foreground="Gray" /></TextBlock>
-                                                        </Border>
-                                                        <Border Grid.Column="2" Classes="td last"><TextBlock Text="{Binding Count}" Classes="muted" /></Border>
-                                                    </Grid>
-                                                </Button>
+                                            <DataTemplate x:DataType="vm:UnmappedRowViewModel">
+                                                <Grid ColumnDefinitions="80,*">
+                                                    <Border Grid.Column="0" Classes="td">
+                                                        <Button Content="{Binding ChannelCode}" FontWeight="SemiBold" FontFamily="Consolas,Menlo,monospace" Padding="6,2"
+                                                                ToolTip.Tip="Điền mã kênh này vào form để tự chọn chỉ số"
+                                                                Command="{Binding $parent[Window].((vm:ChannelMapEditorViewModel)DataContext).UseUnmappedCommand}" CommandParameter="{Binding}" />
+                                                    </Border>
+                                                    <Border Grid.Column="1" Classes="td last">
+                                                        <StackPanel Spacing="4">
+                                                            <TextBlock TextWrapping="Wrap"><Run Text="{Binding ValueText}" FontWeight="SemiBold" /><Run Text="  ·  " Foreground="Gray" /><Run Text="{Binding Count, StringFormat='{}{0} lần'}" Foreground="Gray" /></TextBlock>
+                                                            <TextBlock Classes="muted" FontSize="12" Text="{Binding HintText}" TextWrapping="Wrap" />
+                                                            <ItemsControl ItemsSource="{Binding Candidates}">
+                                                                <ItemsControl.ItemsPanel>
+                                                                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                                                </ItemsControl.ItemsPanel>
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate x:DataType="vm:CandidateOption">
+                                                                        <Button Content="{Binding Label}" Command="{Binding ConfirmCommand}" Classes.primary="{Binding IsCertain}"
+                                                                                Padding="8,3" Margin="0,0,4,4" FontSize="12" />
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </Grid>
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>
                                     </ListBox>

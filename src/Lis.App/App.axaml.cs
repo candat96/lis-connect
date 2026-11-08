@@ -209,7 +209,7 @@ public partial class App : Application
             new SetupService(), configStore, config,
             services.HisProfiles, services.HisConnectionTester,
             services.CatalogExcelImporter, services.FilePicker,
-            services.SerialPorts, services.RawLogs, services.Connections, services.WorkstationCode);
+            services.SerialPorts, services.RawLogs, services.Connections, services.WorkstationCode, services.ChannelLearning);
         var window = new MainWindow { DataContext = viewModel };
 
 
