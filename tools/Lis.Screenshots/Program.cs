@@ -631,10 +631,10 @@ internal static class Program
 
         foreach (var service in new[] { panel, wbc, rbc, hgb })
         {
-            var item = new ServiceListItemViewModel(service);
-            viewModel.Services.Add(item);
-            viewModel.FilteredServices.Add(item);
+            viewModel.Services.Add(new ServiceListItemViewModel(service));
         }
+
+        viewModel.ApplyFilter();
 
         // SelectedService không gọi CSDL (xem CatalogViewModel.OnSelectedServiceChanged) — chỉ
         // nạp form sửa dịch vụ và danh sách chỉ số con (với panel) từ dữ liệu đã có trong

@@ -26,6 +26,9 @@ public sealed record ChannelMap(
     bool KeepComparator,
     bool SendOnQuery);
 
+/// <summary>Một mã kênh máy đã gửi mà chưa map (từ Chưa gắn mẫu): số lần gặp, giá trị và đơn vị gần nhất.</summary>
+public sealed record UnmappedChannel(string ChannelCode, int Count, string LastValue, string? LastUnit, DateTimeOffset LastAt);
+
 /// <summary>Một dòng map kênh kèm mã/tên chỉ số để hiển thị.</summary>
 public sealed record ChannelMapItem(ChannelMap Map, string ServiceCode, string ServiceName);
 
@@ -39,6 +42,9 @@ public interface IInstrumentStore
 
     Task<IReadOnlyList<ChannelMapItem>> ChannelsAsync(Guid instrumentId);
 
+    /// <summary>Kênh máy đã gửi nhưng chưa map (dòng Chưa gắn mẫu lý do "kênh chưa map", chưa xử lý), mới nhất trước.</summary>
+    Task<IReadOnlyList<UnmappedChannel>> UnmappedChannelsAsync(Guid instrumentId) => Task.FromResult<IReadOnlyList<UnmappedChannel>>([]);
+
     /// <summary>Thêm (khi <see cref="ChannelMap.Id"/> rỗng) hoặc cập nhật map kênh. Trùng kênh → <see cref="InvalidOperationException"/> nêu rõ chỉ số đã map.</summary>
     Task<Guid> SaveChannelAsync(ChannelMap channel);
 
@@ -51,6 +57,28 @@ public interface IInstrumentStore
 /// </summary>
 public sealed class InstrumentStore(Db db) : IInstrumentStore
 {
+    public async Task<IReadOnlyList<UnmappedChannel>> UnmappedChannelsAsync(Guid instrumentId)
+    {
+        await using var connection = await db.OpenAsync();
+        var rows = await connection.QueryAsync<UnmappedChannel>(
+            """
+            SELECT DISTINCT ON (u.channel_code)
+                u.channel_code AS ChannelCode,
+                (count(*) OVER (PARTITION BY u.channel_code))::int AS Count,
+                u.value AS LastValue,
+                u.unit AS LastUnit,
+                u.received_at AS LastAt
+            FROM unmatched_result u
+            WHERE u.instrument_id = @instrumentId
+              AND u.reason = 'kenh-chua-map'
+              AND u.resolved_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM instrument_channel ic WHERE ic.instrument_id = u.instrument_id AND ic.channel_code = u.channel_code)
+            ORDER BY u.channel_code, u.received_at DESC
+            """,
+            new { instrumentId });
+        return rows.OrderByDescending(r => r.LastAt).ToList();
+    }
+
     public async Task<IReadOnlyList<InstrumentInfo>> ListAsync()
     {
         await using var connection = await db.OpenAsync();

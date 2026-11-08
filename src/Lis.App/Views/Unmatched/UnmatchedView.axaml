@@ -10,6 +10,11 @@
         <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
 
             <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,8">
+                <!-- Giải thích màn này cho người không làm kỹ thuật. -->
+                <Border Background="{StaticResource BrushPrimaryTint}" CornerRadius="6" Padding="10,8" Margin="0,0,0,8">
+                    <TextBlock TextWrapping="Wrap" FontSize="13"
+                               Text="Kết quả máy đã gửi về nhưng LIS chưa tự gắn được vào mẫu nào: không có barcode, barcode không có chỉ định đó, hoặc kênh máy chưa map sang chỉ số. Chọn một dòng rồi bấm &quot;Gán vào mẫu…&quot; để gắn tay, hoặc &quot;Bỏ qua&quot; nếu là kết quả thừa. Kênh chưa map thì map ở màn Máy &amp; map để lần sau tự vào." />
+                </Border>
                 <TextBlock Classes="label" Text="Ngày nhận (dd/MM/yyyy)" />
                 <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*" ColumnSpacing="4">
                     <TextBox Grid.Column="0" Width="110" Text="{Binding FromText}" />

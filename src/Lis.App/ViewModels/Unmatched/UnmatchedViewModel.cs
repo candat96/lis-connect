@@ -124,6 +124,30 @@ public partial class UnmatchedViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Tải lại ngầm (gọi định kỳ khi màn đang mở): thêm dòng máy mới gửi, bỏ dòng đã xử lý, giữ dòng
+    /// đang chọn. Đang mở ô "Gán vào mẫu…" hoặc hộp lý do bỏ qua thì không đụng tới.
+    /// </summary>
+    public async Task RefreshQuietlyAsync()
+    {
+        if (IsBusy || AssignPanel.Row is not null || IsDismissPromptVisible
+            || !TryParseDate(FromText, out var from) || !TryParseDate(ToText, out var to) || to < from)
+        {
+            return;
+        }
+
+        try
+        {
+            var items = await _service.ListOpenAsync(from, to);
+            CollectionSync.Sync(Rows, items, vm => vm.Id, item => item.Id, item => new UnmatchedRowViewModel(item, _clock.LocalTimeZone));
+            OnPropertyChanged(nameof(CountText));
+        }
+        catch (Exception)
+        {
+            // Tải ngầm: lỗi tạm thời bỏ qua, lần sau thử lại.
+        }
+    }
+
     partial void OnSelectedRowChanged(UnmatchedRowViewModel? value)
     {
         IsDismissPromptVisible = false;

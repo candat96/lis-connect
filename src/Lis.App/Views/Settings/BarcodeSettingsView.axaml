@@ -28,8 +28,8 @@
                 <StackPanel>
                     <TextBlock Classes="label" Text="Cách gán barcode cho một phiếu" />
                     <StackPanel Spacing="4">
-                        <RadioButton GroupName="BarcodeMode" Content="Mỗi loại mẫu một barcode (mặc định)" IsChecked="{Binding !BarcodeModeSingle}" />
-                        <RadioButton GroupName="BarcodeMode" Content="Cả phiếu một barcode" IsChecked="{Binding BarcodeModeSingle}" />
+                        <RadioButton GroupName="BarcodeMode" Content="Mỗi loại mẫu một barcode riêng" IsChecked="{Binding !BarcodeModeSingle}" />
+                        <RadioButton GroupName="BarcodeMode" Content="Cả phiếu một barcode — máu, nước tiểu… in tem cùng mã (mặc định)" IsChecked="{Binding BarcodeModeSingle}" />
                     </StackPanel>
                 </StackPanel>
 

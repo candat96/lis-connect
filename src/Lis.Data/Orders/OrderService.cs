@@ -136,11 +136,17 @@ public sealed class OrderService(Db db, TimeProvider clock) : IOrderService
                     sampleIdByService[serviceId] = sampleId;
                 }
 
-                createdSamples.Add(new CreatedSample(
-                    sampleId,
-                    barcode,
-                    specimenNameById.GetValueOrDefault(group.SpecimenTypeId, ""),
-                    group.ServiceIds.Select(id => servicesById[id].Name).ToList()));
+                // Một tem cho mỗi ống/cốc: chế độ "cả phiếu một barcode" vẫn có thể gồm máu +
+                // nước tiểu — mỗi loại mẫu một tem, cùng một barcode (máy chỉ cần barcode để tìm
+                // phiếu). Chế độ mỗi loại mẫu một barcode thì nhóm vốn chỉ có một loại mẫu.
+                foreach (var bySpecimen in group.ServiceIds.GroupBy(id => servicesById[id].SpecimenTypeId))
+                {
+                    createdSamples.Add(new CreatedSample(
+                        sampleId,
+                        barcode,
+                        specimenNameById.GetValueOrDefault(bySpecimen.Key, ""),
+                        bySpecimen.Select(id => servicesById[id].Name).ToList()));
+                }
             }
 
             // Mẫu của dòng cha (panel) chưa có loại mẫu bệnh phẩm riêng — dùng chung mẫu với

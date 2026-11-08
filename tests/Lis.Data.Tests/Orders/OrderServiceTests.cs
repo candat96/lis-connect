@@ -95,6 +95,29 @@ public class OrderServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task CreateOrder_SingleBarcodeMode_OneBarcode_OneLabelPerSpecimen()
+    {
+        var (orders, catalog, edtaId, serumId, actorId, db) = await CreateServiceAsync(barcodeMode: "single");
+
+        var wbcId = await SaveServiceAsync(catalog, NewServiceInfo("WBC6", "Bạch cầu", edtaId));
+        var gluId = await SaveServiceAsync(catalog, NewServiceInfo("GLU6", "Glucose", serumId));
+        var ureId = await SaveServiceAsync(catalog, NewServiceInfo("URE6", "Ure", serumId));
+
+        var patient = new NewPatient("Lê Văn Mẫu", null, 1980, 'M', null, "0900000006");
+        var created = await orders.CreateAsync(new NewOrder(null, patient, [wbcId, gluId, ureId], null, null, null), actorId);
+
+        // Hai tem (ống EDTA + ống huyết thanh) nhưng cùng một barcode, cùng một mẫu trong CSDL.
+        created.Samples.Count.ShouldBe(2);
+        created.Samples.Select(s => s.Barcode).Distinct().Count().ShouldBe(1);
+        created.Samples.Select(s => s.SampleId).Distinct().Count().ShouldBe(1);
+        created.Samples.Single(s => s.SpecimenName == "Máu EDTA (huyết học)").ServiceNames.ShouldBe(["Bạch cầu"]);
+        created.Samples.Single(s => s.SpecimenName == "Huyết thanh (hóa sinh, miễn dịch)").ServiceNames.ShouldBe(["Glucose", "Ure"]);
+
+        await using var connection = await db.OpenAsync(TestContext.Current.CancellationToken);
+        (await connection.ExecuteScalarAsync<long>("SELECT count(*) FROM sample")).ShouldBe(1);
+    }
+
+    [Fact]
     public async Task CreateOrder_Concurrent_ProducesUniqueBarcodes()
     {
         var (orders, catalog, edtaId, _, actorId, _) = await CreateServiceAsync();

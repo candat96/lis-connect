@@ -31,6 +31,9 @@ internal static class Program
             case "seed-rawlog":
                 return await SeedRawLogCommand.RunAsync(rest);
 
+            case "seed-clinic":
+                return await SeedClinicCommand.RunAsync(rest);
+
             default:
                 Console.Error.WriteLine($"Lệnh không rõ: {args[0]}");
                 PrintUsage();
@@ -44,6 +47,7 @@ internal static class Program
         Console.WriteLine("  Lis.SeedTool make-seed-xlsx [--out tools/seed/mau-danh-muc.xlsx]");
         Console.WriteLine("  Lis.SeedTool seed-demo --conn <chuỗi kết nối> [--days 3]");
         Console.WriteLine("  Lis.SeedTool seed-instruments --conn <chuỗi kết nối> [--catalog tools/seed/mau-danh-muc.xlsx]");
+        Console.WriteLine("  Lis.SeedTool seed-clinic --conn <chuỗi kết nối> --his-dm <DM_DICHVU_KYTHUAT.json> --his-rls <RLS_DV_KYTHUAT.json> --profile tools/clinics/<pk>/clinic.json [--out <xlsx>] [--reset]");
         Console.WriteLine("  Lis.SeedTool seed-rawlog --conn <chuỗi kết nối> [--days 3] [--root <thư mục log>]");
     }
 }

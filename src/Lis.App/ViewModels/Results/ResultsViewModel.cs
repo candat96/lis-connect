@@ -167,6 +167,39 @@ public partial class ResultsViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Tải lại ngầm (gọi định kỳ khi màn đang mở): cập nhật danh sách tại chỗ, giữ dòng đang chọn;
+    /// mẫu đang xem có thay đổi (máy vừa gửi thêm kết quả) thì nạp lại bảng chỉ số — trừ khi người
+    /// dùng đang gõ dở một ô chưa lưu hoặc đang mở hộp lý do, để không xoá mất chỗ đang sửa.
+    /// Lỗi (vd mất mạng chốc lát) bỏ qua im lặng — lần sau thử lại.
+    /// </summary>
+    public async Task RefreshQuietlyAsync()
+    {
+        if (IsBusy || !TryParseDate(FromText, out var from) || !TryParseDate(ToText, out var to) || to < from)
+        {
+            return;
+        }
+
+        try
+        {
+            var items = await _results.ListAsync(from, to, SelectedStatus.Code, string.IsNullOrWhiteSpace(SearchText) ? null : SearchText);
+            var selected = SelectedSample;
+            var before = selected?.Item;
+            CollectionSync.Sync(Samples, items, vm => vm.SampleId, item => item.SampleId,
+                item => new SampleListItemViewModel(item, _clock.LocalTimeZone), (vm, item) => vm.Update(item));
+
+            if (selected is not null && Samples.Contains(selected) && selected.Item != before
+                && !Rows.Any(r => r.IsDirty) && !IsReasonVisible && !IsUnapprovePromptVisible)
+            {
+                await LoadSampleAsync(selected.SampleId);
+            }
+        }
+        catch (Exception)
+        {
+            // Tải ngầm: không làm phiền người dùng; nút Tìm/tải tay vẫn báo lỗi bình thường.
+        }
+    }
+
     partial void OnSelectedSampleChanged(SampleListItemViewModel? value)
     {
         ReasonText = "";

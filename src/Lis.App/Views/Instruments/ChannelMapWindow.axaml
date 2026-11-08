@@ -1,0 +1,167 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Lis.App.ViewModels.Instruments"
+        xmlns:inst="using:Lis.Data.Instruments"
+        xmlns:cat="using:Lis.Data.Catalog"
+        x:Class="Lis.App.Views.Instruments.ChannelMapWindow"
+        x:DataType="vm:ChannelMapEditorViewModel"
+        Icon="avares://LisConnect/Assets/app-icon.ico"
+        Title="{Binding InstrumentName, StringFormat='Map kênh — {0}'}"
+        Width="1200" Height="760" MinWidth="900" MinHeight="560"
+        WindowStartupLocation="CenterOwner">
+
+    <!--
+        Bảng map kênh cỡ lớn: trái là bảng các kênh đã map (lọc được); phải là form thêm/sửa
+        (tìm chỉ số theo tên) và danh sách kênh máy đã gửi mà chưa map (bấm để điền mã kênh).
+    -->
+    <Grid RowDefinitions="Auto,*" Margin="20">
+
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,280" ColumnSpacing="12" Margin="0,0,0,12">
+            <StackPanel Grid.Column="0" Spacing="2">
+                <TextBlock Classes="heading" Text="{Binding InstrumentName}" />
+                <TextBlock Classes="muted" Text="Mỗi kênh máy gửi (mã test / mã kênh) trỏ tới một chỉ số trong danh mục. Kết quả kênh chưa map không vào phiếu." TextWrapping="Wrap" />
+            </StackPanel>
+            <TextBlock Grid.Column="1" Classes="muted" Text="{Binding CountText}" VerticalAlignment="Bottom" />
+            <TextBox Grid.Column="2" Text="{Binding FilterText}" PlaceholderText="Lọc theo mã kênh / chỉ số…" VerticalAlignment="Bottom" />
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,380" ColumnSpacing="16">
+
+            <!-- Trái: bảng kênh đã map -->
+            <Border Grid.Column="0" Classes="table">
+                <Grid RowDefinitions="Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="130,120,*,64,72,84,84,118">
+                        <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã kênh máy" /></Border>
+                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Mã chỉ số" /></Border>
+                        <Border Grid.Column="2" Classes="th"><TextBlock Text="Tên chỉ số" /></Border>
+                        <Border Grid.Column="3" Classes="th"><TextBlock Text="Số lẻ" /></Border>
+                        <Border Grid.Column="4" Classes="th"><TextBlock Text="Hệ số" /></Border>
+                        <Border Grid.Column="5" Classes="th"><TextBlock Text="Giữ dấu &lt;&gt;" /></Border>
+                        <Border Grid.Column="6" Classes="th"><TextBlock Text="Gửi khi máy hỏi" TextWrapping="Wrap" /></Border>
+                        <Border Grid.Column="7" Classes="th last"><TextBlock Text="" /></Border>
+                    </Grid>
+                    <ListBox Grid.Row="1" Classes="table" ItemsSource="{Binding VisibleChannels}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ChannelRowViewModel">
+                                <Grid ColumnDefinitions="130,120,*,64,72,84,84,118">
+                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding ChannelCode}" FontWeight="SemiBold" FontFamily="Consolas,Menlo,monospace" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding ServiceCode}" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="2" Classes="td"><TextBlock Text="{Binding ServiceName}" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="3" Classes="td"><TextBlock Text="{Binding DecimalsText}" Classes="muted" /></Border>
+                                    <Border Grid.Column="4" Classes="td"><TextBlock Text="{Binding FactorText}" Classes="muted" /></Border>
+                                    <Border Grid.Column="5" Classes="td"><TextBlock Text="{Binding KeepComparatorText}" Classes="muted" HorizontalAlignment="Center" /></Border>
+                                    <Border Grid.Column="6" Classes="td"><TextBlock Text="{Binding SendOnQueryText}" Classes="muted" HorizontalAlignment="Center" /></Border>
+                                    <Border Grid.Column="7" Classes="td input last">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <Button Content="Sửa" Command="{Binding EditCommand}" Padding="10,3" />
+                                            <Button Content="Xóa" Command="{Binding RemoveCommand}" Padding="10,3" Classes="danger" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <!-- Phải: form thêm/sửa + kênh chưa map -->
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="12">
+
+                    <Border Classes="card" Padding="14">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="heading" FontSize="15" Text="{Binding SaveButtonLabel, StringFormat='{}{0}'}" />
+
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="label" Text="Mã kênh máy (đúng như máy gửi)" />
+                                <TextBox Text="{Binding NewChannelCode}" FontFamily="Consolas,Menlo,monospace" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="label" Text="Tìm chỉ số theo tên hoặc mã" />
+                                <TextBox Text="{Binding ServiceSearchText}" PlaceholderText="vd: bạch cầu, WBC, XN01…" />
+                                <Border Classes="table" MaxHeight="220" IsVisible="{Binding HasServiceResults}">
+                                    <ListBox Classes="table" ItemsSource="{Binding ServiceResults}">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="cat:ServiceInfo">
+                                                <Button Background="Transparent" BorderThickness="0" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                        Command="{Binding $parent[Window].((vm:ChannelMapEditorViewModel)DataContext).PickServiceCommand}" CommandParameter="{Binding}">
+                                                    <TextBlock TextWrapping="Wrap"><Run Text="{Binding Code}" FontWeight="SemiBold" /><Run Text=" – " /><Run Text="{Binding Name}" /></TextBlock>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Border>
+                            </StackPanel>
+
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="label" Text="Mã chỉ số — Enter để lưu" />
+                                <TextBox Name="NewServiceCodeBox" Text="{Binding NewServiceCode}" />
+                                <TextBlock Classes="muted" FontSize="12" Text="{Binding NewServiceName}" TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="label" Text="Số lẻ (trống = theo chỉ số)" />
+                                    <TextBox Text="{Binding NewDecimalsText}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Classes="label" Text="Hệ số (trống = không nhân)" />
+                                    <TextBox Text="{Binding NewFactorText}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <CheckBox Content="Giữ dấu so sánh (&lt; / &gt;) máy gửi" IsChecked="{Binding NewKeepComparator}" />
+                            <CheckBox Content="Gửi kênh này khi máy hỏi chỉ định" IsChecked="{Binding NewSendOnQuery}" />
+
+                            <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" />
+
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                                <Button Content="Hủy sửa" Command="{Binding CancelEditCommand}" IsVisible="{Binding IsEditingExisting}" />
+                                <Button Classes="primary" Content="{Binding SaveButtonLabel}" Command="{Binding AddChannelCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Kênh máy đã gửi mà chưa map: cách map máy dùng mã do phòng khám tự đặt (vd số test AU480). -->
+                    <Border Classes="card" Padding="14">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="heading" FontSize="15" Text="Kênh máy gửi chưa map" />
+                            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                                       Text="Máy đã gửi các mã này nhưng chưa trỏ tới chỉ số nào nên kết quả chưa vào phiếu. Nhìn giá trị để biết là xét nghiệm gì, bấm dòng để điền mã kênh rồi chọn chỉ số." />
+                            <TextBlock Classes="muted" FontSize="12" Text="Chưa có — khi máy chạy mẫu, mã lạ sẽ hiện ở đây." IsVisible="{Binding !HasUnmapped}" />
+                            <Border Classes="table" IsVisible="{Binding HasUnmapped}">
+                                <Grid RowDefinitions="Auto,*">
+                                    <Grid Grid.Row="0" ColumnDefinitions="96,*,52">
+                                        <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã kênh" /></Border>
+                                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Giá trị gần nhất" /></Border>
+                                        <Border Grid.Column="2" Classes="th last"><TextBlock Text="Lần" /></Border>
+                                    </Grid>
+                                    <ListBox Grid.Row="1" Classes="table" ItemsSource="{Binding Unmapped}" MaxHeight="260">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="inst:UnmappedChannel">
+                                                <Button Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                        Command="{Binding $parent[Window].((vm:ChannelMapEditorViewModel)DataContext).UseUnmappedCommand}" CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Điền mã kênh này vào form">
+                                                    <Grid ColumnDefinitions="96,*,52">
+                                                        <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding ChannelCode}" FontWeight="SemiBold" FontFamily="Consolas,Menlo,monospace" /></Border>
+                                                        <Border Grid.Column="1" Classes="td">
+                                                            <TextBlock TextWrapping="Wrap"><Run Text="{Binding LastValue}" /><Run Text=" " /><Run Text="{Binding LastUnit}" Foreground="Gray" /></TextBlock>
+                                                        </Border>
+                                                        <Border Grid.Column="2" Classes="td last"><TextBlock Text="{Binding Count}" Classes="muted" /></Border>
+                                                    </Grid>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Content="Đóng" HorizontalAlignment="Right" Click="OnCloseClick" />
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>

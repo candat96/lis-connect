@@ -6,33 +6,58 @@
              x:DataType="vm:CatalogViewModel">
 
     <Grid>
-    <Grid ColumnDefinitions="340,*" RowDefinitions="*">
+    <Grid ColumnDefinitions="440,*" RowDefinitions="*">
 
         <!-- Cột trái: bảng dịch vụ có ô lọc -->
         <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto" Margin="0,0,16,0">
 
             <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,8">
                 <TextBlock Classes="label" Text="Lọc theo mã hoặc tên" />
-                <TextBox Name="FilterBox" Text="{Binding FilterText}" PlaceholderText="Nhập mã hoặc tên dịch vụ..." />
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                    <TextBox Grid.Column="0" Name="FilterBox" Text="{Binding FilterText}" PlaceholderText="Nhập mã hoặc tên dịch vụ..." />
+                    <Button Grid.Column="1" Content="Mở hết" Command="{Binding ExpandAllCommand}" ToolTip.Tip="Hiện chỉ số con của mọi dịch vụ" />
+                    <Button Grid.Column="2" Content="Thu gọn hết" Command="{Binding CollapseAllCommand}" ToolTip.Tip="Chỉ hiện dịch vụ, ẩn chỉ số con" />
+                </Grid>
             </StackPanel>
 
             <Border Classes="table" Grid.Row="1">
                 <Grid RowDefinitions="Auto,*">
-                    <Grid Grid.Row="0" ColumnDefinitions="80,*,72">
+                    <Grid Grid.Row="0" ColumnDefinitions="96,*,118">
                         <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã" /></Border>
-                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Tên dịch vụ" /></Border>
+                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Dịch vụ / chỉ số con" /></Border>
                         <Border Grid.Column="2" Classes="th last"><TextBlock Text="Loại" /></Border>
                     </Grid>
+                    <!-- Cây: dịch vụ cha (nền xanh nhạt, chữ đậm), chỉ số con thụt vào bên dưới với ├─ / └─, dịch vụ lẻ ở cuối. -->
                     <ListBox Grid.Row="1" Classes="table" Name="ServiceList"
                              ItemsSource="{Binding FilteredServices}"
-                             SelectedItem="{Binding SelectedService}">
+                             SelectedItem="{Binding SelectedRow}">
                         <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ServiceListItemViewModel">
-                                <Grid ColumnDefinitions="80,*,72">
-                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Code}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /></Border>
-                                    <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding Name}" TextWrapping="Wrap" /></Border>
-                                    <Border Grid.Column="2" Classes="td last"><TextBlock Text="{Binding Loai}" Classes="muted" FontSize="12" /></Border>
-                                </Grid>
+                            <DataTemplate x:DataType="vm:ServiceRowViewModel">
+                                <Panel>
+                                    <Border Background="{StaticResource BrushPrimaryTint}" IsVisible="{Binding IsPanel}" />
+                                    <Grid ColumnDefinitions="96,*,118">
+                                        <Border Grid.Column="0" Classes="td">
+                                            <TextBlock Text="{Binding Code}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        </Border>
+                                        <Border Grid.Column="1" Classes="td">
+                                            <Grid ColumnDefinitions="Auto,*">
+                                                <!-- Dịch vụ cha: nút ▾/▸ bấm để đóng/mở chỉ số con. -->
+                                                <Button Grid.Column="0" Content="{Binding TreeMark}" Command="{Binding ToggleCommand}"
+                                                        IsVisible="{Binding IsPanel}" Padding="4,0" MinWidth="0" MinHeight="0"
+                                                        Margin="0,0,6,0" Background="Transparent" BorderThickness="0"
+                                                        VerticalAlignment="Center" FontSize="14"
+                                                        ToolTip.Tip="Đóng/mở chỉ số con" />
+                                                <TextBlock Grid.Column="0" Text="{Binding TreeMark}" Classes="muted" FontFamily="Consolas,Menlo,monospace"
+                                                           Margin="12,0,6,0" IsVisible="{Binding IsChild}" />
+                                                <Panel Grid.Column="1">
+                                                    <TextBlock Text="{Binding Name}" TextWrapping="Wrap" FontWeight="SemiBold" IsVisible="{Binding IsPanel}" />
+                                                    <TextBlock Text="{Binding Name}" TextWrapping="Wrap" IsVisible="{Binding !IsPanel}" />
+                                                </Panel>
+                                            </Grid>
+                                        </Border>
+                                        <Border Grid.Column="2" Classes="td last"><TextBlock Text="{Binding Loai}" Classes="muted" FontSize="12" TextWrapping="Wrap" /></Border>
+                                    </Grid>
+                                </Panel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
@@ -52,6 +77,11 @@
             <!-- Form sửa dịch vụ -->
             <Border CornerRadius="{StaticResource RadiusCard}" Grid.Row="0" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" Padding="16">
                 <StackPanel Spacing="8">
+
+                    <Border Background="{StaticResource BrushPrimaryTint}" CornerRadius="6" Padding="10,6"
+                            IsVisible="{Binding ParentsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <TextBlock Text="{Binding ParentsText}" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="{StaticResource BrushPrimary}" />
+                    </Border>
 
                     <Grid ColumnDefinitions="*,*,*" Margin="0,0,0,8">
                         <StackPanel Grid.Column="0" Margin="0,0,8,0">

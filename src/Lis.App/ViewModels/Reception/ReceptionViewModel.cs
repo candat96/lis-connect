@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lis.App.Services;
 using Lis.Core.Orders;
+using Lis.Core.Patients;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Facility;
@@ -60,20 +61,97 @@ public partial class ReceptionViewModel : ObservableObject
     private string _patientSearchQuery = "";
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsExistingPatient))]
+    [NotifyPropertyChangedFor(nameof(IsExistingPatient), nameof(PatientSummary), nameof(HasPatient))]
     private PatientHit? _selectedPatientHit;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PatientSummary), nameof(HasPatient))]
     private string _newPatientFullName = "";
 
+    /// <summary>Một ô ngày sinh: dd/MM/yyyy, 8 chữ số liền (tự thành dd/MM/yyyy) hoặc chỉ năm yyyy.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PatientSummary), nameof(DobHint))]
     private string _newPatientDobText = "";
 
     [ObservableProperty]
-    private string _newPatientBirthYearText = "";
-
-    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PatientSummary))]
     private SexOption _newPatientSex = SexOption.Male;
+
+    /// <summary>Lỗi trong hộp người bệnh (tách khỏi lỗi của phiếu).</summary>
+    [ObservableProperty]
+    private string? _patientErrorMessage;
+
+    /// <summary>Phiếu vừa lưu: bảng giữ nguyên kèm barcode đã cấp; thêm dịch vụ hoặc "Phiếu mới" thì bắt đầu phiếu khác.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEditable))]
+    private bool _isSaved;
+
+    public bool IsEditable => !IsSaved;
+
+    /// <summary>Đã có người bệnh (chọn từ tìm kiếm hoặc nhập mới) — hiện tóm tắt một dòng ở đầu màn.</summary>
+    public bool HasPatient => SelectedPatientHit is not null || !string.IsNullOrWhiteSpace(NewPatientFullName);
+
+    public string PatientSummary
+    {
+        get
+        {
+            if (SelectedPatientHit is { } hit)
+            {
+                var born = hit.Dob is { } d ? d.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) : hit.BirthYear?.ToString(CultureInfo.InvariantCulture) ?? "?";
+                var phone = string.IsNullOrWhiteSpace(hit.Phone) ? "" : " · " + hit.Phone;
+                return $"{hit.FullName} · {born} · {SexOption.FromCode(hit.Sex).Label} · {hit.Code}{phone}";
+            }
+
+            if (string.IsNullOrWhiteSpace(NewPatientFullName))
+            {
+                return "Chưa có người bệnh — bấm \"Người bệnh\" (F2) để tìm hoặc nhập mới";
+            }
+
+            var dob = BirthDateInput.Describe(NewPatientDobText, Today);
+            return $"{NewPatientFullName.Trim()} · {(dob.Length == 0 ? "chưa nhập ngày sinh" : dob)} · {NewPatientSex.Label} · người bệnh mới";
+        }
+    }
+
+    public string DobHint => BirthDateInput.Describe(NewPatientDobText, Today);
+
+    private DateOnly Today => DateOnly.FromDateTime(_clock.GetLocalNow().DateTime);
+
+    /// <summary>Chọn xong người bệnh (chọn dòng tìm thấy hoặc nhập mới hợp lệ) — hộp người bệnh tự đóng.</summary>
+    public event Action? PatientConfirmed;
+
+    /// <summary>Rời ô ngày sinh: "15061980" → "15/06/1980".</summary>
+    public void FormatDob() => NewPatientDobText = BirthDateInput.Format(NewPatientDobText);
+
+    /// <summary>"Xong" trong hộp người bệnh mới: kiểm tra họ tên + ngày sinh, hợp lệ thì đóng hộp.</summary>
+    [RelayCommand]
+    private void ConfirmNewPatient()
+    {
+        FormatDob();
+        if (!TryBuildNewPatient(out _, out var error))
+        {
+            PatientErrorMessage = error;
+            return;
+        }
+
+        PatientErrorMessage = null;
+        SelectedPatientHit = null;
+        PatientConfirmed?.Invoke();
+    }
+
+    /// <summary>Bắt đầu phiếu mới: xoá bảng dịch vụ, người bệnh, thông tin chỉ định.</summary>
+    [RelayCommand]
+    private void NewOrder()
+    {
+        IsSaved = false;
+        SelectedServices.Clear();
+        GroupPreview.Clear();
+        IssuedSamples.Clear();
+        StartNewPatient();
+        OrderingDoctor = null;
+        OrderingDept = null;
+        Diagnosis = null;
+        ErrorMessage = null;
+    }
 
     [ObservableProperty]
     private string? _newPatientAddress;
@@ -168,9 +246,16 @@ public partial class ReceptionViewModel : ObservableObject
     [RelayCommand]
     private void PickPatient(PatientHit hit)
     {
+        if (IsSaved)
+        {
+            NewOrder();
+        }
+
         SelectedPatientHit = hit;
         PatientSearchResults.Clear();
         PatientSearchQuery = "";
+        PatientErrorMessage = null;
+        PatientConfirmed?.Invoke();
     }
 
     [RelayCommand]
@@ -179,7 +264,6 @@ public partial class ReceptionViewModel : ObservableObject
         SelectedPatientHit = null;
         NewPatientFullName = "";
         NewPatientDobText = "";
-        NewPatientBirthYearText = "";
         NewPatientSex = SexOption.Male;
         NewPatientAddress = null;
         NewPatientPhone = null;
@@ -254,6 +338,11 @@ public partial class ReceptionViewModel : ObservableObject
     /// </summary>
     private bool TryAddService(ServiceInfo service)
     {
+        if (IsSaved)
+        {
+            NewOrder(); // phiếu trước đã lưu — gõ dịch vụ mới là bắt đầu phiếu khác
+        }
+
         var wouldBeSelection = SelectedServices.Select(s => s.ServiceId).Append(service.Id);
 
         try
@@ -266,13 +355,26 @@ public partial class ReceptionViewModel : ObservableObject
             return false;
         }
 
-        SelectedServices.Add(new SelectedServiceViewModel(service, RemoveSelectedService));
+        SelectedServices.Add(new SelectedServiceViewModel(service, SpecimenNamesOf(service), RemoveSelectedService));
         RefreshGroupPreview();
         return true;
     }
 
+    private IEnumerable<Guid> SpecimenIdsOf(ServiceInfo service) =>
+        (service.IsPanel
+            ? service.ChildIds.Select(id => _servicesById.GetValueOrDefault(id)?.SpecimenTypeId).OfType<Guid>()
+            : [service.SpecimenTypeId]).Distinct();
+
+    private string SpecimenNamesOf(ServiceInfo service) =>
+        string.Join(", ", SpecimenIdsOf(service).Select(id => _specimenNameById.GetValueOrDefault(id, "?")));
+
     private void RemoveSelectedService(SelectedServiceViewModel item)
     {
+        if (IsSaved)
+        {
+            return;
+        }
+
         SelectedServices.Remove(item);
         RefreshGroupPreview();
     }
@@ -320,6 +422,11 @@ public partial class ReceptionViewModel : ObservableObject
     private async Task SaveAsync()
     {
         ErrorMessage = null;
+        if (IsSaved)
+        {
+            ErrorMessage = "Phiếu này đã lưu — bấm \"Phiếu mới\" để tiếp nhận người khác";
+            return;
+        }
 
         Guid? patientId = SelectedPatientHit?.Id;
         NewPatient? newPatient = null;
@@ -328,7 +435,7 @@ public partial class ReceptionViewModel : ObservableObject
         {
             if (!TryBuildNewPatient(out newPatient, out var buildError))
             {
-                ErrorMessage = buildError;
+                ErrorMessage = string.IsNullOrWhiteSpace(NewPatientFullName) ? "Chưa có người bệnh — bấm \"Người bệnh\" (F2) để tìm hoặc nhập mới" : buildError;
                 return;
             }
         }
@@ -369,9 +476,16 @@ public partial class ReceptionViewModel : ObservableObject
 
             var labels = BuildLabels(SelectedPatientHit, newPatient, created.Samples);
 
-            SelectedServices.Clear();
-            GroupPreview.Clear();
-            StartNewPatient();
+            // Ghi barcode vào từng dòng: mẫu cùng loại mẫu với dịch vụ (gói nhiều loại mẫu → nhiều barcode).
+            foreach (var row in SelectedServices)
+            {
+                var specimenNames = SpecimenIdsOf(row.Service).Select(id => _specimenNameById.GetValueOrDefault(id, "?")).ToHashSet();
+                var barcodes = created.Samples.Where(x => specimenNames.Contains(x.SpecimenName)).Select(x => x.Barcode).Distinct().ToList();
+                row.Barcode = barcodes.Count == 0 ? "?" : string.Join(", ", barcodes);
+                row.CanRemove = false;
+            }
+
+            IsSaved = true;
 
             try
             {
@@ -413,34 +527,13 @@ public partial class ReceptionViewModel : ObservableObject
             return false;
         }
 
-        DateOnly? dob = null;
-        int? birthYear = null;
-
-        if (!string.IsNullOrWhiteSpace(NewPatientDobText))
+        if (!BirthDateInput.TryParse(NewPatientDobText, Today, out var born, out error))
         {
-            if (!DateOnly.TryParseExact(NewPatientDobText.Trim(), "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDob))
-            {
-                error = "Ngày sinh phải theo dạng dd/MM/yyyy";
-                return false;
-            }
-
-            dob = parsedDob;
-        }
-        else if (!string.IsNullOrWhiteSpace(NewPatientBirthYearText))
-        {
-            if (!int.TryParse(NewPatientBirthYearText.Trim(), out var parsedYear))
-            {
-                error = "Năm sinh không hợp lệ";
-                return false;
-            }
-
-            birthYear = parsedYear;
-        }
-        else
-        {
-            error = "Phải nhập ngày sinh hoặc ít nhất năm sinh";
             return false;
         }
+
+        var dob = born!.Dob;
+        var birthYear = born.BirthYear;
 
         patient = new NewPatient(
             NewPatientFullName.Trim(),

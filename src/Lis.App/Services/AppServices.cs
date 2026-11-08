@@ -1,4 +1,5 @@
 using Dapper;
+using Lis.App.Services.Connections;
 using Lis.Data;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
@@ -47,7 +48,13 @@ public sealed class AppServices
         FilePicker = new AvaloniaFilePicker();
         SerialPorts = new SerialPortService();
         RawLogs = new RawLogStore(RawLogStore.DefaultRoot);
+        Connections = new InstrumentConnectionManager(
+            Instruments, WorkstationCode, RawLogs, new IngestReadingSink(new IngestService(Db, TimeProvider.System)),
+            new OrderQueryService(Db), InstrumentConnectionManager.DefaultPendingRoot, TimeProvider.System);
     }
+
+    /// <summary>Kết nối các máy xét nghiệm gán cho máy trạm này — mở sau khi đăng nhập, chạy nền cả khi cửa sổ thu xuống khay.</summary>
+    public InstrumentConnectionManager Connections { get; }
 
     /// <summary>Liệt kê / nghe thử cổng COM trên máy trạm (màn dò cổng).</summary>
     public ISerialPortService SerialPorts { get; }
@@ -92,6 +99,12 @@ public sealed class AppServices
     public IFilePicker FilePicker { get; }
 
     /// <summary>
+    /// Mã máy trạm dùng thật: theo cấu hình, để trống thì lấy tên máy tính — để máy xét nghiệm
+    /// luôn gán được cho đúng máy tính cắm cáp (mã rỗng thì không máy nào chạy kết nối).
+    /// </summary>
+    public string WorkstationCode => string.IsNullOrWhiteSpace(Config.WorkstationCode) ? Environment.MachineName : Config.WorkstationCode.Trim();
+
+    /// <summary>
     /// Cập nhật máy trạm (<c>workstation.last_seen_at</c>) ngay sau khi đăng nhập thành công.
     /// Tạo dòng mới nếu máy trạm chưa có trong CSDL.
     /// </summary>
@@ -104,6 +117,6 @@ public sealed class AppServices
             VALUES (@code, @code, now())
             ON CONFLICT (code) DO UPDATE SET last_seen_at = now()
             """,
-            new { code = Config.WorkstationCode });
+            new { code = WorkstationCode });
     }
 }

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lis.App.Services;
+using Lis.App.Services.Connections;
 using Lis.Core.Auth;
 using Lis.Core.Instruments;
 using Lis.Data.Auth;
@@ -28,12 +29,90 @@ public partial class InstrumentsViewModel : ObservableObject
     private readonly CurrentUser _currentUser;
 
     private readonly IRawLogStore? _rawLogs;
+    private readonly IInstrumentConnections? _connections;
+    private readonly string? _workstationCode;
+    private readonly Action<Action> _post;
+
+    /// <summary>Trạng thái kết nối của máy đang chọn, vd "Đã kết nối · COM3 · 9600 8N1 · 12 mẫu, lần cuối 10:32".</summary>
+    [ObservableProperty]
+    private string? _connectionStatusText;
+
+    /// <summary>Đang nối thông (xanh) / lỗi (đỏ) / không chạy (xám) — để tô màu chấm trạng thái.</summary>
+    [ObservableProperty]
+    private LinkState _connectionState = LinkState.NotRunning;
+
+    public bool IsLinkConnected => ConnectionState == LinkState.Connected;
+
+    public bool IsLinkError => ConnectionState == LinkState.Error;
+
+    partial void OnConnectionStateChanged(LinkState value)
+    {
+        OnPropertyChanged(nameof(IsLinkConnected));
+        OnPropertyChanged(nameof(IsLinkError));
+    }
+
+    private void ShowStatus(InstrumentConnectionStatus status)
+    {
+        ConnectionState = status.State;
+        var extra = new List<string>();
+        if (status.SamplesReceived > 0)
+        {
+            extra.Add($"{status.SamplesReceived} mẫu từ khi mở" + (status.LastResultAt is { } last ? $", lần cuối {last.ToLocalTime():HH:mm:ss}" : ""));
+        }
+
+        if (status.PendingToRetry > 0)
+        {
+            extra.Add($"{status.PendingToRetry} kết quả đang chờ ghi lại vào CSDL");
+        }
+
+        ConnectionStatusText = extra.Count == 0 ? status.Text : $"{status.Text} · {string.Join(" · ", extra)}";
+    }
+
+    private void RefreshStatus()
+    {
+        if (_connections is null || EditId == Guid.Empty)
+        {
+            ConnectionStatusText = null;
+            ConnectionState = LinkState.NotRunning;
+            return;
+        }
+
+        ShowStatus(_connections.StatusOf(EditId));
+    }
+
+    /// <summary>Đóng rồi mở lại kết nối của máy đang chọn.</summary>
+    [RelayCommand]
+    private async Task RestartConnectionAsync()
+    {
+        if (_connections is null || EditId == Guid.Empty)
+        {
+            return;
+        }
+
+        await _connections.RestartAsync(EditId);
+        RefreshStatus();
+    }
 
     public InstrumentsViewModel(
         IInstrumentStore store, IServiceLookup services, CurrentUser currentUser,
-        ISerialPortService? serialPorts = null, IRawLogStore? rawLogs = null, Action<Action>? post = null)
+        ISerialPortService? serialPorts = null, IRawLogStore? rawLogs = null, Action<Action>? post = null,
+        IInstrumentConnections? connections = null, string? workstationCode = null)
     {
         _store = store;
+        _connections = connections;
+        _workstationCode = workstationCode;
+        _post = post ?? (action => action());
+        if (connections is not null)
+        {
+            connections.StatusChanged += status => _post(() =>
+            {
+                if (status.InstrumentId == EditId)
+                {
+                    ShowStatus(status);
+                }
+            });
+        }
+
         _currentUser = currentUser;
         _rawLogs = rawLogs;
         ChannelEditor = new ChannelMapEditorViewModel(store, services);
@@ -134,6 +213,7 @@ public partial class InstrumentsViewModel : ObservableObject
         }
 
         LoadIntoEditFields(value);
+        ChannelEditor.InstrumentName = value.Name;
         _ = ChannelEditor.LoadAsync(value.Id);
     }
 
@@ -165,6 +245,13 @@ public partial class InstrumentsViewModel : ObservableObject
             return;
         }
 
+        // Máy cắm vào máy tính nào thì máy trạm đó nhận kết quả: lưu kết nối trên máy trạm này
+        // mà chưa gán máy trạm → gán luôn (cổng COM chỉ có nghĩa trên đúng máy tính cắm cáp).
+        if (connection.Kind != ConnectionKind.None && string.IsNullOrWhiteSpace(EditWorkstationCode) && !string.IsNullOrWhiteSpace(_workstationCode))
+        {
+            EditWorkstationCode = _workstationCode;
+        }
+
         var portConflict = PortConflict(connection);
         try
         {
@@ -174,6 +261,11 @@ public partial class InstrumentsViewModel : ObservableObject
             await LoadAsync();
             SelectedInstrument = Instruments.FirstOrDefault(i => i.Id == savedId);
             SuccessMessage = portConflict is null ? "Đã lưu máy" : $"Đã lưu máy. Lưu ý: {portConflict}";
+            if (_connections is not null)
+            {
+                await _connections.ReloadAsync();
+                RefreshStatus();
+            }
         }
         catch (Exception ex)
         {
@@ -196,6 +288,7 @@ public partial class InstrumentsViewModel : ObservableObject
         Connection.Load(instrument.ConnectionJson);
         EditWorkstationCode = instrument.WorkstationCode;
         EditActive = instrument.Active;
+        RefreshStatus();
     }
 
     private void ClearEditFields()
@@ -208,6 +301,7 @@ public partial class InstrumentsViewModel : ObservableObject
         Connection.Load(null);
         EditWorkstationCode = null;
         EditActive = true;
+        RefreshStatus();
     }
     [RelayCommand]
     private void OpenRawLog()

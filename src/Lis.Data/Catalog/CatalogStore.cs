@@ -31,6 +31,9 @@ public interface IServiceLookup
 {
     /// <summary>Tìm dịch vụ theo mã, không phân biệt hoa thường; null khi không có.</summary>
     Task<ServiceInfo?> FindByCodeAsync(string code);
+
+    /// <summary>Tìm chỉ số lá (không phải dịch vụ cha) theo mã hoặc tên, tối đa <paramref name="limit"/> dòng — ô tìm ở bảng map kênh.</summary>
+    Task<IReadOnlyList<ServiceInfo>> SearchLeavesAsync(string text, int limit = 30) => Task.FromResult<IReadOnlyList<ServiceInfo>>([]);
 }
 
 /// <summary>
@@ -40,6 +43,24 @@ public interface IServiceLookup
 /// </summary>
 public sealed class CatalogStore(Db db) : IServiceLookup
 {
+    public async Task<IReadOnlyList<ServiceInfo>> SearchLeavesAsync(string text, int limit = 30)
+    {
+        var query = text.Trim();
+        if (query.Length == 0)
+        {
+            return [];
+        }
+
+        var services = await ListServicesAsync(activeOnly: true);
+        return services
+            .Where(s => !s.IsPanel
+                && (s.Code.Contains(query, StringComparison.OrdinalIgnoreCase) || s.Name.Contains(query, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(s => s.Code.StartsWith(query, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(s => s.PrintOrder)
+            .Take(limit)
+            .ToList();
+    }
+
     private const string ServiceColumns = """
         id, code, name, group_name, specimen_type_id, unit, value_type, decimals,
         print_order, is_panel, auto_approve, active, his_code

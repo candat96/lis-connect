@@ -23,6 +23,8 @@ public sealed partial class ChannelRowViewModel(ChannelMapItem item, Action<Chan
 
     public string ServiceText => $"{Item.ServiceCode} – {Item.ServiceName}";
 
+    public string ServiceName => Item.ServiceName;
+
     public string DecimalsText => Item.Map.Decimals?.ToString(CultureInfo.InvariantCulture) ?? Dash;
 
     public string FactorText => Item.Map.Factor?.ToString(CultureInfo.InvariantCulture) ?? Dash;
@@ -51,6 +53,139 @@ public partial class ChannelMapEditorViewModel(IInstrumentStore store, IServiceL
     private Guid _editingId = Guid.Empty;
 
     public ObservableCollection<ChannelRowViewModel> Channels { get; } = [];
+
+    /// <summary>Các dòng đang hiện trong bảng (lọc theo <see cref="FilterText"/>: mã kênh, mã hoặc tên chỉ số).</summary>
+    public ObservableCollection<ChannelRowViewModel> VisibleChannels { get; } = [];
+
+    /// <summary>Kết quả ô tìm chỉ số (theo mã hoặc tên) — bấm một dòng để điền mã chỉ số.</summary>
+    public ObservableCollection<ServiceInfo> ServiceResults { get; } = [];
+
+    /// <summary>Kênh máy đã gửi nhưng chưa map — bấm một dòng để điền mã kênh.</summary>
+    public ObservableCollection<UnmappedChannel> Unmapped { get; } = [];
+
+    /// <summary>Tên máy đang map (tiêu đề cửa sổ map kênh).</summary>
+    [ObservableProperty]
+    private string _instrumentName = "";
+
+    [ObservableProperty]
+    private string _filterText = "";
+
+    [ObservableProperty]
+    private string _serviceSearchText = "";
+
+    /// <summary>Tên chỉ số ứng với mã đang nhập ở form (để chắc là đúng chỉ số).</summary>
+    [ObservableProperty]
+    private string? _newServiceName;
+
+    public string CountText => Channels.Count == 0 ? "Chưa map kênh nào" : $"{Channels.Count} kênh đã map";
+
+    public bool HasUnmapped => Unmapped.Count > 0;
+
+    public bool HasServiceResults => ServiceResults.Count > 0;
+
+    partial void OnFilterTextChanged(string value) => ApplyFilter();
+
+    partial void OnServiceSearchTextChanged(string value) => _ = SearchServicesAsync(value);
+
+    partial void OnNewServiceCodeChanged(string value) => _ = ResolveServiceNameAsync(value);
+
+    private void ApplyFilter()
+    {
+        var text = FilterText.Trim();
+        VisibleChannels.Clear();
+        foreach (var row in Channels.Where(r => text.Length == 0
+            || r.ChannelCode.Contains(text, StringComparison.OrdinalIgnoreCase)
+            || r.ServiceText.Contains(text, StringComparison.OrdinalIgnoreCase)))
+        {
+            VisibleChannels.Add(row);
+        }
+
+        OnPropertyChanged(nameof(CountText));
+    }
+
+    private async Task SearchServicesAsync(string text)
+    {
+        try
+        {
+            var found = text.Trim().Length == 0 ? [] : await services.SearchLeavesAsync(text);
+            if (text != ServiceSearchText)
+            {
+                return; // người dùng đã gõ tiếp — bỏ kết quả cũ
+            }
+
+            ServiceResults.Clear();
+            foreach (var service in found)
+            {
+                ServiceResults.Add(service);
+            }
+        }
+        catch (Exception)
+        {
+            ServiceResults.Clear();
+        }
+
+        OnPropertyChanged(nameof(HasServiceResults));
+    }
+
+    private async Task ResolveServiceNameAsync(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            NewServiceName = null;
+            return;
+        }
+
+        try
+        {
+            var service = await services.FindByCodeAsync(code.Trim());
+            if (code == NewServiceCode)
+            {
+                NewServiceName = service is null ? "Không có chỉ số mã này" : service.IsPanel ? $"{service.Name} — là dịch vụ cha, phải chọn chỉ số con" : service.Name;
+            }
+        }
+        catch (Exception)
+        {
+            NewServiceName = null;
+        }
+    }
+
+    [RelayCommand]
+    private void PickService(ServiceInfo service)
+    {
+        NewServiceCode = service.Code;
+        ServiceSearchText = "";
+        ServiceResults.Clear();
+        OnPropertyChanged(nameof(HasServiceResults));
+    }
+
+    [RelayCommand]
+    private void UseUnmapped(UnmappedChannel channel)
+    {
+        if (IsEditing)
+        {
+            ClearNewRow();
+        }
+
+        NewChannelCode = channel.ChannelCode;
+    }
+
+    private async Task LoadUnmappedAsync()
+    {
+        Unmapped.Clear();
+        try
+        {
+            foreach (var channel in await store.UnmappedChannelsAsync(_instrumentId))
+            {
+                Unmapped.Add(channel);
+            }
+        }
+        catch (Exception)
+        {
+            // Không quan trọng bằng bảng map — lỗi thì để trống.
+        }
+
+        OnPropertyChanged(nameof(HasUnmapped));
+    }
 
     [ObservableProperty]
     private string _newChannelCode = "";
@@ -94,6 +229,10 @@ public partial class ChannelMapEditorViewModel(IInstrumentStore store, IServiceL
         IsEnabled = instrumentId != Guid.Empty;
         ErrorMessage = null;
         Channels.Clear();
+        VisibleChannels.Clear();
+        Unmapped.Clear();
+        OnPropertyChanged(nameof(HasUnmapped));
+        OnPropertyChanged(nameof(CountText));
         ClearNewRow();
 
         if (!IsEnabled)
@@ -107,6 +246,9 @@ public partial class ChannelMapEditorViewModel(IInstrumentStore store, IServiceL
             {
                 Channels.Add(CreateRow(item));
             }
+
+            ApplyFilter();
+            await LoadUnmappedAsync();
         }
         catch (Exception ex)
         {
@@ -120,6 +262,10 @@ public partial class ChannelMapEditorViewModel(IInstrumentStore store, IServiceL
         IsEnabled = false;
         ErrorMessage = null;
         Channels.Clear();
+        VisibleChannels.Clear();
+        Unmapped.Clear();
+        OnPropertyChanged(nameof(HasUnmapped));
+        OnPropertyChanged(nameof(CountText));
         ClearNewRow();
     }
 
@@ -220,6 +366,7 @@ public partial class ChannelMapEditorViewModel(IInstrumentStore store, IServiceL
             ErrorMessage = null;
             await store.DeleteChannelAsync(row.Id);
             Channels.Remove(row);
+            ApplyFilter();
             if (_editingId == row.Id)
             {
                 ClearNewRow();
@@ -242,6 +389,6 @@ public partial class ChannelMapEditorViewModel(IInstrumentStore store, IServiceL
         NewDecimalsText = "";
         NewFactorText = "";
         NewKeepComparator = false;
-        NewSendOnQuery = false;
+        NewSendOnQuery = true; // mặc định: máy hỏi chỉ định thì gửi kênh này
     }
 }

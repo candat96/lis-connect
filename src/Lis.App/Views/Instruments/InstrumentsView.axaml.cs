@@ -1,30 +1,33 @@
 using Avalonia.Controls;
-using Avalonia.Input;
+using Avalonia.Interactivity;
 using Lis.App.ViewModels.Instruments;
 
 namespace Lis.App.Views.Instruments;
 
-/// <summary>
-/// Màn "Máy &amp; map". Enter trên ô mã chỉ số của dòng map kênh mới thêm luôn dòng đó
-/// (nguyên tắc "tối ưu bàn phím": nhập mã + Enter) — riêng cho ô này, khác với
-/// <see cref="Lis.App.Services.KeyboardFormBehavior"/> (chỉ chuyển ô, gắn ở <c>MainWindow</c>).
-/// </summary>
+/// <summary>Màn "Máy &amp; map". Nút "Mở bảng map kênh" mở <see cref="ChannelMapWindow"/> cho máy đang chọn.</summary>
 public partial class InstrumentsView : UserControl
 {
     public InstrumentsView()
     {
         InitializeComponent();
-        NewServiceCodeBox.KeyDown += OnNewServiceCodeKeyDown;
+        OpenChannelMapButton.Click += OnOpenChannelMapClick;
     }
 
-    private void OnNewServiceCodeKeyDown(object? sender, KeyEventArgs e)
+    private async void OnOpenChannelMapClick(object? sender, RoutedEventArgs e)
     {
-        if (e.Key != Key.Enter || NewServiceCodeBox.DataContext is not ChannelMapEditorViewModel channelEditor)
+        if (DataContext is not InstrumentsViewModel viewModel || !viewModel.ChannelEditor.HasInstrument)
         {
             return;
         }
 
-        channelEditor.AddChannelCommand.Execute(null);
-        e.Handled = true;
+        var window = new ChannelMapWindow { DataContext = viewModel.ChannelEditor };
+        if (TopLevel.GetTopLevel(this) is Window owner)
+        {
+            await window.ShowDialog(owner);
+        }
+        else
+        {
+            window.Show();
+        }
     }
 }

@@ -1,4 +1,5 @@
 using ClosedXML.Excel;
+using Dapper;
 using Lis.Core;
 using Lis.Core.Results;
 using Lis.Data.Instruments;
@@ -25,6 +26,9 @@ public interface ICatalogExcelImporter
 
 /// <summary>
 /// Nhập danh mục dịch vụ, chỉ số con, khoảng tham chiếu và ánh xạ máy từ workbook Excel.
+/// Nhập lại được nhiều lần: dịch vụ khớp theo mã, máy theo tên, map kênh theo (máy, mã kênh) —
+/// đã có thì cập nhật, chưa có thì thêm; danh sách chỉ số con của một dịch vụ cha trong tệp thay
+/// cho danh sách cũ.
 /// Toàn bộ nhập trong một giao dịch: lỗi nào thì rollback hết — mọi câu ghi phải đi qua kết nối
 /// và giao dịch của <see cref="Db.InTransactionAsync{T}"/> (các bản <c>...InTransactionAsync</c>
 /// tĩnh trên <see cref="CatalogStore"/>/<see cref="InstrumentStore"/>), không gọi các phương
@@ -141,6 +145,13 @@ public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
         if (!workbook.Worksheets.TryGetWorksheet("DichVu", out var sheet))
             return serviceMap;
 
+        // Dịch vụ đã có trong CSDL (theo mã) → cập nhật thay vì thêm, để nhập lại tệp không vấp
+        // ràng buộc mã duy nhất. Chạy thử (dryRun) không có kết nối nên coi như chưa có gì.
+        var existing = connection is null
+            ? new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase)
+            : (await connection.QueryAsync<(string Code, Guid Id)>("SELECT code, id FROM service", transaction: transaction))
+                .ToDictionary(r => r.Code, r => r.Id, StringComparer.OrdinalIgnoreCase);
+
         var rowNum = 1;
         foreach (var row in sheet.Rows().Skip(1))
         {
@@ -165,6 +176,9 @@ public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
                 if (string.IsNullOrEmpty(name))
                     throw new InvalidOperationException("thiếu Tên");
 
+                if (serviceMap.ContainsKey(code))
+                    throw new InvalidOperationException($"mã {code} lặp lại trong tệp");
+
                 if (string.IsNullOrEmpty(specimenTypeIdStr))
                     throw new InvalidOperationException("LoaiMau không hợp lệ");
 
@@ -180,8 +194,9 @@ public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
                 var isPanel = string.IsNullOrEmpty(isPanelStr) ? false : bool.Parse(isPanelStr);
                 var autoApprove = string.IsNullOrEmpty(autoApproveStr) ? false : bool.Parse(autoApproveStr);
 
+                var existingId = existing.GetValueOrDefault(code);
                 var service = new ServiceInfo(
-                    Guid.Empty,
+                    existingId,
                     code,
                     name,
                     groupName,
@@ -207,7 +222,15 @@ public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
                     // Dry run: generate a temporary ID for validation
                     serviceMap[code] = Guid.NewGuid();
                 }
-                _created++;
+
+                if (existingId == Guid.Empty)
+                {
+                    _created++;
+                }
+                else
+                {
+                    _updated++;
+                }
             }
             catch (Exception ex)
             {
@@ -231,6 +254,9 @@ public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
         if (!workbook.Worksheets.TryGetWorksheet("ChiSoCon", out var sheet))
             return;
 
+        // Gom toàn bộ chỉ số con của từng dịch vụ cha rồi mới ghi một lần — SetChildren thay cả
+        // danh sách, ghi từng dòng thì chỉ còn lại chỉ số con của dòng cuối.
+        var childrenByParent = new Dictionary<Guid, List<(Guid ChildId, int Order, int RowNum)>>();
         var rowNum = 1;
         foreach (var row in sheet.Rows().Skip(1))
         {
@@ -239,6 +265,10 @@ public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
             {
                 var parentCode = GetCellValue(row, 1)?.Trim();
                 var childCode = GetCellValue(row, 2)?.Trim();
+                var orderStr = GetCellValue(row, 3)?.Trim();
+
+                if (string.IsNullOrEmpty(parentCode) && string.IsNullOrEmpty(childCode))
+                    continue;
 
                 if (string.IsNullOrEmpty(parentCode) || !serviceMap.TryGetValue(parentCode, out var parentId))
                     throw new InvalidOperationException($"MaCha '{parentCode}' không tìm thấy");
@@ -246,11 +276,12 @@ public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
                 if (string.IsNullOrEmpty(childCode) || !serviceMap.TryGetValue(childCode, out var childId))
                     throw new InvalidOperationException($"MaCon '{childCode}' không tìm thấy");
 
-                if (!dryRun)
-                {
-                    await CatalogStore.SetChildrenInTransactionAsync(connection!, transaction!, parentId, [childId]);
-                }
-                _updated++;
+                var order = int.TryParse(orderStr, out var parsed) ? parsed : int.MaxValue;
+                var list = childrenByParent.TryGetValue(parentId, out var existingList) ? existingList : childrenByParent[parentId] = [];
+                if (list.Any(c => c.ChildId == childId))
+                    throw new InvalidOperationException($"MaCon '{childCode}' lặp lại trong dịch vụ {parentCode}");
+
+                list.Add((childId, order, rowNum));
             }
             catch (Exception ex)
             {
@@ -258,7 +289,26 @@ public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
             }
 
             if (_errors.Any())
-                break;
+                return;
+        }
+
+        foreach (var (parentId, children) in childrenByParent)
+        {
+            var ordered = children.OrderBy(c => c.Order).ThenBy(c => c.RowNum).Select(c => c.ChildId).ToList();
+            if (!dryRun)
+            {
+                try
+                {
+                    await CatalogStore.SetChildrenInTransactionAsync(connection!, transaction!, parentId, ordered);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    _errors.Add($"Sheet ChiSoCon: {ex.Message}");
+                    return;
+                }
+            }
+
+            _updated++;
         }
     }
 
@@ -364,7 +414,18 @@ public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
             return;
 
         var rowNum = 1;
-        var instrumentMap = new Dictionary<string, Guid>();
+
+        // Máy đã có (theo tên) và kênh đã có (theo máy + mã kênh) → cập nhật, không sinh trùng.
+        var instrumentMap = connection is null
+            ? new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase)
+            : (await connection.QueryAsync<(string Name, Guid Id)>("SELECT name, id FROM instrument ORDER BY created_at", transaction: transaction))
+                .GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.OrdinalIgnoreCase);
+        var channelIds = connection is null
+            ? new Dictionary<(Guid, string), Guid>()
+            : (await connection.QueryAsync<(Guid InstrumentId, string ChannelCode, Guid Id)>(
+                    "SELECT instrument_id, channel_code, id FROM instrument_channel", transaction: transaction))
+                .ToDictionary(r => (r.InstrumentId, r.ChannelCode), r => r.Id);
 
         foreach (var row in sheet.Rows().Skip(1))
         {
@@ -408,7 +469,8 @@ public sealed class CatalogExcelImporter(Db db) : ICatalogExcelImporter
                 bool keepComparator = string.IsNullOrEmpty(keepComparatorStr) ? false : bool.Parse(keepComparatorStr);
                 bool sendOnQuery = string.IsNullOrEmpty(sendOnQueryStr) ? false : bool.Parse(sendOnQueryStr);
 
-                var channel = new ChannelMap(Guid.Empty, instrumentId, channelCode, serviceId, decimals, factor, keepComparator, sendOnQuery);
+                var channel = new ChannelMap(
+                    channelIds.GetValueOrDefault((instrumentId, channelCode)), instrumentId, channelCode, serviceId, decimals, factor, keepComparator, sendOnQuery);
                 if (!dryRun)
                 {
                     await InstrumentStore.SaveChannelInTransactionAsync(connection!, transaction!, channel);

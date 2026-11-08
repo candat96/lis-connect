@@ -45,7 +45,8 @@ public partial class MainViewModel : ObservableObject
         ISetupService setupService, LocalConfigStore configStore, LocalConfig localConfig,
         HisProfileStore hisProfileStore, HisConnectionTester hisConnectionTester,
         ICatalogExcelImporter catalogExcelImporter, IFilePicker filePicker,
-        ISerialPortService? serialPorts = null, IRawLogStore? rawLogs = null)
+        ISerialPortService? serialPorts = null, IRawLogStore? rawLogs = null,
+        Lis.App.Services.Connections.IInstrumentConnections? connections = null, string? workstationCode = null)
     {
         CurrentUser = currentUser;
         NavItems = BuildNavItems(currentUser);
@@ -55,7 +56,8 @@ public partial class MainViewModel : ObservableObject
         Results = new ResultsViewModel(results, currentUser, reportPrinter);
         Unmatched = new UnmatchedViewModel(unmatched, currentUser);
         rawLogs ??= new RawLogStore(RawLogStore.DefaultRoot);
-        Instruments = new InstrumentsViewModel(instruments, catalogStore, currentUser, serialPorts, rawLogs, action => Dispatcher.UIThread.Post(action));
+        Instruments = new InstrumentsViewModel(
+            instruments, catalogStore, currentUser, serialPorts, rawLogs, action => Dispatcher.UIThread.Post(action), connections, workstationCode);
         RawLog = new RawLogViewModel(instruments, rawLogs);
         Instruments.OpenRawLogRequested += (_, instrumentId) =>
         {
@@ -88,6 +90,46 @@ public partial class MainViewModel : ObservableObject
 
         // Đặt sau khi các ViewModel con đã có — OnSelectedItemChanged có thể tải màn đầu tiên ngay.
         SelectedItem = NavItems.FirstOrDefault();
+
+        // Tự tải lại ngầm màn đang mở (kết quả máy gửi về — có thể từ máy trạm khác — hiện ra
+        // không cần bấm). Chỉ chạy khi có Avalonia (không tạo hẹn giờ trong kiểm thử ViewModel).
+        if (Avalonia.Application.Current is not null)
+        {
+            var timer = new DispatcherTimer { Interval = AutoRefreshInterval };
+            timer.Tick += async (_, _) => await AutoRefreshAsync();
+            timer.Start();
+        }
+    }
+
+    /// <summary>Chu kỳ tự tải lại màn Kết quả / Chưa gắn mẫu.</summary>
+    public static readonly TimeSpan AutoRefreshInterval = TimeSpan.FromSeconds(5);
+
+    private bool _autoRefreshing;
+
+    /// <summary>Tải lại ngầm màn đang mở (Kết quả, Chưa gắn mẫu); bỏ qua nếu lần trước chưa xong.</summary>
+    public async Task AutoRefreshAsync()
+    {
+        if (_autoRefreshing)
+        {
+            return;
+        }
+
+        _autoRefreshing = true;
+        try
+        {
+            if (IsResultsSelected && _resultsLoaded)
+            {
+                await Results.RefreshQuietlyAsync();
+            }
+            else if (IsUnmatchedSelected && _unmatchedLoaded)
+            {
+                await Unmatched.RefreshQuietlyAsync();
+            }
+        }
+        finally
+        {
+            _autoRefreshing = false;
+        }
     }
 
     /// <summary>Báo đã lưu cấu hình CSDL mới ở tab "Kết nối CSDL" — App cần đăng xuất và mở lại màn đăng nhập.</summary>
@@ -160,7 +202,10 @@ public partial class MainViewModel : ObservableObject
 
     public bool IsSettingsSelected => SelectedItem?.Label == "Cài đặt";
 
-    public bool IsUnmatchedSelected => SelectedItem?.Label == "Chưa ghép";
+    public bool IsUnmatchedSelected => SelectedItem?.Label == UnmatchedLabel;
+
+    /// <summary>Tên mục kết quả máy gửi mà LIS chưa gắn được vào mẫu/chỉ định (bảng unmatched_result).</summary>
+    public const string UnmatchedLabel = "Chưa gắn mẫu";
 
     public bool IsInstrumentsSelected => SelectedItem?.Label == "Máy & map";
 
@@ -229,7 +274,9 @@ public partial class MainViewModel : ObservableObject
         [
             new("Tiếp nhận", Permission.TiepNhan),
             new("Kết quả", Permission.XemKetQua),
-            new("Chưa ghép", Permission.GhepTay),
+            // Không có mục "Chưa gắn mẫu" riêng (theo yêu cầu phòng khám): kết quả máy không ghép
+            // được vẫn lưu ở unmatched_result để không mất, hiện trong Log thô của máy và mục
+            // "Kênh máy gửi chưa map" ở bảng map kênh.
             new("Danh mục", Permission.QuanTri),
             new("Máy & map", Permission.QuanTri),
             new("Log thô", Permission.XemLogTho),

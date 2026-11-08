@@ -1,45 +1,41 @@
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Lis.App.ViewModels.Reception;
-using Lis.Data.Orders;
 
 namespace Lis.App.Views.Reception;
 
 /// <summary>
-/// Màn Tiếp nhận. Enter trên ô tìm người bệnh gọi tìm kiếm; chọn một dòng kết quả chọn luôn
-/// người bệnh đó; Enter trên ô mã dịch vụ thêm dịch vụ (nguyên tắc "tối ưu bàn phím" — xem
-/// <see cref="Lis.App.Services.KeyboardFormBehavior"/> cho Enter chuyển ô thông thường ở các
-/// ô khác); F9 lưu chỉ định và cấp barcode.
+/// Màn Tiếp nhận. F2 / nút "Người bệnh" mở <see cref="PatientDialog"/>; Enter trên ô mã dịch vụ
+/// thêm dịch vụ; chọn một dòng gợi ý thêm dịch vụ đó; F9 lưu chỉ định, cấp barcode, in tem.
 /// </summary>
 public partial class ReceptionView : UserControl
 {
     public ReceptionView()
     {
         InitializeComponent();
-        PatientSearchBox.KeyDown += OnPatientSearchKeyDown;
-        PatientResultsList.SelectionChanged += OnPatientResultSelected;
+        PatientButton.Click += OnPatientClick;
         ServiceCodeBox.KeyDown += OnServiceCodeKeyDown;
         SuggestionsList.SelectionChanged += OnSuggestionSelected;
         KeyDown += OnViewKeyDown;
     }
 
-    private void OnPatientSearchKeyDown(object? sender, KeyEventArgs e)
+    private async void OnPatientClick(object? sender, RoutedEventArgs e) => await OpenPatientDialogAsync();
+
+    private async Task OpenPatientDialogAsync()
     {
-        if (e.Key != Key.Enter || DataContext is not ReceptionViewModel viewModel)
+        if (DataContext is not ReceptionViewModel viewModel || TopLevel.GetTopLevel(this) is not Window owner)
         {
             return;
         }
 
-        viewModel.SearchPatientsCommand.Execute(null);
-        e.Handled = true;
-    }
-
-    private void OnPatientResultSelected(object? sender, SelectionChangedEventArgs e)
-    {
-        if (DataContext is ReceptionViewModel viewModel && PatientResultsList.SelectedItem is PatientHit hit)
+        if (viewModel.IsSaved)
         {
-            viewModel.PickPatientCommand.Execute(hit);
+            viewModel.NewOrderCommand.Execute(null);
         }
+
+        await new PatientDialog { DataContext = viewModel }.ShowDialog(owner);
+        ServiceCodeBox.Focus();
     }
 
     private void OnServiceCodeKeyDown(object? sender, KeyEventArgs e)
@@ -61,18 +57,25 @@ public partial class ReceptionView : UserControl
         }
     }
 
-    private void OnViewKeyDown(object? sender, KeyEventArgs e)
+    private async void OnViewKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key != Key.F9 || DataContext is not ReceptionViewModel viewModel)
+        if (DataContext is not ReceptionViewModel viewModel)
         {
             return;
         }
 
-        if (viewModel.SaveCommand.CanExecute(null))
+        if (e.Key == Key.F2)
         {
-            viewModel.SaveCommand.Execute(null);
+            e.Handled = true;
+            await OpenPatientDialogAsync();
         }
-
-        e.Handled = true;
+        else if (e.Key == Key.F9)
+        {
+            e.Handled = true;
+            if (viewModel.SaveCommand.CanExecute(null))
+            {
+                viewModel.SaveCommand.Execute(null);
+            }
+        }
     }
 }

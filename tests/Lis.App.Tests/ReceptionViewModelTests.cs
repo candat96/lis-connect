@@ -156,8 +156,33 @@ public class ReceptionViewModelTests
             new LabelData("9261104002", "Nguyễn Văn Mẫu", 1980, 'M', "Huyết thanh", Today),
         ]);
         viewModel.IssuedSamples.Select(s => s.Barcode).ShouldBe(["9261104001", "9261104002"]);
+        viewModel.IsSaved.ShouldBeTrue();
+        viewModel.SelectedServices.ShouldHaveSingleItem().Barcode.ShouldBe("9261104001");
+
+        viewModel.NewOrderCommand.Execute(null);
         viewModel.SelectedServices.ShouldBeEmpty();
         viewModel.NewPatientFullName.ShouldBe("");
+        viewModel.IsSaved.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ConfirmNewPatient_InvalidDob_ShowsErrorInDialog()
+    {
+        var viewModel = CreateViewModel();
+        var closed = false;
+        viewModel.PatientConfirmed += () => closed = true;
+
+        viewModel.NewPatientFullName = "Nguyễn Văn Mẫu";
+        viewModel.NewPatientDobText = "31/02/1980";
+        viewModel.ConfirmNewPatientCommand.Execute(null);
+        viewModel.PatientErrorMessage.ShouldBe("Ngày 31/02/1980 không có thật");
+        closed.ShouldBeFalse();
+
+        viewModel.NewPatientDobText = "15061980";
+        viewModel.ConfirmNewPatientCommand.Execute(null);
+        viewModel.NewPatientDobText.ShouldBe("15/06/1980");
+        viewModel.PatientSummary.ShouldBe("Nguyễn Văn Mẫu · 15/06/1980 · 46 tuổi · Nam · người bệnh mới");
+        closed.ShouldBeTrue();
     }
 
     [Fact]
@@ -192,7 +217,7 @@ public class ReceptionViewModelTests
         var viewModel = CreateViewModel(orders, printer, glu);
 
         viewModel.NewPatientFullName = "Nguyễn Văn Mẫu";
-        viewModel.NewPatientBirthYearText = "1980";
+        viewModel.NewPatientDobText = "1980";
         viewModel.ServiceCodeInput = "GLU";
         viewModel.AddServiceByCodeCommand.Execute(null);
 
@@ -200,9 +225,8 @@ public class ReceptionViewModelTests
 
         viewModel.ErrorMessage.ShouldBe("Đã lưu chỉ định nhưng in tem lỗi: Không tìm thấy máy in \"XP\"");
         viewModel.IssuedSamples.Select(s => s.Barcode).ShouldBe(["9261104001"]);
-        viewModel.SelectedServices.ShouldBeEmpty();
-        viewModel.GroupPreview.ShouldBeEmpty();
-        viewModel.NewPatientFullName.ShouldBe("");
+        viewModel.SelectedServices.ShouldHaveSingleItem().Barcode.ShouldBe("9261104001");
+        viewModel.IsSaved.ShouldBeTrue();
         viewModel.IsBusy.ShouldBeFalse();
     }
 
@@ -214,7 +238,7 @@ public class ReceptionViewModelTests
         var viewModel = CreateViewModel(new FakeOrderService(), printer, glu);
 
         viewModel.NewPatientFullName = "Nguyễn Văn Mẫu";
-        viewModel.NewPatientBirthYearText = "1980";
+        viewModel.NewPatientDobText = "1980";
         viewModel.ServiceCodeInput = "GLU";
         viewModel.AddServiceByCodeCommand.Execute(null);
 

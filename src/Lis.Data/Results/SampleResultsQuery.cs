@@ -121,6 +121,7 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
             """
             SELECT oi.id AS order_item_id, oi.parent_item_id,
                    sv.id AS service_id, sv.code AS service_code, sv.name AS service_name, sv.is_panel, sv.decimals,
+                   sv.unit AS catalog_unit, r.instrument_id,
                    CASE WHEN oi.parent_item_id IS NULL THEN coalesce(sv.print_order, 0) ELSE coalesce(psv.print_order, 0) END AS top_print_order,
                    coalesce(psv.code, sv.code) AS top_code,
                    coalesce(sc.sort_order, 0) AS child_sort_order,
@@ -136,6 +137,37 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
             """,
             new { sampleId })).ToList();
 
+        string? approvedBy = sample.ApprovedAt is null ? null : sample.ApproverName ?? AutoApprovedBy;
+        var patient = new PatientFacts(sample.Sex[0], sample.Dob, sample.BirthYear);
+
+        // Chỉ số chưa có kết quả, hoặc kết quả ghi khi danh mục chưa có khoảng tham chiếu: lấy
+        // khoảng hiện tại trong danh mục (đúng giới, tuổi người bệnh) và đơn vị của chỉ số để hiển thị.
+        var missing = items.Where(i => !i.IsPanel && i.RefText is null && i.RefLow is null && i.RefHigh is null)
+            .Select(i => i.ServiceId).Distinct().ToArray();
+        if (missing.Length > 0)
+        {
+            var ranges = (await connection.QueryAsync<RangeRow>(
+                """
+                SELECT service_id, sex, age_from_days, age_to_days, instrument_id, low, high, critical_low, critical_high, text_range
+                FROM reference_range WHERE service_id = ANY(@missing)
+                """,
+                new { missing }))
+                .GroupBy(r => r.ServiceId)
+                .ToDictionary(g => g.Key, g => g.Select(r => r.ToRange()).ToList());
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            items = items.Select(i =>
+            {
+                if (i.IsPanel || i.RefText is not null || i.RefLow is not null || i.RefHigh is not null
+                    || !ranges.TryGetValue(i.ServiceId, out var candidates))
+                {
+                    return i;
+                }
+
+                var range = ReferenceRangeSelector.Select(candidates, patient, today, i.InstrumentId);
+                return range is null ? i : i with { RefLow = range.Low, RefHigh = range.High, RefText = range.TextRange };
+            }).ToList();
+        }
+
         var rows = items
             .OrderBy(i => i.TopPrintOrder)
             .ThenBy(i => i.TopCode, StringComparer.Ordinal)
@@ -144,9 +176,6 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
             .ThenBy(i => i.ServiceCode, StringComparer.Ordinal)
             .Select(i => i.ToRow())
             .ToList();
-
-        string? approvedBy = sample.ApprovedAt is null ? null : sample.ApproverName ?? AutoApprovedBy;
-        var patient = new PatientFacts(sample.Sex[0], sample.Dob, sample.BirthYear);
 
         return new SampleResults(
             sample.SampleId, sample.Barcode, sample.PatientName, sample.PatientCode, patient,
@@ -251,6 +280,26 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
         public int? BirthYear { get; init; }
     }
 
+    private static string? NullIfEmpty(string? text) => string.IsNullOrWhiteSpace(text) ? null : text;
+
+    private sealed record RangeRow
+    {
+        public Guid ServiceId { get; init; }
+        public string? Sex { get; init; }
+        public int? AgeFromDays { get; init; }
+        public int? AgeToDays { get; init; }
+        public Guid? InstrumentId { get; init; }
+        public decimal? Low { get; init; }
+        public decimal? High { get; init; }
+        public decimal? CriticalLow { get; init; }
+        public decimal? CriticalHigh { get; init; }
+        public string? TextRange { get; init; }
+
+        public ReferenceRange ToRange() => new(
+            Guid.Empty, ServiceId, string.IsNullOrEmpty(Sex) ? null : Sex[0], AgeFromDays, AgeToDays, InstrumentId,
+            Low, High, CriticalLow, CriticalHigh, TextRange);
+    }
+
     private sealed record ItemRow
     {
         public Guid OrderItemId { get; init; }
@@ -266,6 +315,8 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
         public Guid? ResultId { get; init; }
         public string? Value { get; init; }
         public string? Unit { get; init; }
+        public string? CatalogUnit { get; init; }
+        public Guid? InstrumentId { get; init; }
         public decimal? RefLow { get; init; }
         public decimal? RefHigh { get; init; }
         public string? RefText { get; init; }
@@ -283,7 +334,7 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
             IsPanelHeader: IsPanel,
             Depth: ParentItemId is null ? 0 : 1,
             Value: IsPanel ? null : Value,
-            Unit: IsPanel ? null : Unit,
+            Unit: IsPanel ? null : string.IsNullOrWhiteSpace(Unit) ? NullIfEmpty(CatalogUnit) : Unit,
             RefText: IsPanel ? null : FormatRefText(RefText, RefLow, RefHigh, Decimals),
             // result.flag lưu tên hằng của enum ResultFlag (vd "High"), không lưu số.
             Flag: Flag is null ? ResultFlag.None : Enum.Parse<ResultFlag>(Flag),

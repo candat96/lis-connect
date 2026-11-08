@@ -27,4 +27,8 @@
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lis.App.Tests" />
+  </ItemGroup>
+
 </Project>

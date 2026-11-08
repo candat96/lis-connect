@@ -23,6 +23,9 @@ public partial class App : Application
 {
     private MainWindow? _mainWindow;
 
+    /// <summary>Kết nối máy của phiên đăng nhập hiện tại — đóng khi thoát từ khay.</summary>
+    private Lis.App.Services.Connections.IInstrumentConnections? _activeConnections;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -170,6 +173,7 @@ public partial class App : Application
     private void ShowLogin(IClassicDesktopStyleApplicationLifetime desktop, LocalConfig config)
     {
         var services = new AppServices(config);
+        _ = SwitchConnectionsAsync(services.Connections);
         var viewModel = new LoginViewModel(services.Auth);
         var window = new LoginWindow { DataContext = viewModel };
 
@@ -205,8 +209,9 @@ public partial class App : Application
             new SetupService(), configStore, config,
             services.HisProfiles, services.HisConnectionTester,
             services.CatalogExcelImporter, services.FilePicker,
-            services.SerialPorts, services.RawLogs);
+            services.SerialPorts, services.RawLogs, services.Connections, services.WorkstationCode);
         var window = new MainWindow { DataContext = viewModel };
+
 
         // Lưu cấu hình CSDL mới ở tab "Kết nối CSDL" -> đăng xuất: mở màn đăng nhập với cấu
         // hình mới trước, rồi mới đóng MainWindow qua AllowClose (cùng lý do như ShowSetupWizard:
@@ -221,6 +226,44 @@ public partial class App : Application
         _mainWindow = window;
         desktop.MainWindow = window;
         window.Show();
+    }
+
+    /// <summary>
+    /// Mở kết nối máy xét nghiệm ngay từ màn đăng nhập — máy tính khởi động lại (mất điện…) mà
+    /// chưa ai đăng nhập thì kết quả máy gửi vẫn phải được nhận. Đổi cấu hình CSDL → đóng bộ cũ
+    /// trước khi mở bộ mới. Lỗi (CSDL chưa lên) không chặn giao diện; mở màn Máy &amp; map / lưu máy
+    /// sẽ nạp lại.
+    /// </summary>
+    private async Task SwitchConnectionsAsync(Lis.App.Services.Connections.IInstrumentConnections next)
+    {
+        var previous = _activeConnections;
+        _activeConnections = next;
+        try
+        {
+            if (previous is not null && !ReferenceEquals(previous, next))
+            {
+                await previous.StopAllAsync();
+            }
+
+        }
+        catch (Exception)
+        {
+            // Đóng bộ cũ lỗi: bỏ qua, vẫn mở bộ mới.
+        }
+
+        // CSDL chưa lên (máy chủ khởi động chậm hơn máy trạm…) → thử lại mỗi 30 giây.
+        while (ReferenceEquals(_activeConnections, next))
+        {
+            try
+            {
+                await next.ReloadAsync();
+                return;
+            }
+            catch (Exception)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30));
+            }
+        }
     }
 
     /// <summary>Menu khay — "Mở": hiện lại cửa sổ chính nếu đang ẩn.</summary>
@@ -239,6 +282,9 @@ public partial class App : Application
     /// <summary>Menu khay — "Thoát": thoát ứng dụng thật (khác với đóng cửa sổ, chỉ ẩn xuống khay).</summary>
     private void OnTrayExitClicked(object? sender, EventArgs e)
     {
+        // Đóng cổng COM/TCP gọn gàng trước khi thoát (tối đa vài giây).
+        _activeConnections?.StopAllAsync().Wait(TimeSpan.FromSeconds(3));
+
         if (_mainWindow is not null)
         {
             _mainWindow.AllowClose = true;

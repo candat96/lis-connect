@@ -44,7 +44,19 @@ public partial class CatalogViewModel : ObservableObject
 
     public ObservableCollection<ServiceListItemViewModel> Services { get; } = [];
 
-    public ObservableCollection<ServiceListItemViewModel> FilteredServices { get; } = [];
+    /// <summary>
+    /// Bảng dịch vụ dạng cây (đã lọc): mỗi dịch vụ có chỉ số con, theo sau là các chỉ số con của
+    /// nó (thụt vào), cuối cùng là dịch vụ lẻ — để thấy rõ chỉ số con nào thuộc dịch vụ nào.
+    /// </summary>
+    public ObservableCollection<ServiceRowViewModel> FilteredServices { get; } = [];
+
+    /// <summary>Dòng đang chọn trong bảng cây; đồng bộ hai chiều với <see cref="SelectedService"/>.</summary>
+    [ObservableProperty]
+    private ServiceRowViewModel? _selectedRow;
+
+    /// <summary>"Thuộc dịch vụ: …" khi đang sửa một chỉ số con; null với dịch vụ cha / dịch vụ lẻ.</summary>
+    [ObservableProperty]
+    private string? _parentsText;
 
     public ObservableCollection<SpecimenTypeItem> SpecimenTypes { get; } = [];
 
@@ -136,24 +148,140 @@ public partial class CatalogViewModel : ObservableObject
 
     partial void OnFilterTextChanged(string value) => ApplyFilter();
 
-    private void ApplyFilter()
-    {
-        FilteredServices.Clear();
-        var text = FilterText.Trim();
-        var matches = text.Length == 0
-            ? Services
-            : Services.Where(s =>
-                s.Code.Contains(text, StringComparison.OrdinalIgnoreCase) ||
-                s.Name.Contains(text, StringComparison.OrdinalIgnoreCase));
+    /// <summary>Id các dịch vụ cha đang thu gọn — giữ nguyên qua các lần tải lại/lọc.</summary>
+    private readonly HashSet<Guid> _collapsed = [];
 
-        foreach (var service in matches)
+    /// <summary>Đóng/mở một dịch vụ cha (nút ▾/▸ trên dòng).</summary>
+    public void ToggleExpanded(ServiceRowViewModel row)
+    {
+        if (!row.IsPanel)
         {
-            FilteredServices.Add(service);
+            return;
         }
+
+        if (!_collapsed.Remove(row.Item.Id))
+        {
+            _collapsed.Add(row.Item.Id);
+        }
+
+        ApplyFilter();
+        SelectedRow ??= FilteredServices.FirstOrDefault(r => r.IsPanel && r.Item.Id == row.Item.Id);
+    }
+
+    [RelayCommand]
+    private void ExpandAll()
+    {
+        _collapsed.Clear();
+        ApplyFilter();
+    }
+
+    [RelayCommand]
+    private void CollapseAll()
+    {
+        _collapsed.UnionWith(Services.Where(s => s.Service.IsPanel).Select(s => s.Id));
+        ApplyFilter();
+    }
+
+    /// <summary>Dựng lại bảng cây theo ô lọc (xem <see cref="BuildServiceRows"/>).</summary>
+    public void ApplyFilter()
+    {
+        var selected = SelectedService;
+        FilteredServices.Clear();
+        foreach (var row in BuildServiceRows(Services, FilterText, _collapsed, ToggleExpanded))
+        {
+            FilteredServices.Add(row);
+        }
+
+        SelectedRow = RowFor(selected);
+    }
+
+    /// <summary>
+    /// Dựng cây: dịch vụ cha theo thứ tự in, mỗi cái kèm chỉ số con theo thứ tự trong dịch vụ;
+    /// sau đó các dịch vụ lẻ. Lọc: dịch vụ cha khớp → hiện cả nhóm; chỉ số con khớp → hiện nó
+    /// kèm dịch vụ cha để vẫn thấy nó thuộc đâu. Dịch vụ cha nằm trong <paramref name="collapsed"/>
+    /// thì ẩn chỉ số con — trừ khi đang lọc (đang tìm thì hiện mọi dòng khớp, không giấu).
+    /// </summary>
+    public static IReadOnlyList<ServiceRowViewModel> BuildServiceRows(
+        IEnumerable<ServiceListItemViewModel> services,
+        string? filter,
+        IReadOnlySet<Guid>? collapsed = null,
+        Action<ServiceRowViewModel>? toggle = null)
+    {
+        var all = services.ToList();
+        var byId = all.ToDictionary(s => s.Id);
+        var text = filter?.Trim() ?? "";
+        bool Matches(ServiceListItemViewModel s) =>
+            text.Length == 0
+            || s.Code.Contains(text, StringComparison.OrdinalIgnoreCase)
+            || s.Name.Contains(text, StringComparison.OrdinalIgnoreCase);
+
+        var rows = new List<ServiceRowViewModel>();
+        var childIds = new HashSet<Guid>();
+        foreach (var panel in all.Where(s => s.Service.IsPanel).OrderBy(s => s.Service.PrintOrder).ThenBy(s => s.Code, StringComparer.OrdinalIgnoreCase))
+        {
+            var children = panel.Service.ChildIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+            childIds.UnionWith(children.Select(c => c.Id));
+
+            var panelMatches = Matches(panel);
+            var shownChildren = panelMatches ? children : children.Where(Matches).ToList();
+            if (!panelMatches && shownChildren.Count == 0)
+            {
+                continue;
+            }
+
+            var expanded = text.Length > 0 || collapsed is null || !collapsed.Contains(panel.Id);
+            rows.Add(new ServiceRowViewModel(panel, ServiceRowKind.Panel, childCount: children.Count, isExpanded: expanded, toggle: toggle).WithToggle());
+            if (!expanded)
+            {
+                continue;
+            }
+
+            for (var i = 0; i < shownChildren.Count; i++)
+            {
+                rows.Add(new ServiceRowViewModel(shownChildren[i], ServiceRowKind.Child, panel, isLastChild: i == shownChildren.Count - 1));
+            }
+        }
+
+        foreach (var single in all
+            .Where(s => !s.Service.IsPanel && !childIds.Contains(s.Id) && Matches(s))
+            .OrderBy(s => s.Service.PrintOrder).ThenBy(s => s.Code, StringComparer.OrdinalIgnoreCase))
+        {
+            rows.Add(new ServiceRowViewModel(single, ServiceRowKind.Single));
+        }
+
+        return rows;
+    }
+
+    partial void OnSelectedRowChanged(ServiceRowViewModel? value)
+    {
+        if (value is not null && !ReferenceEquals(value.Item, SelectedService))
+        {
+            SelectedService = value.Item;
+        }
+    }
+
+    private ServiceRowViewModel? RowFor(ServiceListItemViewModel? service) =>
+        service is null
+            ? null
+            : (SelectedRow is { } current && ReferenceEquals(current.Item, service) && FilteredServices.Contains(current)
+                ? current
+                : FilteredServices.FirstOrDefault(r => ReferenceEquals(r.Item, service)));
+
+    private string? BuildParentsText(ServiceListItemViewModel service)
+    {
+        var parents = Services.Where(p => p.Service.IsPanel && p.Service.ChildIds.Contains(service.Id)).Select(p => $"{p.Code} – {p.Name}").ToList();
+        return parents.Count == 0 ? null : $"Chỉ số con của: {string.Join("; ", parents)}";
     }
 
     partial void OnSelectedServiceChanged(ServiceListItemViewModel? value)
     {
+        if (!ReferenceEquals(SelectedRow?.Item, value))
+        {
+            SelectedRow = RowFor(value);
+        }
+
+        ParentsText = value is null ? null : BuildParentsText(value);
+
         if (value is null)
         {
             ClearEditFields();

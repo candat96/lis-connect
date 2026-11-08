@@ -271,7 +271,7 @@ public partial class SetupWizardViewModel : ObservableObject
             BarcodePrefix: "9",
             BarcodeDatePattern: "yyMMdd",
             BarcodeSeqDigits: 3,
-            BarcodeMode: "per-specimen"));
+            BarcodeMode: "single"));
 
         Finish(settings);
     }

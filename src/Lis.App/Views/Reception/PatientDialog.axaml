@@ -1,0 +1,80 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Lis.App.ViewModels.Reception"
+        xmlns:orders="using:Lis.Data.Orders"
+        x:Class="Lis.App.Views.Reception.PatientDialog"
+        x:DataType="vm:ReceptionViewModel"
+        Icon="avares://LisConnect/Assets/app-icon.ico"
+        Title="Người bệnh"
+        Width="560" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner">
+
+    <!-- Hộp nhỏ: tìm người bệnh cũ (Enter) — chọn dòng là xong; hoặc nhập người bệnh mới rồi "Xong". -->
+    <StackPanel Margin="18" Spacing="10">
+
+        <StackPanel Spacing="4">
+            <TextBlock Classes="label" Text="Tìm người bệnh cũ — mã, họ tên hoặc SĐT, Enter để tìm" />
+            <TextBox Name="SearchBox" Text="{Binding PatientSearchQuery}" PlaceholderText="Nhập mã / họ tên / SĐT…" />
+            <Border Classes="table" IsVisible="{Binding !!PatientSearchResults.Count}">
+                <Grid RowDefinitions="Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="120,*,90,110">
+                        <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã" /></Border>
+                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Họ tên" /></Border>
+                        <Border Grid.Column="2" Classes="th"><TextBlock Text="Năm sinh" /></Border>
+                        <Border Grid.Column="3" Classes="th last"><TextBlock Text="SĐT" /></Border>
+                    </Grid>
+                    <ListBox Grid.Row="1" Classes="table" Name="ResultsList" ItemsSource="{Binding PatientSearchResults}" MaxHeight="200">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="orders:PatientHit">
+                                <Grid ColumnDefinitions="120,*,90,110">
+                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Code}" FontWeight="SemiBold" /></Border>
+                                    <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding FullName}" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="2" Classes="td"><TextBlock Text="{Binding BirthYear}" Classes="muted" /></Border>
+                                    <Border Grid.Column="3" Classes="td last"><TextBlock Text="{Binding Phone}" Classes="muted" /></Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <Separator />
+        <TextBlock Classes="heading" FontSize="15" Text="Hoặc nhập người bệnh mới" />
+
+        <StackPanel Spacing="2">
+            <TextBlock Classes="label" Text="Họ tên" />
+            <TextBox Name="FullNameBox" Text="{Binding NewPatientFullName}" />
+        </StackPanel>
+
+        <Grid ColumnDefinitions="*,140" ColumnSpacing="10">
+            <StackPanel Grid.Column="0" Spacing="2">
+                <TextBlock Classes="label" Text="Ngày sinh — dd/MM/yyyy, hoặc chỉ năm yyyy" />
+                <TextBox Name="DobBox" Text="{Binding NewPatientDobText}" PlaceholderText="15/06/1980 hoặc 1980" />
+                <TextBlock Classes="muted" FontSize="12" Text="{Binding DobHint}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="2">
+                <TextBlock Classes="label" Text="Giới tính" />
+                <ComboBox ItemsSource="{Binding SexOptions}" SelectedItem="{Binding NewPatientSex}" HorizontalAlignment="Stretch" />
+            </StackPanel>
+        </Grid>
+
+        <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
+            <StackPanel Grid.Column="0" Spacing="2">
+                <TextBlock Classes="label" Text="Số điện thoại" />
+                <TextBox Text="{Binding NewPatientPhone}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="2">
+                <TextBlock Classes="label" Text="Địa chỉ" />
+                <TextBox Text="{Binding NewPatientAddress}" />
+            </StackPanel>
+        </Grid>
+
+        <TextBlock Classes="error" Text="{Binding PatientErrorMessage}" TextWrapping="Wrap" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="Đóng" Click="OnCloseClick" />
+            <Button Classes="primary" Content="Xong" Command="{Binding ConfirmNewPatientCommand}" Padding="18,6" />
+        </StackPanel>
+    </StackPanel>
+</Window>
