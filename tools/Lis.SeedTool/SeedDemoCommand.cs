@@ -115,7 +115,8 @@ internal static class SeedDemoCommand
 
         foreach (var (sample, _) in targeted)
         {
-            var items = BuildFakeReadingItems(sample, channelsByService, random, out var instrumentId);
+            var orderedServices = await LoadOrderedServicesAsync(db, sample.Barcode);
+            var (instrumentId, items) = BuildFakeReadingItems(orderedServices, channelsByService, random);
             if (items.Count == 0 || instrumentId is null)
             {
                 continue;
@@ -147,7 +148,7 @@ internal static class SeedDemoCommand
     {
         await using var connection = await db.OpenAsync();
         var rows = await connection.QueryAsync<(Guid ServiceId, Guid InstrumentId, string ChannelCode)>(
-            "SELECT service_id AS ServiceId, instrument_id AS InstrumentId, channel_code AS ChannelCode FROM channel_map");
+            "SELECT service_id AS ServiceId, instrument_id AS InstrumentId, channel_code AS ChannelCode FROM instrument_channel");
 
         var map = new Dictionary<Guid, List<(Guid InstrumentId, string ChannelCode)>>();
         foreach (var row in rows)
@@ -164,44 +165,65 @@ internal static class SeedDemoCommand
         return map;
     }
 
-    private static List<ReadingItem> BuildFakeReadingItems(
-        CreatedSample sample,
-        Dictionary<Guid, List<(Guid InstrumentId, string ChannelCode)>> channelsByService,
-        Random random,
-        out Guid? instrumentId)
+    /// <summary>Các chỉ số (không phải panel) đã chỉ định trên mẫu có mã vạch này.</summary>
+    private static async Task<List<Guid>> LoadOrderedServicesAsync(Db db, string barcode)
     {
-        instrumentId = null;
-        var items = new List<ReadingItem>();
-
-        // CreatedSample không giữ ServiceId — ghép theo tên dịch vụ đã trả về khi tạo mẫu không
-        // khả thi ở đây (không có map tên->id), nên quét toàn bộ channelsByService và chọn ngẫu
-        // nhiên một vài kênh từ MỘT máy duy nhất (một InstrumentReading chỉ của một máy) để mô
-        // phỏng máy gửi kết quả — đủ cho mục đích thử luồng, không cần khớp tuyệt đối dịch vụ.
-        if (channelsByService.Count == 0)
-        {
-            return items;
-        }
-
-        var allChannels = channelsByService.SelectMany(kv => kv.Value.Select(v => (v.InstrumentId, v.ChannelCode)))
-            .Distinct()
-            .ToList();
-        if (allChannels.Count == 0)
-        {
-            return items;
-        }
-
-        var chosenInstrument = allChannels[random.Next(allChannels.Count)].InstrumentId;
-        instrumentId = chosenInstrument;
-
-        var channelsOfInstrument = allChannels.Where(c => c.InstrumentId == chosenInstrument).ToList();
-        var count = Math.Min(channelsOfInstrument.Count, random.Next(1, 4));
-
-        foreach (var (_, channelCode) in channelsOfInstrument.OrderBy(_ => random.Next()).Take(count))
-        {
-            var value = (random.Next(10, 1000) / 10.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
-            items.Add(new ReadingItem(channelCode, value, null, null));
-        }
-
-        return items;
+        await using var connection = await db.OpenAsync();
+        var ids = await connection.QueryAsync<Guid>(
+            """
+            SELECT oi.service_id
+            FROM order_item oi
+            JOIN sample s ON s.id = oi.sample_id
+            JOIN service sv ON sv.id = oi.service_id
+            WHERE s.barcode = @barcode AND NOT sv.is_panel
+            """,
+            new { barcode });
+        return ids.ToList();
     }
+
+    /// <summary>
+    /// Mô phỏng một máy gửi kết quả cho các chỉ số đã chỉ định của mẫu: chọn MỘT máy có map kênh
+    /// cho nhiều chỉ số của mẫu nhất (một <see cref="InstrumentReading"/> chỉ của một máy), gửi giá
+    /// trị cho các kênh đó — để phần lớn kết quả ghép thẳng vào mẫu. Thỉnh thoảng thêm một kênh
+    /// không được chỉ định để có dòng "Chưa ghép" mà thử.
+    /// </summary>
+    private static (Guid? InstrumentId, List<ReadingItem> Items) BuildFakeReadingItems(
+        List<Guid> orderedServices,
+        Dictionary<Guid, List<(Guid InstrumentId, string ChannelCode)>> channelsByService,
+        Random random)
+    {
+        var candidates = orderedServices
+            .SelectMany(serviceId => channelsByService.GetValueOrDefault(serviceId) ?? [])
+            .GroupBy(c => c.InstrumentId)
+            .OrderByDescending(g => g.Select(c => c.ChannelCode).Distinct().Count())
+            .ThenBy(_ => random.Next())
+            .FirstOrDefault();
+        if (candidates is null)
+        {
+            return (null, []);
+        }
+
+        var instrumentId = candidates.Key;
+        var items = candidates
+            .GroupBy(c => c.ChannelCode)
+            .Select(g => new ReadingItem(g.Key, FakeValue(random), null, null))
+            .ToList();
+
+        if (random.Next(5) == 0)
+        {
+            var extra = channelsByService.Values.SelectMany(v => v)
+                .Where(c => c.InstrumentId == instrumentId && items.All(i => i.ChannelCode != c.ChannelCode))
+                .Select(c => c.ChannelCode)
+                .FirstOrDefault();
+            if (extra is not null)
+            {
+                items.Add(new ReadingItem(extra, FakeValue(random), null, null));
+            }
+        }
+
+        return (instrumentId, items);
+    }
+
+    private static string FakeValue(Random random) =>
+        (random.Next(10, 1000) / 10.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
 }
