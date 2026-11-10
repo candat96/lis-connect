@@ -12,9 +12,15 @@ public sealed record ValueRange(decimal? Low, decimal? High);
 /// <summary>
 /// Gợi ý cho một mã kênh: các chỉ số còn khả năng (một = chắc), và số mẫu đã dùng để suy ra.
 /// </summary>
-public sealed record ChannelSuggestion(string ChannelCode, IReadOnlyList<Guid> Candidates, int SampleCount)
+public sealed record ChannelSuggestion(string ChannelCode, IReadOnlyList<Guid> Candidates, int SampleCount, bool HasConflict = false)
 {
     public bool IsCertain => Candidates.Count == 1;
+
+    /// <summary>
+    /// Đủ chắc để phần mềm tự map không cần người bấm: chỉ còn một chỉ số, ít nhất
+    /// <see cref="ChannelMapInference.AutoMinSamples"/> mẫu khác nhau cùng khớp, không có mẫu nào mâu thuẫn.
+    /// </summary>
+    public bool IsSafeToAutoMap => IsCertain && !HasConflict && SampleCount >= ChannelMapInference.AutoMinSamples;
 }
 
 /// <summary>
@@ -32,11 +38,16 @@ public static class ChannelMapInference
 {
     public const decimal PlausibleFactor = 20m;
 
+    /// <summary>Số mẫu tối thiểu phải cùng khớp trước khi tự map.</summary>
+    public const int AutoMinSamples = 2;
+
     public static IReadOnlyList<ChannelSuggestion> Infer(
         IEnumerable<ChannelObservation> observations, IReadOnlyDictionary<Guid, ValueRange> ranges)
     {
         var sets = new Dictionary<string, HashSet<Guid>>(StringComparer.Ordinal);
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var conflicts = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<(string, string)>();
 
         foreach (var observation in observations)
         {
@@ -46,7 +57,11 @@ public static class ChannelMapInference
             }
 
             var candidates = Plausible(observation, ranges);
-            counts[observation.ChannelCode] = counts.GetValueOrDefault(observation.ChannelCode) + 1;
+            // Đếm theo mẫu khác nhau: một mẫu chạy lại nhiều lần vẫn chỉ là một bằng chứng.
+            if (seen.Add((observation.ChannelCode, observation.Barcode)))
+            {
+                counts[observation.ChannelCode] = counts.GetValueOrDefault(observation.ChannelCode) + 1;
+            }
             if (sets.TryGetValue(observation.ChannelCode, out var existing))
             {
                 var narrowed = existing.Intersect(candidates).ToHashSet();
@@ -54,6 +69,10 @@ public static class ChannelMapInference
                 if (narrowed.Count > 0)
                 {
                     sets[observation.ChannelCode] = narrowed;
+                }
+                else
+                {
+                    conflicts.Add(observation.ChannelCode);
                 }
             }
             else
@@ -83,7 +102,7 @@ public static class ChannelMapInference
         while (changed);
 
         return sets
-            .Select(kv => new ChannelSuggestion(kv.Key, kv.Value.OrderBy(id => id).ToList(), counts[kv.Key]))
+            .Select(kv => new ChannelSuggestion(kv.Key, kv.Value.OrderBy(id => id).ToList(), counts[kv.Key], conflicts.Contains(kv.Key)))
             .OrderBy(s => s.ChannelCode, StringComparer.Ordinal)
             .ToList();
     }

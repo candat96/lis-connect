@@ -1,5 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:svc="using:Lis.App.Services">
 
   <!--
     Bộ giao diện dùng chung của LIS Connect — theo phong cách clinic-web (MedOne):
@@ -310,6 +311,8 @@
     <Setter Property="Background" Value="{StaticResource BrushSurface}" />
     <Setter Property="CornerRadius" Value="6" />
     <Setter Property="ClipToBounds" Value="True" />
+    <!-- Mọi bảng: kéo mép ô tiêu đề để đổi độ rộng cột. -->
+    <Setter Property="svc:TableColumnResize.IsEnabled" Value="True" />
   </Style>
   <Style Selector="Border.th">
     <Setter Property="Background" Value="{StaticResource BrushMuted}" />

@@ -27,7 +27,8 @@ public sealed class AppServices
         Config = config;
         Db = Db.Create(config.Db.ToConnectionString());
         Users = new UserStore(Db);
-        Auth = new AuthService(Db, new PasswordHasher(), TimeProvider.System);
+        Sessions = new AuthService(Db, new PasswordHasher(), TimeProvider.System);
+        Auth = Sessions;
         Facility = new FacilityStore(Db);
         Catalog = new CatalogStore(Db);
         Orders = new OrderService(Db, TimeProvider.System);
@@ -50,7 +51,7 @@ public sealed class AppServices
         SerialPorts = new SerialPortService();
         RawLogs = new RawLogStore(RawLogStore.DefaultRoot);
         Connections = new InstrumentConnectionManager(
-            Instruments, WorkstationCode, RawLogs, new IngestReadingSink(new IngestService(Db, TimeProvider.System)),
+            Instruments, WorkstationCode, RawLogs, new IngestReadingSink(new IngestService(Db, TimeProvider.System), ChannelLearning),
             new OrderQueryService(Db), InstrumentConnectionManager.DefaultPendingRoot, TimeProvider.System);
     }
 
@@ -70,6 +71,9 @@ public sealed class AppServices
     public UserStore Users { get; }
 
     public IAuthService Auth { get; }
+
+    /// <summary>Cùng đối tượng với <see cref="Auth"/> — phần "ghi nhớ đăng nhập" (dấu phiên, vào lại).</summary>
+    public AuthService Sessions { get; }
 
     public FacilityStore Facility { get; }
 

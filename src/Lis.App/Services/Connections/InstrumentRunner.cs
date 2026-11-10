@@ -31,12 +31,18 @@ public sealed record InstrumentConnectionStatus(
 public interface IReadingSink
 {
     Task<IngestOutcome> IngestAsync(InstrumentReading reading);
+
+    /// <summary>Sau khi có kênh chưa map: thử tự tìm kênh ↔ dịch vụ theo barcode. Trả về các dòng ghi log.</summary>
+    Task<IReadOnlyList<string>> LearnChannelsAsync(Guid instrumentId) => Task.FromResult<IReadOnlyList<string>>([]);
 }
 
 /// <summary>Cầu nối tới <see cref="IngestService"/>.</summary>
-public sealed class IngestReadingSink(IngestService ingest) : IReadingSink
+public sealed class IngestReadingSink(IngestService ingest, IChannelMapLearning? learning = null) : IReadingSink
 {
     public Task<IngestOutcome> IngestAsync(InstrumentReading reading) => ingest.IngestAsync(reading);
+
+    public Task<IReadOnlyList<string>> LearnChannelsAsync(Guid instrumentId) =>
+        learning?.AutoLearnAsync(instrumentId) ?? Task.FromResult<IReadOnlyList<string>>([]);
 }
 
 /// <summary>
@@ -276,12 +282,32 @@ public sealed class InstrumentRunner : IAsyncDisposable
             var outcome = await _sink.IngestAsync(reading);
             LogEvent(Describe(reading, outcome));
             SetStatus(_status.State, _status.Text, reading.ReceivedAt, _status.SamplesReceived + 1);
+            if (outcome.Unmatched > 0)
+            {
+                await LearnChannelsAsync(reading.InstrumentId);
+            }
         }
         catch (Exception ex)
         {
             SavePending(reading);
             LogEvent($"Chưa ghi được kết quả mẫu {reading.Barcode} vào CSDL ({ex.Message}) — đã lưu tạm trên máy, sẽ tự ghi lại");
             SetStatus(_status.State, _status.Text, reading.ReceivedAt, _status.SamplesReceived + 1);
+        }
+    }
+
+    /// <summary>Tự tìm kênh ↔ dịch vụ theo barcode; lỗi ở đây không được ảnh hưởng việc nhận kết quả.</summary>
+    private async Task LearnChannelsAsync(Guid instrumentId)
+    {
+        try
+        {
+            foreach (var note in await _sink.LearnChannelsAsync(instrumentId))
+            {
+                LogEvent(note);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogEvent($"Không tự dò được map kênh: {ex.Message}");
         }
     }
 

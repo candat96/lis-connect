@@ -1,5 +1,6 @@
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Lis.App.Services;
 using Lis.App.ViewModels.Admin;
 using Lis.App.ViewModels.Catalog;
@@ -135,6 +136,12 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>Báo đã lưu cấu hình CSDL mới ở tab "Kết nối CSDL" — App cần đăng xuất và mở lại màn đăng nhập.</summary>
     public event EventHandler<LocalConfig>? ConfigSaved;
+
+    /// <summary>Người dùng bấm "Đăng xuất" — App xoá phiên đã ghi nhớ và mở lại màn đăng nhập.</summary>
+    public event EventHandler? LogoutRequested;
+
+    [RelayCommand]
+    private void Logout() => LogoutRequested?.Invoke(this, EventArgs.Empty);
 
     public CurrentUser CurrentUser { get; }
 

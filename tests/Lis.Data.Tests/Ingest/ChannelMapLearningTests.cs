@@ -67,4 +67,43 @@ public class ChannelMapLearningTests(PostgresFixture fixture)
         // Đã map 002 → không còn trong gợi ý.
         (await learning.SuggestAsync(instrumentId)).Select(h => h.ChannelCode).ShouldBe(["001", "003"]);
     }
+
+    [Fact]
+    public async Task AutoLearn_DeclaredServices_MapsAfterTwoAgreeingSamples()
+    {
+        var env = await ResultTestEnv.CreateAsync(fixture);
+        var instruments = new InstrumentStore(env.Db);
+        var instrumentId = await instruments.SaveAsync(new InstrumentInfo(Guid.Empty, "AU tự dò", "AU480", "beckman-au", null, null, "AU-02", true));
+        var ingest = new IngestService(env.Db, env.Clock);
+        var learning = new ChannelMapLearning(env.Db, instruments, new UnmatchedService(env.Db, env.Clock));
+
+        var glu = await SaveServiceAsync(env.Catalog, "GLU2", "Glucose", env.EdtaId, decimals: 1, unit: "mmol/L");
+        var wbc = await SaveServiceAsync(env.Catalog, "WBC2", "Bạch cầu", env.EdtaId, decimals: 2, unit: "G/L");
+
+        // Mẫu chung barcode: GLU (máy sinh hoá) + WBC (máy khác). Chưa khai → không tự map, và gợi ý còn mơ hồ.
+        var (s1, items1) = await CreateSampleAsync(env, MaleAdult(), glu, wbc);
+        var (s2, items2) = await CreateSampleAsync(env, FemaleAdult(), glu, wbc);
+
+        async Task SendAsync(Guid sampleId, string value) =>
+            await ingest.IngestAsync(new InstrumentReading(
+                instrumentId, await BarcodeAsync(env.Db, sampleId), IsQc: false, At, "AU-MSG", [new ReadingItem("007", value, null, null)]));
+
+        await SendAsync(s1, "5.6");
+        (await learning.AutoLearnAsync(instrumentId)).ShouldBeEmpty();
+        (await learning.SuggestAsync(instrumentId)).Single().Candidates.Count.ShouldBe(2);
+
+        // Khai máy chỉ chạy GLU → ứng viên chỉ còn GLU; mới 1 mẫu nên chưa tự map.
+        await instruments.SetDeclaredAsync(instrumentId, glu, declared: true);
+        (await instruments.DeclaredServicesAsync(instrumentId)).ShouldHaveSingleItem().ChannelCode.ShouldBeNull();
+        (await learning.AutoLearnAsync(instrumentId)).ShouldBeEmpty();
+
+        // Mẫu thứ hai cùng khớp → tự map, cả hai kết quả vào phiếu.
+        await SendAsync(s2, "6.1");
+        var notes = await learning.AutoLearnAsync(instrumentId);
+
+        notes.ShouldHaveSingleItem().ShouldBe("Tự map kênh 007 → GLU2 Glucose (khớp ở 2 mẫu), đưa 2 kết quả vào phiếu");
+        (await StoredAsync(env.Db, items1[glu])).Value.ShouldBe("5.6");
+        (await StoredAsync(env.Db, items2[glu])).Value.ShouldBe("6.1");
+        (await instruments.DeclaredServicesAsync(instrumentId)).Single().ChannelCode.ShouldBe("007");
+    }
 }

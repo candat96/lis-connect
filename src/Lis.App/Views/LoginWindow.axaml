@@ -7,7 +7,7 @@
         Icon="avares://LisConnect/Assets/app-icon.ico"
         Title="LIS Connect — Đăng nhập"
         Width="380"
-        Height="340"
+        Height="380"
         CanResize="False"
         WindowStartupLocation="CenterScreen">
 
@@ -26,6 +26,8 @@
                 <TextBlock Classes="label" Text="Mật khẩu" />
                 <TextBox Name="PasswordBox" Text="{Binding Password}" PasswordChar="●" />
             </StackPanel>
+
+            <CheckBox Content="Ghi nhớ đăng nhập trên máy này" IsChecked="{Binding RememberMe}" />
 
             <TextBlock Classes="error"
                        Text="{Binding ErrorMessage}"

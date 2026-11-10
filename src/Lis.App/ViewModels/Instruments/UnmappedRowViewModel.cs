@@ -44,6 +44,8 @@ public sealed class UnmappedRowViewModel
     public string HintText => Hint switch
     {
         null => "Chưa đủ dữ liệu — mẫu không có chỉ định hoặc chưa có trong LIS",
+        { HasConflict: true } => $"Dữ liệu các mẫu mâu thuẫn nhau (từ {Hint.SampleCount} mẫu) — kiểm tra trên máy rồi chọn tay:",
+        { IsCertain: true, SampleCount: 1 } => "Khớp ở 1 mẫu — thêm 1 mẫu nữa khớp thì phần mềm tự map, hoặc bấm để map ngay:",
         { IsCertain: true } => $"Chắc chắn (từ {Hint.SampleCount} mẫu) — bấm để map:",
         _ => $"Có thể là một trong {Hint.Candidates.Count} chỉ số (từ {Hint.SampleCount} mẫu) — chạy thêm mẫu sẽ rõ, hoặc chọn:",
     };

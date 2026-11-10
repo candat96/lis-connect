@@ -31,6 +31,45 @@ public sealed class AuthService(Db db, PasswordHasher hasher, TimeProvider clock
     private static readonly string DummyHashForTimingSafety =
         $"argon2id$65536$3$1${Convert.ToBase64String(new byte[16])}${Convert.ToBase64String(new byte[32])}";
 
+    /// <summary>
+    /// Dấu phiên cho "ghi nhớ đăng nhập": băm SHA-256 của password_hash. Đổi mật khẩu → dấu đổi →
+    /// phiên đã ghi nhớ ở mọi máy hết hiệu lực. Tài khoản không có hoặc đã ngừng → null.
+    /// </summary>
+    public async Task<string?> SessionStampAsync(Guid userId)
+    {
+        await using var connection = await db.OpenAsync();
+        var hash = await connection.ExecuteScalarAsync<string?>(
+            "SELECT password_hash FROM app_user WHERE id = @userId AND active", new { userId });
+        return hash is null ? null : Stamp(hash);
+    }
+
+    /// <summary>Vào lại bằng phiên đã ghi nhớ: tài khoản còn hoạt động, không bị khoá, dấu phiên còn khớp → trả tài khoản.</summary>
+    public async Task<UserInfo?> ResumeAsync(Guid userId, string stamp)
+    {
+        await using var connection = await db.OpenAsync();
+        var row = await connection.QuerySingleOrDefaultAsync<LoginRow>(
+            """
+            SELECT id, username, full_name, title, password_hash, roles, active, failed_count, locked_until
+            FROM app_user
+            WHERE id = @userId
+            """,
+            new { userId });
+
+        var now = clock.GetUtcNow();
+        if (row is null || !row.Active || (row.LockedUntil is { } lockedUntil && lockedUntil > now)
+            || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.ASCII.GetBytes(Stamp(row.PasswordHash)), System.Text.Encoding.ASCII.GetBytes(stamp)))
+        {
+            return null;
+        }
+
+        await connection.ExecuteAsync("UPDATE app_user SET last_login_at = @now WHERE id = @userId", new { userId, now });
+        return new UserInfo(row.Id, row.Username, row.FullName, row.Title, row.Roles, row.Active);
+    }
+
+    private static string Stamp(string passwordHash) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("lis-phien|" + passwordHash)));
+
     public async Task<LoginResult> LoginAsync(string username, string password)
     {
         await using var connection = await db.OpenAsync();

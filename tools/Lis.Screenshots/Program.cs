@@ -828,7 +828,7 @@ internal static class Program
         public Task<IReadOnlyList<SampleLeafItem>> SampleItemsAsync(string barcode) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
 
-        public Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid actorId) =>
+        public Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid? actorId) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh.");
 
         public Task DismissAsync(Guid unmatchedId, Guid actorId, string reason) =>
@@ -843,7 +843,7 @@ internal static class Program
         public Task<IReadOnlyList<SampleLeafItem>> SampleItemsAsync(string barcode) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh, không tra mẫu thật.");
 
-        public Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid actorId) =>
+        public Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid? actorId) =>
             throw new NotSupportedException("Chỉ dùng để chụp ảnh, không gán thật.");
 
         public Task DismissAsync(Guid unmatchedId, Guid actorId, string reason) =>

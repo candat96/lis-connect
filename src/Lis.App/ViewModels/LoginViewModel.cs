@@ -32,6 +32,10 @@ public partial class LoginViewModel : ObservableObject
     [ObservableProperty]
     private string? _errorMessage;
 
+    /// <summary>Ghi nhớ đăng nhập trên máy này — lần mở sau vào thẳng, tới khi bấm "Đăng xuất" hoặc đổi mật khẩu.</summary>
+    [ObservableProperty]
+    private bool _rememberMe = true;
+
     [RelayCommand(CanExecute = nameof(CanLogin))]
     private async Task LoginAsync()
     {

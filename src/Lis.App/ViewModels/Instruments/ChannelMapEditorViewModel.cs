@@ -20,6 +20,15 @@ public sealed partial class ChannelRowViewModel(ChannelMapItem item, Action<Chan
 
     public string ChannelCode => Item.Map.ChannelCode;
 
+    /// <summary>Dịch vụ đã khai là máy chạy nhưng chưa biết mã kênh — phần mềm đang chờ dò theo barcode.</summary>
+    public bool IsPending => Item.Map.ChannelCode.Length == 0;
+
+    public string ChannelCodeText => IsPending ? "chờ dò" : Item.Map.ChannelCode;
+
+    public string EditLabel => IsPending ? "Nhập mã" : "Sửa";
+
+    public string RemoveLabel => IsPending ? "Bỏ" : "Xóa";
+
     public string ServiceCode => Item.ServiceCode;
 
     public string ServiceText => $"{Item.ServiceCode} – {Item.ServiceName}";
@@ -65,6 +74,95 @@ public partial class ChannelMapEditorViewModel(
     /// <summary>Kênh máy đã gửi nhưng chưa map — bấm một dòng để điền mã kênh.</summary>
     public ObservableCollection<UnmappedRowViewModel> Unmapped { get; } = [];
 
+    /// <summary>Dịch vụ đã khai là máy này chạy được (kể cả chưa biết mã kênh) — phần mềm tự dò mã kênh theo barcode trong danh sách này.</summary>
+    public ObservableCollection<DeclaredRowViewModel> Declared { get; } = [];
+
+    public string DeclaredSummary
+    {
+        get
+        {
+            if (Declared.Count == 0)
+            {
+                return "Chưa khai dịch vụ nào — phần mềm chỉ gợi ý, không tự map.";
+            }
+
+            var waiting = Declared.Count(d => !d.HasChannel);
+            return waiting == 0
+                ? $"{Declared.Count} dịch vụ, đều đã có mã kênh."
+                : $"{Declared.Count} dịch vụ — {Declared.Count - waiting} đã có mã kênh, {waiting} đang chờ máy chạy để tự dò.";
+        }
+    }
+
+    /// <summary>Thêm chỉ số đang nhập ở form vào danh sách máy chạy được mà chưa cần mã kênh.</summary>
+    [RelayCommand]
+    private async Task DeclareServiceAsync()
+    {
+        try
+        {
+            ErrorMessage = null;
+            if (string.IsNullOrWhiteSpace(NewServiceCode))
+            {
+                ErrorMessage = "Nhập mã chỉ số (hoặc tìm theo tên) trước";
+                return;
+            }
+
+            var service = await services.FindByCodeAsync(NewServiceCode.Trim());
+            if (service is null || service.IsPanel)
+            {
+                ErrorMessage = service is null ? "Không có chỉ số mã này" : "Chỉ khai chỉ số lá, không khai dịch vụ cha";
+                return;
+            }
+
+            await store.SetDeclaredAsync(_instrumentId, service.Id, declared: true);
+            NewServiceCode = "";
+            await LoadDeclaredAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+    }
+
+    private async Task UndeclareAsync(DeclaredRowViewModel row)
+    {
+        try
+        {
+            await store.SetDeclaredAsync(_instrumentId, row.Service.ServiceId, declared: false);
+            await LoadDeclaredAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+    }
+
+    private async Task LoadDeclaredAsync()
+    {
+        Declared.Clear();
+        _pending.Clear();
+        try
+        {
+            foreach (var service in await store.DeclaredServicesAsync(_instrumentId))
+            {
+                var declaredRow = new DeclaredRowViewModel(service, UndeclareAsync);
+                Declared.Add(declaredRow);
+                if (!declaredRow.HasChannel)
+                {
+                    var item = new ChannelMapItem(
+                        new ChannelMap(Guid.Empty, _instrumentId, "", service.ServiceId, null, null, false, true), service.Code, service.Name);
+                    _pending.Add(new ChannelRowViewModel(item, SelectForEdit, _ => UndeclareAsync(declaredRow)));
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Phụ — lỗi thì để trống.
+        }
+
+        OnPropertyChanged(nameof(DeclaredSummary));
+        ApplyFilter();
+    }
+
     /// <summary>Thông báo sau khi xác nhận một gợi ý (vd "Đã map 001 → XN01, đưa 3 kết quả vào phiếu").</summary>
     [ObservableProperty]
     private string? _learningMessage;
@@ -83,7 +181,17 @@ public partial class ChannelMapEditorViewModel(
     [ObservableProperty]
     private string? _newServiceName;
 
-    public string CountText => Channels.Count == 0 ? "Chưa map kênh nào" : $"{Channels.Count} kênh đã map";
+    public string CountText
+    {
+        get
+        {
+            var mapped = Channels.Count == 0 ? "Chưa map kênh nào" : $"{Channels.Count} kênh đã map";
+            return _pending.Count == 0 ? mapped : $"{mapped} · {_pending.Count} dịch vụ chờ dò mã kênh";
+        }
+    }
+
+    /// <summary>Dịch vụ đã khai mà chưa có mã kênh — hiện cuối bảng map với mã kênh "chờ dò".</summary>
+    private readonly List<ChannelRowViewModel> _pending = [];
 
     public bool HasUnmapped => Unmapped.Count > 0;
 
@@ -102,6 +210,11 @@ public partial class ChannelMapEditorViewModel(
         foreach (var row in Channels.Where(r => text.Length == 0
             || r.ChannelCode.Contains(text, StringComparison.OrdinalIgnoreCase)
             || r.ServiceText.Contains(text, StringComparison.OrdinalIgnoreCase)))
+        {
+            VisibleChannels.Add(row);
+        }
+
+        foreach (var row in _pending.Where(r => text.Length == 0 || r.ServiceText.Contains(text, StringComparison.OrdinalIgnoreCase)))
         {
             VisibleChannels.Add(row);
         }
@@ -263,6 +376,9 @@ public partial class ChannelMapEditorViewModel(
         ErrorMessage = null;
         Channels.Clear();
         VisibleChannels.Clear();
+        _pending.Clear();
+        Declared.Clear();
+        OnPropertyChanged(nameof(DeclaredSummary));
         Unmapped.Clear();
         OnPropertyChanged(nameof(HasUnmapped));
         OnPropertyChanged(nameof(CountText));
@@ -282,6 +398,7 @@ public partial class ChannelMapEditorViewModel(
 
             ApplyFilter();
             await LoadUnmappedAsync();
+            await LoadDeclaredAsync();
         }
         catch (Exception ex)
         {
@@ -296,6 +413,9 @@ public partial class ChannelMapEditorViewModel(
         ErrorMessage = null;
         Channels.Clear();
         VisibleChannels.Clear();
+        _pending.Clear();
+        Declared.Clear();
+        OnPropertyChanged(nameof(DeclaredSummary));
         Unmapped.Clear();
         OnPropertyChanged(nameof(HasUnmapped));
         OnPropertyChanged(nameof(CountText));
@@ -306,6 +426,14 @@ public partial class ChannelMapEditorViewModel(
     private void SelectForEdit(ChannelRowViewModel row)
     {
         ErrorMessage = null;
+        if (row.IsPending)
+        {
+            // Dịch vụ chờ dò: điền sẵn mã chỉ số để người dùng tự gõ mã kênh nếu đã biết.
+            ClearNewRow();
+            NewServiceCode = row.ServiceCode;
+            return;
+        }
+
         _editingId = row.Id;
         IsEditing = true;
         NewChannelCode = row.ChannelCode;

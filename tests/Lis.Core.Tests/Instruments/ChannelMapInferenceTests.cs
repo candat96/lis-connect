@@ -70,6 +70,21 @@ public class ChannelMapInferenceTests
     }
 
     [Fact]
+    public void AutoMap_NeedsTwoAgreeingSamples_AndNoConflict()
+    {
+        ChannelMapInference.Infer([Obs("001", "A", 5.6m, Glu)], Ranges).Single().IsSafeToAutoMap.ShouldBeFalse();
+        // Cùng một mẫu chạy lại không tính là mẫu thứ hai.
+        ChannelMapInference.Infer([Obs("001", "A", 5.6m, Glu), Obs("001", "A", 5.5m, Glu)], Ranges).Single().IsSafeToAutoMap.ShouldBeFalse();
+        ChannelMapInference.Infer([Obs("001", "A", 5.6m, Glu), Obs("001", "B", 6.1m, Glu, Ast)], Ranges).Single().IsSafeToAutoMap.ShouldBeTrue();
+
+        // Mẫu C không hề chỉ định GLU mà vẫn có kênh 001 → mâu thuẫn, không tự map.
+        var conflicted = ChannelMapInference.Infer(
+            [Obs("001", "A", 5.6m, Glu), Obs("001", "B", 6.1m, Glu), Obs("001", "C", 30m, Ast)], Ranges).Single();
+        conflicted.HasConflict.ShouldBeTrue();
+        conflicted.IsSafeToAutoMap.ShouldBeFalse();
+    }
+
+    [Fact]
     public void NoCandidates_Ignored()
     {
         ChannelMapInference.Infer([new ChannelObservation("001", "QC1", 5m, new HashSet<Guid>())], Ranges).ShouldBeEmpty();
@@ -78,7 +93,7 @@ public class ChannelMapInferenceTests
     private sealed class SuggestionComparer : IEqualityComparer<ChannelSuggestion>
     {
         public bool Equals(ChannelSuggestion? x, ChannelSuggestion? y) =>
-            x is not null && y is not null && x.ChannelCode == y.ChannelCode && x.SampleCount == y.SampleCount && x.Candidates.SequenceEqual(y.Candidates);
+            x is not null && y is not null && x.ChannelCode == y.ChannelCode && x.SampleCount == y.SampleCount && x.HasConflict == y.HasConflict && x.Candidates.SequenceEqual(y.Candidates);
 
         public int GetHashCode(ChannelSuggestion obj) => obj.ChannelCode.GetHashCode(StringComparison.Ordinal);
     }

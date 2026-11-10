@@ -30,7 +30,9 @@ internal static class SeedClinicCommand
 
     private sealed record ClinicProfile(string Clinic, List<ProfileInstrument> Instruments);
 
-    private sealed record ProfileInstrument(string Name, string Model, string ProtocolFamily, string? Note, List<ProfileChannel> Channels);
+    /// <param name="Services">Chỉ số máy chạy được mà chưa biết mã kênh (vd AU480) — phần mềm tự dò mã kênh theo barcode.</param>
+    private sealed record ProfileInstrument(
+        string Name, string Model, string ProtocolFamily, string? Note, List<ProfileChannel> Channels, List<string>? Services = null);
 
     private sealed record ProfileChannel(string Code, string Service);
 
@@ -111,7 +113,8 @@ internal static class SeedClinicCommand
         }
 
         // Chỉ số được máy trả kết quả là số → kiểu kết quả "so" dù bên HIS khai nhập văn bản.
-        var mapped = profile.Instruments.SelectMany(i => i.Channels.Select(c => c.Service)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var mapped = profile.Instruments.SelectMany(i => i.Channels.Select(c => c.Service).Concat(i.Services ?? []))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         rows = rows.Select(r => mapped.Contains(r.Code) && r.ValueType == "chu" ? r with { ValueType = "so" } : r).ToList();
 
         WriteWorkbook(outPath, rows, children, profile);
@@ -157,6 +160,23 @@ internal static class SeedClinicCommand
             }
 
             Console.WriteLine($"Đã nhập danh mục: tạo {report.Created}, cập nhật {report.Updated}.");
+        }
+
+        // Dịch vụ máy chạy được mà chưa biết mã kênh.
+        await using (var connection = await db.OpenAsync())
+        {
+            foreach (var instrument in profile.Instruments.Where(i => i.Services is { Count: > 0 }))
+            {
+                var serviceCodes = instrument.Services!.ToArray();
+                var added = await connection.ExecuteAsync(
+                    """
+                    INSERT INTO instrument_service (instrument_id, service_id)
+                    SELECT i.id, s.id FROM instrument i JOIN service s ON s.code = ANY(@codes) AND NOT s.is_panel
+                    WHERE i.name = @Name ON CONFLICT DO NOTHING
+                    """,
+                    new { codes = serviceCodes, instrument.Name });
+                Console.WriteLine($"  Máy {instrument.Name}: khai {added}/{serviceCodes.Length} dịch vụ chạy được (mã kênh tự dò theo barcode).");
+            }
         }
 
         // Đơn vị + khoảng tham chiếu mặc định của phòng khám (nếu có) — HIS không xuất phần này.

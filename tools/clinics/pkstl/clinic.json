@@ -8,31 +8,129 @@
       "protocolFamily": "hl7-mllp",
       "note": "OBX-3 theo LOINC (PCT là mã riêng Mindray 10002) — đối chiếu lại với log thô lần nối đầu.",
       "channels": [
-        { "code": "6690-2", "service": "XNMD194_01" },
-        { "code": "770-8", "service": "XNMD194_02" },
-        { "code": "736-9", "service": "XNMD194_03" },
-        { "code": "751-8", "service": "XNMD194_07" },
-        { "code": "731-0", "service": "XNMD194_08" },
-        { "code": "789-8", "service": "XNMD194_12" },
-        { "code": "718-7", "service": "XNMD194_13" },
-        { "code": "4544-3", "service": "XNMD194_14" },
-        { "code": "787-2", "service": "XNMD194_15" },
-        { "code": "785-6", "service": "XNMD194_16" },
-        { "code": "786-4", "service": "XNMD194_17" },
-        { "code": "777-3", "service": "XNMD194_18" },
-        { "code": "788-0", "service": "XNMD194_19" },
-        { "code": "21000-5", "service": "XNMD194_27" },
-        { "code": "10002", "service": "XNMD194_20" },
-        { "code": "32623-1", "service": "XNMD194_21" },
-        { "code": "32207-3", "service": "XNMD194_22" }
+        {
+          "code": "6690-2",
+          "service": "XNMD194_01"
+        },
+        {
+          "code": "770-8",
+          "service": "XNMD194_02"
+        },
+        {
+          "code": "736-9",
+          "service": "XNMD194_03"
+        },
+        {
+          "code": "751-8",
+          "service": "XNMD194_07"
+        },
+        {
+          "code": "731-0",
+          "service": "XNMD194_08"
+        },
+        {
+          "code": "789-8",
+          "service": "XNMD194_12"
+        },
+        {
+          "code": "718-7",
+          "service": "XNMD194_13"
+        },
+        {
+          "code": "4544-3",
+          "service": "XNMD194_14"
+        },
+        {
+          "code": "787-2",
+          "service": "XNMD194_15"
+        },
+        {
+          "code": "785-6",
+          "service": "XNMD194_16"
+        },
+        {
+          "code": "786-4",
+          "service": "XNMD194_17"
+        },
+        {
+          "code": "777-3",
+          "service": "XNMD194_18"
+        },
+        {
+          "code": "788-0",
+          "service": "XNMD194_19"
+        },
+        {
+          "code": "21000-5",
+          "service": "XNMD194_27"
+        },
+        {
+          "code": "10002",
+          "service": "XNMD194_20"
+        },
+        {
+          "code": "32623-1",
+          "service": "XNMD194_21"
+        },
+        {
+          "code": "32207-3",
+          "service": "XNMD194_22"
+        }
       ]
     },
     {
       "name": "Beckman AU480",
       "model": "Beckman Coulter AU480",
       "protocolFamily": "beckman-au",
-      "note": "Máy gửi SỐ TEST (online test no.) do từng phòng khám tự đặt — chưa map, lấy bảng số test trên máy hoặc đọc log thô rồi mới map.",
-      "channels": []
+      "note": "Mã kênh = số test online do phòng xét nghiệm đặt trên máy, chưa biết. \"services\" là các chỉ số máy chạy được: phần mềm tự dò số test ↔ chỉ số theo barcode (khớp ≥ 2 mẫu thì tự map). Đọc cấu hình Online trên máy trước khi nối.",
+      "channels": [],
+      "services": [
+        "XN01",
+        "DV000151",
+        "DV000152",
+        "DV000153",
+        "XN02",
+        "XN04",
+        "XN05",
+        "XN06",
+        "XN29",
+        "XN17",
+        "XN18",
+        "XN19",
+        "XN14",
+        "XN15",
+        "XN16",
+        "XN07",
+        "XN08",
+        "XN09",
+        "XN11",
+        "XN10",
+        "XN12",
+        "XN13",
+        "XN22",
+        "XN23",
+        "XN25",
+        "XN26",
+        "DV000049",
+        "DV000050",
+        "DV000051",
+        "XN30",
+        "DV000070",
+        "DV000066",
+        "DV000068",
+        "XN31",
+        "XN32",
+        "DV000208",
+        "XN33",
+        "XN34",
+        "XN35",
+        "DV000210",
+        "DV000125",
+        "DV000126",
+        "DV000074",
+        "DV000206",
+        "DV000185"
+      ]
     },
     {
       "name": "Beckman Access 2",
@@ -40,36 +138,126 @@
       "protocolFamily": "astm-e1394",
       "note": "Mã kênh = mã test ASTM theo LIS Vendor Information (Appendix B), kèm mã pha loãng trỏ cùng chỉ số; tên nào lệch thì kết quả rơi vào Chưa ghép (không vào nhầm chỉ số) — sửa mã kênh theo log thô.",
       "channels": [
-        { "code": "TSH3", "service": "XN65" },
-        { "code": "FT4II", "service": "XN64" },
-        { "code": "FT3", "service": "XN63" },
-        { "code": "TotT3", "service": "XN61" },
-        { "code": "TotT4", "service": "XN62" },
-        { "code": "AFP", "service": "XN73" },
-        { "code": "CEA2", "service": "XN74" },
-        { "code": "OV125Ag", "service": "XN76" },
-        { "code": "GI19-9Ag", "service": "XN75" },
-        { "code": "BR15-3Ag", "service": "XN78" },
-        { "code": "Ferritin", "service": "XN24" },
-        { "code": "PSA-Hyb", "service": "DV000097" },
-        { "code": "freePSA", "service": "DV000096" },
-        { "code": "E2", "service": "XN67" },
-        { "code": "PRL", "service": "XN70" },
-        { "code": "hFSH", "service": "DV000182" },
-        { "code": "hLH", "service": "XN72" },
-        { "code": "Testo", "service": "DV000183" },
-        { "code": "Prog", "service": "DV000237" },
-        { "code": "AMH", "service": "XN66" },
-        { "code": "VitB12", "service": "XN82" },
-        { "code": "FOLW", "service": "XN81" },
-        { "code": "Cortisol", "service": "XN84" },
-        { "code": "HCG5", "service": "DV000134" },
-        { "code": "VitdA", "service": "XN83" },
-        { "code": "Insulin", "service": "DV000078" },
-        { "code": "TSH3d", "service": "XN65" },
-        { "code": "Dil-AFP", "service": "XN73" },
-        { "code": "Dil-Fer", "service": "XN24" },
-        { "code": "HCG5d", "service": "DV000134" }
+        {
+          "code": "TSH3",
+          "service": "XN65"
+        },
+        {
+          "code": "FT4II",
+          "service": "XN64"
+        },
+        {
+          "code": "FT3",
+          "service": "XN63"
+        },
+        {
+          "code": "TotT3",
+          "service": "XN61"
+        },
+        {
+          "code": "TotT4",
+          "service": "XN62"
+        },
+        {
+          "code": "AFP",
+          "service": "XN73"
+        },
+        {
+          "code": "CEA2",
+          "service": "XN74"
+        },
+        {
+          "code": "OV125Ag",
+          "service": "XN76"
+        },
+        {
+          "code": "GI19-9Ag",
+          "service": "XN75"
+        },
+        {
+          "code": "BR15-3Ag",
+          "service": "XN78"
+        },
+        {
+          "code": "Ferritin",
+          "service": "XN24"
+        },
+        {
+          "code": "PSA-Hyb",
+          "service": "DV000097"
+        },
+        {
+          "code": "freePSA",
+          "service": "DV000096"
+        },
+        {
+          "code": "E2",
+          "service": "XN67"
+        },
+        {
+          "code": "PRL",
+          "service": "XN70"
+        },
+        {
+          "code": "hFSH",
+          "service": "DV000182"
+        },
+        {
+          "code": "hLH",
+          "service": "XN72"
+        },
+        {
+          "code": "Testo",
+          "service": "DV000183"
+        },
+        {
+          "code": "Prog",
+          "service": "DV000237"
+        },
+        {
+          "code": "AMH",
+          "service": "XN66"
+        },
+        {
+          "code": "VitB12",
+          "service": "XN82"
+        },
+        {
+          "code": "FOLW",
+          "service": "XN81"
+        },
+        {
+          "code": "Cortisol",
+          "service": "XN84"
+        },
+        {
+          "code": "HCG5",
+          "service": "DV000134"
+        },
+        {
+          "code": "VitdA",
+          "service": "XN83"
+        },
+        {
+          "code": "Insulin",
+          "service": "DV000078"
+        },
+        {
+          "code": "TSH3d",
+          "service": "XN65"
+        },
+        {
+          "code": "Dil-AFP",
+          "service": "XN73"
+        },
+        {
+          "code": "Dil-Fer",
+          "service": "XN24"
+        },
+        {
+          "code": "HCG5d",
+          "service": "DV000134"
+        }
       ]
     }
   ]

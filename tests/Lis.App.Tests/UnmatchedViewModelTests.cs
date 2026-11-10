@@ -33,9 +33,9 @@ internal sealed class FakeUnmatchedService : IUnmatchedService
             ? Task.FromResult<IReadOnlyList<SampleLeafItem>>(LeafItems)
             : Task.FromException<IReadOnlyList<SampleLeafItem>>(SampleItemsException);
 
-    public Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid actorId)
+    public Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid? actorId)
     {
-        AssignCalls.Add((unmatchedId, orderItemId, actorId));
+        AssignCalls.Add((unmatchedId, orderItemId, actorId!.Value));
         return AssignException is null ? Task.CompletedTask : Task.FromException(AssignException);
     }
 

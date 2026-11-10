@@ -29,7 +29,7 @@
             <!-- Trái: bảng kênh đã map -->
             <Border Grid.Column="0" Classes="table">
                 <Grid RowDefinitions="Auto,*">
-                    <Grid Grid.Row="0" ColumnDefinitions="130,120,*,64,72,84,84,118">
+                    <Grid Grid.Row="0" ColumnDefinitions="130,120,*,64,72,84,84,140">
                         <Border Grid.Column="0" Classes="th"><TextBlock Text="Mã kênh máy" /></Border>
                         <Border Grid.Column="1" Classes="th"><TextBlock Text="Mã chỉ số" /></Border>
                         <Border Grid.Column="2" Classes="th"><TextBlock Text="Tên chỉ số" /></Border>
@@ -42,8 +42,8 @@
                     <ListBox Grid.Row="1" Classes="table" ItemsSource="{Binding VisibleChannels}">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:ChannelRowViewModel">
-                                <Grid ColumnDefinitions="130,120,*,64,72,84,84,118">
-                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding ChannelCode}" FontWeight="SemiBold" FontFamily="Consolas,Menlo,monospace" TextWrapping="Wrap" /></Border>
+                                <Grid ColumnDefinitions="130,120,*,64,72,84,84,140">
+                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding ChannelCodeText}" FontWeight="SemiBold" FontFamily="Consolas,Menlo,monospace" TextWrapping="Wrap" Classes.muted="{Binding IsPending}" /></Border>
                                     <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding ServiceCode}" TextWrapping="Wrap" /></Border>
                                     <Border Grid.Column="2" Classes="td"><TextBlock Text="{Binding ServiceName}" TextWrapping="Wrap" /></Border>
                                     <Border Grid.Column="3" Classes="td"><TextBlock Text="{Binding DecimalsText}" Classes="muted" /></Border>
@@ -52,8 +52,8 @@
                                     <Border Grid.Column="6" Classes="td"><TextBlock Text="{Binding SendOnQueryText}" Classes="muted" HorizontalAlignment="Center" /></Border>
                                     <Border Grid.Column="7" Classes="td input last">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <Button Content="Sửa" Command="{Binding EditCommand}" Padding="10,3" />
-                                            <Button Content="Xóa" Command="{Binding RemoveCommand}" Padding="10,3" Classes="danger" />
+                                            <Button Content="{Binding EditLabel}" Command="{Binding EditCommand}" Padding="8,3" />
+                                            <Button Content="{Binding RemoveLabel}" Command="{Binding RemoveCommand}" Padding="8,3" Classes="danger" />
                                         </StackPanel>
                                     </Border>
                                 </Grid>
@@ -116,6 +116,8 @@
                             <TextBlock Classes="error" Text="{Binding ErrorMessage}" TextWrapping="Wrap" />
 
                             <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                                <Button Content="Khai máy chạy (chưa biết mã kênh)" Command="{Binding DeclareServiceCommand}"
+                                        ToolTip.Tip="Thêm chỉ số này vào danh sách máy chạy được. Khi máy gửi kết quả, phần mềm tự dò mã kênh theo barcode." />
                                 <Button Content="Hủy sửa" Command="{Binding CancelEditCommand}" IsVisible="{Binding IsEditingExisting}" />
                                 <Button Classes="primary" Content="{Binding SaveButtonLabel}" Command="{Binding AddChannelCommand}" />
                             </StackPanel>
@@ -162,6 +164,36 @@
                                                             </ItemsControl>
                                                         </StackPanel>
                                                     </Border>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Dịch vụ máy chạy được: khai trước, mã kênh phần mềm tự dò theo barcode. -->
+                    <Border Classes="card" Padding="14">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="heading" FontSize="15" Text="Dịch vụ máy này chạy" />
+                            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                                       Text="Khai các chỉ số máy chạy được, chưa cần mã kênh. Mã kênh lạ máy gửi sẽ được đối chiếu với chỉ định của từng barcode trong danh sách này; khớp ở 2 mẫu trở lên thì tự map và kết quả tự vào phiếu (chờ duyệt)." />
+                            <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding DeclaredSummary}" TextWrapping="Wrap" />
+                            <Border Classes="table" IsVisible="{Binding !!Declared.Count}">
+                                <Grid RowDefinitions="Auto,*">
+                                    <Grid Grid.Row="0" ColumnDefinitions="*,84,52">
+                                        <Border Grid.Column="0" Classes="th"><TextBlock Text="Chỉ số" /></Border>
+                                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Mã kênh" /></Border>
+                                        <Border Grid.Column="2" Classes="th last"><TextBlock Text="" /></Border>
+                                    </Grid>
+                                    <ListBox Grid.Row="1" Classes="table" ItemsSource="{Binding Declared}" MaxHeight="320">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:DeclaredRowViewModel">
+                                                <Grid ColumnDefinitions="*,84,52">
+                                                    <Border Grid.Column="0" Classes="td"><TextBlock TextWrapping="Wrap"><Run Text="{Binding Code}" FontWeight="SemiBold" /><Run Text=" – " /><Run Text="{Binding Name}" /></TextBlock></Border>
+                                                    <Border Grid.Column="1" Classes="td"><TextBlock Text="{Binding ChannelText}" FontFamily="Consolas,Menlo,monospace" Classes.muted="{Binding !HasChannel}" TextWrapping="Wrap" /></Border>
+                                                    <Border Grid.Column="2" Classes="td input last"><Button Content="Bỏ" Command="{Binding RemoveCommand}" Padding="6,2" FontSize="12" /></Border>
                                                 </Grid>
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>

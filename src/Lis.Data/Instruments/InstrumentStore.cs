@@ -29,6 +29,9 @@ public sealed record ChannelMap(
 /// <summary>Một mã kênh máy đã gửi mà chưa map (từ Chưa gắn mẫu): số lần gặp, giá trị và đơn vị gần nhất.</summary>
 public sealed record UnmappedChannel(string ChannelCode, int Count, string LastValue, string? LastUnit, DateTimeOffset LastAt);
 
+/// <summary>Một dịch vụ đã khai là máy chạy được; <see cref="ChannelCode"/> null khi chưa biết mã kênh.</summary>
+public sealed record DeclaredService(Guid ServiceId, string Code, string Name, string? ChannelCode);
+
 /// <summary>Một dòng map kênh kèm mã/tên chỉ số để hiển thị.</summary>
 public sealed record ChannelMapItem(ChannelMap Map, string ServiceCode, string ServiceName);
 
@@ -48,6 +51,12 @@ public interface IInstrumentStore
     /// <summary>Thêm (khi <see cref="ChannelMap.Id"/> rỗng) hoặc cập nhật map kênh. Trùng kênh → <see cref="InvalidOperationException"/> nêu rõ chỉ số đã map.</summary>
     Task<Guid> SaveChannelAsync(ChannelMap channel);
 
+    /// <summary>Các dịch vụ đã khai là máy này chạy được (kèm mã kênh nếu đã map), theo mã.</summary>
+    Task<IReadOnlyList<DeclaredService>> DeclaredServicesAsync(Guid instrumentId) => Task.FromResult<IReadOnlyList<DeclaredService>>([]);
+
+    /// <summary>Thêm / bỏ một dịch vụ khỏi danh sách máy chạy được.</summary>
+    Task SetDeclaredAsync(Guid instrumentId, Guid serviceId, bool declared) => Task.CompletedTask;
+
     Task DeleteChannelAsync(Guid channelId);
 }
 
@@ -57,6 +66,33 @@ public interface IInstrumentStore
 /// </summary>
 public sealed class InstrumentStore(Db db) : IInstrumentStore
 {
+    public async Task<IReadOnlyList<DeclaredService>> DeclaredServicesAsync(Guid instrumentId)
+    {
+        await using var connection = await db.OpenAsync();
+        var rows = await connection.QueryAsync<DeclaredService>(
+            """
+            SELECT sv.id AS ServiceId, sv.code AS Code, sv.name AS Name,
+                   (SELECT string_agg(ic.channel_code, ', ' ORDER BY ic.channel_code) FROM instrument_channel ic
+                    WHERE ic.instrument_id = x.instrument_id AND ic.service_id = sv.id) AS ChannelCode
+            FROM instrument_service x
+            JOIN service sv ON sv.id = x.service_id
+            WHERE x.instrument_id = @instrumentId
+            ORDER BY sv.code
+            """,
+            new { instrumentId });
+        return rows.ToList();
+    }
+
+    public async Task SetDeclaredAsync(Guid instrumentId, Guid serviceId, bool declared)
+    {
+        await using var connection = await db.OpenAsync();
+        await connection.ExecuteAsync(
+            declared
+                ? "INSERT INTO instrument_service (instrument_id, service_id) VALUES (@instrumentId, @serviceId) ON CONFLICT DO NOTHING"
+                : "DELETE FROM instrument_service WHERE instrument_id = @instrumentId AND service_id = @serviceId",
+            new { instrumentId, serviceId });
+    }
+
     public async Task<IReadOnlyList<UnmappedChannel>> UnmappedChannelsAsync(Guid instrumentId)
     {
         await using var connection = await db.OpenAsync();

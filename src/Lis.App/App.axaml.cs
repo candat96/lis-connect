@@ -170,10 +170,53 @@ public partial class App : Application
         window.Show();
     }
 
+    private static RememberedLogin Remembered() =>
+        new(LocalPaths.DataDirectory, SecretProtectors.ForCurrentOs(LocalPaths.DataDirectory));
+
+    /// <summary>Phiên đã ghi nhớ còn hợp lệ (tài khoản còn hoạt động, chưa đổi mật khẩu) → tài khoản; không thì null.</summary>
+    private static UserInfo? TryResume(AppServices services)
+    {
+        if (Remembered().TryLoad() is not { } saved)
+        {
+            return null;
+        }
+
+        try
+        {
+            // Task.Run: không giữ ngữ cảnh UI khi chờ đồng bộ lúc khởi động (như bước migrate).
+            var user = Task.Run(async () =>
+            {
+                var resumed = await services.Sessions.ResumeAsync(saved.UserId, saved.Stamp);
+                if (resumed is not null)
+                {
+                    await services.TouchWorkstationAsync();
+                }
+
+                return resumed;
+            }).GetAwaiter().GetResult();
+            if (user is null)
+            {
+                Remembered().Clear(); // đổi mật khẩu / ngừng tài khoản → phải đăng nhập lại
+            }
+
+            return user;
+        }
+        catch (Exception)
+        {
+            return null; // CSDL chưa lên — hiện màn đăng nhập như thường, giữ phiên cho lần sau.
+        }
+    }
+
     private void ShowLogin(IClassicDesktopStyleApplicationLifetime desktop, LocalConfig config)
     {
         var services = new AppServices(config);
         _ = SwitchConnectionsAsync(services.Connections);
+        if (TryResume(services) is { } rememberedUser)
+        {
+            ShowMain(desktop, services, rememberedUser, config);
+            return;
+        }
+
         var viewModel = new LoginViewModel(services.Auth);
         var window = new LoginWindow { DataContext = viewModel };
 
@@ -189,6 +232,22 @@ public partial class App : Application
                 // báo lỗi và ở lại màn đăng nhập thay vì mở màn chính với trạng thái nửa vời.
                 viewModel.ErrorMessage = $"Đăng nhập được nhưng cập nhật máy trạm thất bại: {ex.Message}";
                 return;
+            }
+
+            try
+            {
+                if (viewModel.RememberMe && await services.Sessions.SessionStampAsync(user.Id) is { } stamp)
+                {
+                    Remembered().Save(user.Id, stamp);
+                }
+                else
+                {
+                    Remembered().Clear();
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Append("Ghi nhớ đăng nhập", ex); // không ghi nhớ được cũng không chặn đăng nhập
             }
 
             ShowMain(desktop, services, user, config);
@@ -219,6 +278,15 @@ public partial class App : Application
         viewModel.ConfigSaved += (_, newConfig) =>
         {
             ShowLogin(desktop, newConfig);
+            window.AllowClose = true;
+            window.Close();
+        };
+
+        // Đăng xuất: xoá phiên đã ghi nhớ rồi mở màn đăng nhập (mở trước, đóng sau — như ConfigSaved).
+        viewModel.LogoutRequested += (_, _) =>
+        {
+            Remembered().Clear();
+            ShowLogin(desktop, config);
             window.AllowClose = true;
             window.Close();
         };

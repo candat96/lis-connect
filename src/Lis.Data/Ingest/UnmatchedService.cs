@@ -31,7 +31,7 @@ public interface IUnmatchedService
     Task<IReadOnlyList<SampleLeafItem>> SampleItemsAsync(string barcode);
 
     /// <summary>Gán giá trị của dòng Chưa ghép vào một chỉ số của mẫu (qua đường tính giá trị chung), đánh dấu đã xử lý rồi thử tự duyệt.</summary>
-    Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid actorId);
+    Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid? actorId);
 
     /// <summary>Bỏ qua một dòng với lý do bắt buộc.</summary>
     Task DismissAsync(Guid unmatchedId, Guid actorId, string reason);
@@ -91,7 +91,7 @@ public sealed class UnmatchedService(Db db, TimeProvider clock) : IUnmatchedServ
         return rows.Select(row => new SampleLeafItem(row.OrderItemId, row.ServiceCode, row.ServiceName, row.CurrentValue)).ToList();
     }
 
-    public async Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid actorId)
+    public async Task AssignAsync(Guid unmatchedId, Guid orderItemId, Guid? actorId)
     {
         await db.InTransactionAsync(async (connection, transaction) =>
         {

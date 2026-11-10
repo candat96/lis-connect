@@ -9,7 +9,8 @@ namespace Lis.Data.Ingest;
 public sealed record ServiceRef(Guid Id, string Code, string Name);
 
 /// <summary>Gợi ý map cho một mã kênh máy đã gửi mà chưa map.</summary>
-public sealed record ChannelMapHint(string ChannelCode, IReadOnlyList<ServiceRef> Candidates, int SampleCount)
+public sealed record ChannelMapHint(
+    string ChannelCode, IReadOnlyList<ServiceRef> Candidates, int SampleCount, bool HasConflict = false, bool IsSafeToAutoMap = false)
 {
     public bool IsCertain => Candidates.Count == 1;
 }
@@ -23,8 +24,15 @@ public interface IChannelMapLearning
     /// <summary>
     /// Lưu map <paramref name="channelCode"/> → <paramref name="serviceId"/>, rồi đưa các kết quả
     /// cũ của mã kênh này (đang nằm chờ vì chưa map) vào đúng chỉ số của mẫu. Trả về số kết quả đã đưa vào.
+    /// <paramref name="actorId"/> null = phần mềm tự map.
     /// </summary>
-    Task<int> ConfirmAsync(Guid instrumentId, string channelCode, Guid serviceId, Guid actorId);
+    Task<int> ConfirmAsync(Guid instrumentId, string channelCode, Guid serviceId, Guid? actorId);
+
+    /// <summary>
+    /// Tự map các mã kênh đã đủ chắc (<see cref="ChannelSuggestion.IsSafeToAutoMap"/>) — chỉ với máy
+    /// đã khai danh sách dịch vụ chạy được. Trả về một dòng mô tả cho mỗi mã kênh vừa map (ghi log thô).
+    /// </summary>
+    Task<IReadOnlyList<string>> AutoLearnAsync(Guid instrumentId) => Task.FromResult<IReadOnlyList<string>>([]);
 }
 
 public sealed class ChannelMapLearning(Db db, IInstrumentStore instruments, IUnmatchedService unmatched) : IChannelMapLearning
@@ -48,7 +56,9 @@ public sealed class ChannelMapLearning(Db db, IInstrumentStore instruments, IUnm
 
         var barcodes = rows.Select(r => r.Barcode).Distinct().ToArray();
 
-        // Chỉ số lá được chỉ định cho từng barcode mà máy này chưa map.
+        // Chỉ số lá được chỉ định cho từng barcode mà máy này chưa map. Máy đã khai danh sách dịch
+        // vụ chạy được (instrument_service) thì chỉ xét trong danh sách đó — mẫu chung barcode còn
+        // có chỉ định của máy khác (huyết học, miễn dịch…), không phải ứng viên.
         var candidateRows = await connection.QueryAsync<(string Barcode, Guid ServiceId, string Code, string Name)>(
             """
             SELECT s.barcode, sv.id, sv.code, sv.name
@@ -57,6 +67,8 @@ public sealed class ChannelMapLearning(Db db, IInstrumentStore instruments, IUnm
             JOIN service sv ON sv.id = oi.service_id AND NOT sv.is_panel
             WHERE s.barcode = ANY(@barcodes)
               AND NOT EXISTS (SELECT 1 FROM instrument_channel ic WHERE ic.instrument_id = @instrumentId AND ic.service_id = sv.id)
+              AND (NOT EXISTS (SELECT 1 FROM instrument_service x WHERE x.instrument_id = @instrumentId)
+                   OR EXISTS (SELECT 1 FROM instrument_service x WHERE x.instrument_id = @instrumentId AND x.service_id = sv.id))
             """,
             new { barcodes, instrumentId });
 
@@ -76,11 +88,12 @@ public sealed class ChannelMapLearning(Db db, IInstrumentStore instruments, IUnm
             byBarcode.GetValueOrDefault(r.Barcode) ?? new HashSet<Guid>()));
 
         return ChannelMapInference.Infer(observations, ranges)
-            .Select(s => new ChannelMapHint(s.ChannelCode, s.Candidates.Select(id => services[id]).ToList(), s.SampleCount))
+            .Select(s => new ChannelMapHint(
+                s.ChannelCode, s.Candidates.Select(id => services[id]).ToList(), s.SampleCount, s.HasConflict, s.IsSafeToAutoMap))
             .ToList();
     }
 
-    public async Task<int> ConfirmAsync(Guid instrumentId, string channelCode, Guid serviceId, Guid actorId)
+    public async Task<int> ConfirmAsync(Guid instrumentId, string channelCode, Guid serviceId, Guid? actorId)
     {
         await instruments.SaveChannelAsync(new ChannelMap(Guid.Empty, instrumentId, channelCode, serviceId, null, null, false, true));
 
@@ -115,5 +128,35 @@ public sealed class ChannelMapLearning(Db db, IInstrumentStore instruments, IUnm
         }
 
         return applied;
+    }
+
+    public async Task<IReadOnlyList<string>> AutoLearnAsync(Guid instrumentId)
+    {
+        await using (var connection = await db.OpenAsync())
+        {
+            var declared = await connection.ExecuteScalarAsync<bool>(
+                "SELECT EXISTS (SELECT 1 FROM instrument_service WHERE instrument_id = @instrumentId)", new { instrumentId });
+            if (!declared)
+            {
+                return []; // máy chưa khai danh sách dịch vụ — không tự map, chỉ gợi ý.
+            }
+        }
+
+        var notes = new List<string>();
+        // Map xong một mã thì các mã khác có thể rõ thêm (loại trừ) — lặp đến khi không còn mã nào đủ chắc.
+        for (var round = 0; round < 50; round++)
+        {
+            var hint = (await SuggestAsync(instrumentId)).FirstOrDefault(h => h.IsSafeToAutoMap);
+            if (hint is null)
+            {
+                break;
+            }
+
+            var service = hint.Candidates[0];
+            var applied = await ConfirmAsync(instrumentId, hint.ChannelCode, service.Id, actorId: null);
+            notes.Add($"Tự map kênh {hint.ChannelCode} → {service.Code} {service.Name} (khớp ở {hint.SampleCount} mẫu), đưa {applied} kết quả vào phiếu");
+        }
+
+        return notes;
     }
 }
