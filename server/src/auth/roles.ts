@@ -9,6 +9,18 @@ export function requireAdmin(ctx: RequestContext): void {
   if (!ctx.user.roles.includes(ROLE.admin)) throw new ForbiddenException('Chỉ tài khoản Quản trị được thay đổi cài đặt này');
 }
 
+/** Nhập, sửa, duyệt kết quả; chấp nhận / bỏ giá trị máy gửi lại: Quản trị, Kỹ thuật viên, Trưởng khoa. */
+export function requireResultEditor(ctx: RequestContext): void {
+  const allowed: string[] = [ROLE.admin, ROLE.technician, ROLE.head];
+  if (!ctx.user.roles.some((r) => allowed.includes(r))) throw new ForbiddenException('Tài khoản không có quyền nhập / duyệt kết quả');
+}
+
+/** Huỷ duyệt một mẫu đã duyệt: chỉ Quản trị và Trưởng khoa. */
+export function requireUnapprover(ctx: RequestContext): void {
+  const allowed: string[] = [ROLE.admin, ROLE.head];
+  if (!ctx.user.roles.some((r) => allowed.includes(r))) throw new ForbiddenException('Chỉ Trưởng khoa hoặc Quản trị được huỷ duyệt');
+}
+
 /** Theo dõi máy, xem log: Quản trị, Kỹ thuật viên, Trưởng khoa. */
 export function requireLabStaff(ctx: RequestContext): void {
   const allowed: string[] = [ROLE.admin, ROLE.technician, ROLE.head];

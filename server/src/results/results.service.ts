@@ -24,6 +24,12 @@ export type ResultFlag = 'None' | 'Low' | 'High' | 'CriticalLow' | 'CriticalHigh
 
 export interface ResultRow {
   orderItemId: string;
+  /** null khi chỉ số chưa có dòng kết quả nào. */
+  resultId: string | null;
+  /** 'so' | 'dinh-tinh' | 'chu' — quyết định cách nhập. */
+  valueType: string;
+  /** Các chữ kết quả gợi ý khi nhập chỉ số định tính (từ luật quy đổi của danh mục). */
+  choices: string[];
   serviceCode: string;
   serviceName: string;
   /** Dòng tiêu đề của gói (panel) — không có giá trị. */
@@ -148,7 +154,8 @@ export class ResultsService {
 
     const items: ItemRow[] = await db.query(
       `SELECT oi.id AS order_item_id, oi.parent_item_id,
-              sv.id AS service_id, sv.code AS service_code, sv.name AS service_name, sv.is_panel, sv.decimals, sv.unit AS catalog_unit,
+              sv.id AS service_id, sv.code AS service_code, sv.name AS service_name, sv.is_panel, sv.decimals, sv.unit AS catalog_unit, sv.value_type,
+              r.id AS result_id,
               CASE WHEN oi.parent_item_id IS NULL THEN coalesce(sv.print_order, 0) ELSE coalesce(psv.print_order, 0) END AS top_print_order,
               coalesce(psv.code, sv.code) AS top_code,
               coalesce(sc.sort_order, 0) AS child_sort_order,
@@ -185,6 +192,15 @@ export class ResultsService {
         rangesByService.set(range.serviceId, [...(rangesByService.get(range.serviceId) ?? []), range]);
       }
     }
+    // Chữ gợi ý cho chỉ số định tính: các giá trị hiển thị trong luật quy đổi của danh mục.
+    const qualitativeIds = [...new Set(items.filter((i) => i.value_type === 'dinh-tinh').map((i) => i.service_id))];
+    const choicesByService = new Map<string, string[]>();
+    if (qualitativeIds.length > 0) {
+      const rules: { service_id: string; display_value: string }[] = await db.query(
+        'SELECT DISTINCT service_id, display_value FROM qualitative_rule WHERE service_id = ANY($1) ORDER BY display_value', [qualitativeIds]);
+      for (const rule of rules) choicesByService.set(rule.service_id, [...(choicesByService.get(rule.service_id) ?? []), rule.display_value]);
+    }
+
     const today = new Date(Date.now() + this.config.localUtcOffsetMinutes * 60_000).toISOString().slice(0, 10);
 
     const rows = [...items]
@@ -202,6 +218,9 @@ export class ResultsService {
         }
         return {
           orderItemId: item.order_item_id,
+          resultId: item.result_id,
+          valueType: item.value_type,
+          choices: choicesByService.get(item.service_id) ?? [],
           serviceCode: item.service_code,
           serviceName: item.service_name,
           isPanelHeader: item.is_panel,
@@ -236,6 +255,8 @@ export class ResultsService {
 
 interface ItemRow {
   order_item_id: string;
+  result_id: string | null;
+  value_type: string;
   parent_item_id: string | null;
   service_id: string;
   service_code: string;

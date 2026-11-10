@@ -49,6 +49,11 @@ export interface SampleListItem {
 
 export interface ResultRow {
   orderItemId: string;
+  resultId: string | null;
+  /** 'so' | 'dinh-tinh' | 'chu' */
+  valueType: string;
+  /** Chữ kết quả gợi ý cho chỉ số định tính. */
+  choices: string[];
   serviceCode: string;
   serviceName: string;
   isPanelHeader: boolean;
@@ -76,7 +81,26 @@ export const resultService = {
   list: (filter: { from: string; to: string; status?: SampleStatus; q?: string }) =>
     api<SampleListItem[]>('/samples', { query: filter }),
   detail: (sampleId: string) => api<SampleDetail>(`/samples/${sampleId}`),
+  /** Nhập / sửa tay một giá trị; ô đã có giá trị thì phải kèm lý do. */
+  setValue: (orderItemId: string, value: string, reason: string | null) =>
+    api<void>(`/results/items/${orderItemId}`, { method: 'PUT', body: { value, reason } }),
+  history: (orderItemId: string) => api<ResultHistory[]>(`/results/items/${orderItemId}/history`),
+  approve: (sampleId: string) => api<void>(`/samples/${sampleId}/approve`, { method: 'POST' }),
+  unapprove: (sampleId: string, reason: string) => api<void>(`/samples/${sampleId}/unapprove`, { method: 'POST', body: { reason } }),
+  acceptPending: (resultId: string) => api<void>(`/results/${resultId}/pending/accept`, { method: 'POST' }),
+  rejectPending: (resultId: string) => api<void>(`/results/${resultId}/pending/reject`, { method: 'POST' }),
 };
+
+export interface ResultHistory {
+  at: string;
+  /** nhan | sua | duyet | huy-duyet | thay-the | bo-thay-the */
+  action: string;
+  oldValue: string | null;
+  newValue: string | null;
+  reason: string | null;
+  /** null = máy / hệ thống. */
+  actorName: string | null;
+}
 
 // ---- Danh mục ----
 export interface CatalogService {
@@ -267,6 +291,7 @@ export const userService = {
 export const qk = {
   samples: (filter: object) => ['samples', filter] as const,
   sample: (id: string) => ['sample', id] as const,
+  resultHistory: (orderItemId: string) => ['result-history', orderItemId] as const,
   catalog: ['catalog', 'services'] as const,
   instruments: ['instruments'] as const,
   channels: (id: string) => ['instruments', id, 'channels'] as const,

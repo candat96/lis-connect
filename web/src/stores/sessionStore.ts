@@ -25,6 +25,12 @@ interface SessionState {
 /** Tài khoản Quản trị mới được sửa cài đặt (máy, map kênh, agent); máy chủ vẫn là nơi chặn cuối cùng. */
 export const useIsAdmin = () => useSessionStore((s) => s.user?.roles.includes('quan-tri') ?? false);
 
+const hasAnyRole = (roles: string[] | undefined, allowed: string[]) => roles?.some((r) => allowed.includes(r)) ?? false;
+/** Nhập, sửa, duyệt kết quả: Quản trị, Kỹ thuật viên, Trưởng khoa. */
+export const useCanEditResults = () => useSessionStore((s) => hasAnyRole(s.user?.roles, ['quan-tri', 'ky-thuat-vien', 'truong-khoa']));
+/** Huỷ duyệt: Quản trị, Trưởng khoa. */
+export const useCanUnapprove = () => useSessionStore((s) => hasAnyRole(s.user?.roles, ['quan-tri', 'truong-khoa']));
+
 // Phiên đăng nhập giữ ở localStorage: mở lại trình duyệt không phải đăng nhập lại cho tới khi
 // token hết hạn (12 giờ) hoặc bấm Đăng xuất.
 export const useSessionStore = create<SessionState>()(

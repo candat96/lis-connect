@@ -24,6 +24,8 @@ Cần PostgreSQL 18. Phòng khám và agent hiện tạo bằng lệnh của ser
 | `GET /api/auth/me` | phiên hiện tại |
 | `GET /api/samples?from&to&status&q` | danh sách mẫu theo ngày chỉ định |
 | `GET /api/samples/:id` | bảng chỉ số của mẫu (kèm khoảng tham chiếu, cờ, bản chờ thay thế) |
+| `PUT /api/results/items/:id`, `POST /api/samples/:id/approve|unapprove`, `POST /api/results/:id/pending/accept|reject` | nhập / sửa, duyệt, huỷ duyệt, xử lý giá trị máy gửi lại |
+| `GET/POST/PUT /api/users`, `POST /api/users/me/password` | nhân sự, tự đổi mật khẩu |
 | `GET /api/catalog/services` | cây dịch vụ / chỉ số |
 | `GET /api/instruments`, `GET /api/instruments/:id/channels` | máy, trạng thái agent báo về, map kênh |
 | `POST/PUT/DELETE /api/instruments…` | thêm / sửa / xoá máy, cấu hình kết nối, gán agent (Quản trị) |
@@ -36,5 +38,5 @@ Mật khẩu dùng chung định dạng Argon2id với app .NET nên tài khoả
 
 ## Chưa chuyển sang NestJS
 
-Nhận kết quả từ agent (`/agent/v1`, hiện do `src/Lis.Server` .NET phục vụ trên cùng CSDL), nhập/sửa/duyệt
-kết quả, tiếp nhận + cấp barcode, sửa danh mục và map kênh, quản lý tài khoản, phân quyền theo vai trò, in.
+Nhận kết quả từ agent (`/agent/v1`, hiện do `src/Lis.Server` .NET phục vụ trên cùng CSDL), tiếp nhận + cấp barcode,
+sửa danh mục và khoảng tham chiếu, cài đặt cơ sở / barcode / máy in, in tem và phiếu kết quả, hồ sơ HIS.

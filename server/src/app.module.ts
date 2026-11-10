@@ -8,7 +8,8 @@ import { AuthService } from './auth/auth.service';
 import { CatalogController } from './catalog/catalog.controller';
 import { APP_CONFIG, AppConfig, loadConfig } from './config';
 import { InstrumentsController } from './instruments/instruments.controller';
-import { ResultsController } from './results/results.controller';
+import { ResultItemsController, ResultsController } from './results/results.controller';
+import { ResultsWriteService } from './results/results-write.service';
 import { ResultsService } from './results/results.service';
 import { TenancyService } from './tenancy/tenancy.service';
 import { UsersController } from './users/users.controller';
@@ -24,7 +25,7 @@ const configProvider = { provide: APP_CONFIG, useFactory: loadConfig };
       useFactory: (config: AppConfig) => ({ secret: config.jwtSecret, signOptions: { expiresIn: '12h' } }),
     }),
   ],
-  controllers: [AuthController, ResultsController, CatalogController, InstrumentsController, AgentsController, LogsController, UsersController],
-  providers: [configProvider, TenancyService, AuthService, AuthGuard, ResultsService],
+  controllers: [AuthController, ResultsController, CatalogController, InstrumentsController, AgentsController, LogsController, UsersController, ResultItemsController],
+  providers: [configProvider, TenancyService, AuthService, AuthGuard, ResultsService, ResultsWriteService],
 })
 export class AppModule {}
