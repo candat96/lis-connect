@@ -231,6 +231,38 @@ export const logService = {
     api<AgentLog[]>('/agent-logs', { query: filter }),
 };
 
+// ---- Nhân sự (tài khoản đăng nhập) ----
+export const ROLE_OPTIONS = [
+  { value: 'quan-tri', label: 'Quản trị', hint: 'toàn quyền: cài đặt máy, agent, danh mục, nhân sự' },
+  { value: 'truong-khoa', label: 'Trưởng khoa', hint: 'như kỹ thuật viên, thêm huỷ duyệt kết quả' },
+  { value: 'ky-thuat-vien', label: 'Kỹ thuật viên', hint: 'nhập, sửa, duyệt kết quả; theo dõi máy, xem log' },
+  { value: 'tiep-nhan', label: 'Tiếp nhận', hint: 'tiếp nhận người bệnh, in tem; xem kết quả' },
+] as const;
+
+export const roleLabel = (code: string) => ROLE_OPTIONS.find((r) => r.value === code)?.label ?? code;
+
+export interface User {
+  id: string;
+  username: string;
+  fullName: string;
+  title: string | null;
+  roles: string[];
+  active: boolean;
+  /** Đang tạm khoá do nhập sai mật khẩu nhiều lần (tới thời điểm này). */
+  lockedUntil: string | null;
+  lastLoginAt: string | null;
+}
+
+export const userService = {
+  list: () => api<User[]>('/users'),
+  create: (input: { username: string; fullName: string; title: string | null; roles: string[]; password: string }) =>
+    api<{ id: string }>('/users', { method: 'POST', body: input }),
+  update: (id: string, input: { fullName: string; title: string | null; roles: string[]; active: boolean; newPassword: string | null }) =>
+    api<void>(`/users/${id}`, { method: 'PUT', body: input }),
+  changeOwnPassword: (currentPassword: string, newPassword: string) =>
+    api<void>('/users/me/password', { method: 'POST', body: { currentPassword, newPassword } }),
+};
+
 /** Khoá cache TanStack Query — một chỗ để không gõ trùng/sai. */
 export const qk = {
   samples: (filter: object) => ['samples', filter] as const,
@@ -240,5 +272,6 @@ export const qk = {
   channels: (id: string) => ['instruments', id, 'channels'] as const,
   unmapped: (id: string) => ['instruments', id, 'unmapped'] as const,
   agents: ['agents'] as const,
+  users: ['users'] as const,
   logs: (filter: object) => ['agent-logs', filter] as const,
 };

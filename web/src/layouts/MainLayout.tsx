@@ -1,10 +1,12 @@
-import { ApiOutlined, AppstoreOutlined, ClusterOutlined, DownOutlined, FileSearchOutlined, ExperimentOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ShopOutlined } from '@ant-design/icons';
+import { ApiOutlined, AppstoreOutlined, ClusterOutlined, DownOutlined, FileSearchOutlined, KeyOutlined, TeamOutlined, ExperimentOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ShopOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { Avatar, Button, Dropdown, Flex, Grid, Layout, Menu, Spin, Typography } from 'antd';
 import { Suspense, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import logo from '@/assets/logo.png';
-import { useSessionStore } from '@/stores/sessionStore';
+import { roleLabel } from '@/services';
+import { useIsAdmin, useSessionStore } from '@/stores/sessionStore';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 // Các màn đã có trên web. Màn chưa chuyển (Tiếp nhận, Tài khoản, Cài đặt) vẫn dùng app Windows.
 export const NAV = [
@@ -13,11 +15,8 @@ export const NAV = [
   { key: '/may', label: 'Máy & map kênh', icon: <ApiOutlined /> },
   { key: '/agent', label: 'Agent', icon: <ClusterOutlined /> },
   { key: '/log-agent', label: 'Log agent', icon: <FileSearchOutlined /> },
+  { key: '/nhan-su', label: 'Nhân sự', icon: <TeamOutlined />, adminOnly: true },
 ];
-
-const ROLE_LABEL: Record<string, string> = {
-  'quan-tri': 'Quản trị', 'ky-thuat-vien': 'Kỹ thuật viên', 'tiep-nhan': 'Tiếp nhận', 'truong-khoa': 'Trưởng khoa',
-};
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -32,6 +31,10 @@ export function MainLayout() {
   const queryClient = useQueryClient();
   const screens = Grid.useBreakpoint();
   const [collapsed, setCollapsed] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const isAdmin = useIsAdmin();
+  // Mục chỉ dành cho Quản trị thì ẩn với vai trò khác (máy chủ vẫn chặn nếu gõ thẳng đường dẫn).
+  const nav = NAV.filter((n) => !('adminOnly' in n) || isAdmin).map(({ key, label, icon }) => ({ key, label, icon }));
 
   if (!token || !user) return <Navigate to="/dang-nhap" replace state={{ next: pathname }} />;
 
@@ -57,7 +60,11 @@ export function MainLayout() {
         <Typography.Text type="secondary" style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>/ Xét nghiệm</Typography.Text>
         <div style={{ flex: 1 }} />
         <Typography.Text type="secondary"><ShopOutlined /> {clinic?.code.toUpperCase()}</Typography.Text>
-        <Dropdown trigger={['click']} menu={{ items: [{ key: 'logout', icon: <LogoutOutlined />, danger: true, label: 'Đăng xuất', onClick: logout }] }}>
+        <Dropdown trigger={['click']} menu={{ items: [
+          { key: 'pw', icon: <KeyOutlined />, label: 'Đổi mật khẩu', onClick: () => setPasswordOpen(true) },
+          { type: 'divider' },
+          { key: 'logout', icon: <LogoutOutlined />, danger: true, label: 'Đăng xuất', onClick: logout },
+        ] }}>
           <Button type="text" style={{ height: 44 }} aria-label="Tài khoản">
             <Flex align="center" gap={8}>
               <Avatar size={30} style={{ background: 'var(--c-brand-tint)', color: 'var(--c-brand-hover)', fontWeight: 700 }}>
@@ -66,7 +73,7 @@ export function MainLayout() {
               <Flex vertical align="start" style={{ lineHeight: 1.2 }}>
                 <span style={{ fontWeight: 600 }}>{user.fullName}</span>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {user.roles.map((r) => ROLE_LABEL[r] ?? r).join(', ')}
+                  {user.roles.map(roleLabel).join(', ')}
                 </Typography.Text>
               </Flex>
               <DownOutlined style={{ fontSize: 10 }} />
@@ -79,8 +86,8 @@ export function MainLayout() {
           <Menu
             mode="inline"
             className="module-menu"
-            items={NAV}
-            selectedKeys={NAV.filter((n) => pathname.startsWith(n.key)).map((n) => n.key)}
+            items={nav}
+            selectedKeys={nav.filter((n) => pathname.startsWith(n.key)).map((n) => n.key)}
             onClick={({ key }) => navigate(key)}
             style={{ borderInlineEnd: 'none', padding: 8 }}
           />
@@ -95,6 +102,7 @@ export function MainLayout() {
           </Suspense>
         </Layout.Content>
       </Layout>
+      <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
     </Layout>
   );
 }

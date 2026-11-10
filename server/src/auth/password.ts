@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { argon2id } from 'hash-wasm';
 
 // Mật khẩu băm Argon2id, chuỗi lưu CSDL: argon2id$<m KiB>$<t>$<p>$<salt b64>$<hash b64>
@@ -31,4 +31,19 @@ export async function verifyPassword(password: string, stored: string): Promise<
     password, salt, parallelism, iterations, memorySize: memoryKib, hashLength: expected.length, outputType: 'binary',
   });
   return actual.length === expected.length && timingSafeEqual(Buffer.from(actual), expected);
+}
+
+/** Mật khẩu tối thiểu 8 ký tự (cùng quy tắc với app .NET). Trả về câu báo lỗi, hoặc null nếu hợp lệ. */
+export function passwordProblem(password: string): string | null {
+  return password.length < 8 ? 'Mật khẩu tối thiểu 8 ký tự' : null;
+}
+
+/** Băm mật khẩu với salt ngẫu nhiên mới — cùng tham số và định dạng với Lis.Data.Auth.PasswordHasher (64 MB, 3 lượt, 1 luồng). */
+export async function hashPassword(password: string): Promise<string> {
+  const memoryKib = 64 * 1024;
+  const iterations = 3;
+  const parallelism = 1;
+  const salt = randomBytes(16);
+  const hash = await argon2id({ password, salt, parallelism, iterations, memorySize: memoryKib, hashLength: 32, outputType: 'binary' });
+  return [PREFIX, memoryKib, iterations, parallelism, salt.toString('base64'), Buffer.from(hash).toString('base64')].join('$');
 }

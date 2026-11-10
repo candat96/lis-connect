@@ -31,6 +31,11 @@ const STATUS: Record<string, Record<string, StatusDef>> = {
     offline: { label: 'Không báo về', color: 'warning', icon: <ExclamationCircleOutlined /> },
     never: { label: 'Chưa từng kết nối', color: 'default', icon: <QuestionCircleOutlined /> },
   },
+  user: {
+    active: { label: 'Đang hoạt động', color: 'success', icon: <CheckCircleOutlined /> },
+    locked: { label: 'Tạm khoá (sai mật khẩu)', color: 'warning', icon: <ExclamationCircleOutlined /> },
+    disabled: { label: 'Đã ngừng', color: 'default', icon: <CloseCircleOutlined /> },
+  },
 };
 
 export function StatusTag({ domain, value }: { domain: keyof typeof STATUS; value: string }) {

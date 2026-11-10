@@ -11,6 +11,7 @@ import { InstrumentsController } from './instruments/instruments.controller';
 import { ResultsController } from './results/results.controller';
 import { ResultsService } from './results/results.service';
 import { TenancyService } from './tenancy/tenancy.service';
+import { UsersController } from './users/users.controller';
 
 const configProvider = { provide: APP_CONFIG, useFactory: loadConfig };
 
@@ -23,7 +24,7 @@ const configProvider = { provide: APP_CONFIG, useFactory: loadConfig };
       useFactory: (config: AppConfig) => ({ secret: config.jwtSecret, signOptions: { expiresIn: '12h' } }),
     }),
   ],
-  controllers: [AuthController, ResultsController, CatalogController, InstrumentsController, AgentsController, LogsController],
+  controllers: [AuthController, ResultsController, CatalogController, InstrumentsController, AgentsController, LogsController, UsersController],
   providers: [configProvider, TenancyService, AuthService, AuthGuard, ResultsService],
 })
 export class AppModule {}
