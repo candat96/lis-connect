@@ -65,8 +65,15 @@ cuối lấy được — dùng khi bật máy mà chưa có mạng).
 | `GET /instruments` | các máy gán cho máy trạm này (cấu hình kết nối, driver) |
 | `POST /readings` | một bản tin kết quả → ghi vào phiếu, tự dò map kênh; gửi lại trả `duplicate: true` |
 | `POST /order-queries` | máy hỏi chỉ định theo barcode → các mã kênh cần chạy |
-| `POST /status` | trạng thái kết nối từng máy (web sẽ hiển thị) |
+| `POST /status` | trạng thái kết nối từng máy (web hiển thị) |
+| `POST /logs` | log thô: mọi byte đi/về với máy (hex) + sự kiện, gửi theo lô mỗi giây; server giữ 14 ngày |
+
+## Cài đặt trên web
+
+Máy xét nghiệm (giao thức, cổng COM/TCP, agent phụ trách), map kênh, và agent (tạo, lấy khoá, cấp khoá mới) đều làm trên web
+(`../web`, API ở `../server`). Agent chỉ cần `Server:Url` + `Server:AgentKey`; cấu hình máy nó tự lấy về mỗi 30 giây.
+Khi triển khai, đặt reverse proxy để một tên miền phục vụ cả ba: `/` → web, `/api` → server NestJS, `/agent/v1` → Lis.Server.
 
 ## Chưa có
 
-Giao diện web, đăng nhập web, in tem qua agent, đẩy log thô lên server, nhận chỉ định từ HIS.
+In tem qua agent, nhận chỉ định từ HIS, chuyển API agent (`/agent/v1`) sang NestJS.

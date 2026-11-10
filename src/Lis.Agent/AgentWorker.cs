@@ -26,7 +26,8 @@ public sealed record AgentPaths(string Root)
 /// trước — mất mạng lúc bật máy vẫn nối được máy xét nghiệm và giữ kết quả trên đĩa), chạy kết nối
 /// máy qua <see cref="InstrumentConnectionManager"/>, định kỳ nạp lại cấu hình và báo trạng thái.
 /// </summary>
-public sealed class AgentWorker(ServerClient server, AgentPaths paths, ILogger<AgentWorker> logger, TimeProvider clock) : BackgroundService
+public sealed class AgentWorker(
+    ServerClient server, AgentPaths paths, LogUploader uploader, ILogger<AgentWorker> logger, TimeProvider clock) : BackgroundService
 {
     public static readonly TimeSpan ReloadInterval = TimeSpan.FromSeconds(30);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -45,8 +46,11 @@ public sealed class AgentWorker(ServerClient server, AgentPaths paths, ILogger<A
 
         logger.LogInformation("Agent \"{Agent}\" — phòng khám {Clinic}, máy trạm {Workstation}", me.AgentName, me.ClinicCode, me.WorkstationCode);
 
+        var uploading = uploader.RunAsync(stoppingToken);
+        uploader.AgentNote($"Agent \"{me.AgentName}\" khởi động trên máy {Environment.MachineName}");
+
         var manager = new InstrumentConnectionManager(
-            ListInstrumentsAsync, me.WorkstationCode, new RawLogStore(paths.RawLog), new HttpReadingSink(server),
+            ListInstrumentsAsync, me.WorkstationCode, new UploadingRawLogStore(new RawLogStore(paths.RawLog), uploader), new HttpReadingSink(server),
             new HttpOrderQueries(server), paths.Pending, clock);
         manager.StatusChanged += status =>
         {
@@ -70,6 +74,7 @@ public sealed class AgentWorker(ServerClient server, AgentPaths paths, ILogger<A
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     logger.LogWarning("Chưa làm mới được với server: {Message}", ex.Message);
+                    uploader.AgentNote($"Chưa làm mới được với server: {ex.Message}");
                 }
 
                 await Task.Delay(ReloadInterval, clock, stoppingToken);
@@ -81,6 +86,13 @@ public sealed class AgentWorker(ServerClient server, AgentPaths paths, ILogger<A
         finally
         {
             await manager.StopAllAsync();
+            try
+            {
+                await uploading;
+            }
+            catch (OperationCanceledException)
+            {
+            }
         }
     }
 

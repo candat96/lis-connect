@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Dapper;
 using Lis.Core.Ingest;
 using Lis.Data.Instruments;
 using Lis.Server.Tenancy;
@@ -22,6 +23,11 @@ public sealed record InstrumentStatusReport(
     Guid InstrumentId, string State, string Text, DateTimeOffset? LastResultAt, int SamplesReceived, int PendingToRetry);
 
 public sealed record StatusRequest(IReadOnlyList<InstrumentStatusReport> Instruments);
+
+/// <summary>Một dòng log agent đẩy lên: byte đi/về với máy (hex), sự kiện kết nối, hoặc cảnh báo của agent (không có máy).</summary>
+public sealed record AgentLogLine(Guid? InstrumentId, DateTimeOffset At, string Direction, string? Session, string? Hex, string? Note);
+
+public sealed record LogsRequest(IReadOnlyList<AgentLogLine> Entries);
 
 /// <summary>
 /// API cho Lis.Agent (<c>/agent/v1</c>). Xác thực bằng header <c>X-Agent-Key</c>; khoá xác định
@@ -127,12 +133,67 @@ public static class AgentEndpoints
             return Results.Ok(new OrderQueryResponse(await tenant.OrderQueries.ChannelsToRunAsync(request.InstrumentId, request.Barcode, ct)));
         });
 
+        // Log thô (dữ liệu máy gửi/nhận nguyên văn + sự kiện) để xem trên web. Lô tối đa 500 dòng.
+        group.MapPost("/logs", async (LogsRequest request, HttpContext http, TenantRegistry tenants) =>
+        {
+            var id = Identity(http);
+            if (request.Entries.Count > MaxLogBatch)
+            {
+                return Results.Problem($"Mỗi lô tối đa {MaxLogBatch} dòng log", statusCode: StatusCodes.Status413PayloadTooLarge);
+            }
+
+            var tenant = tenants.For(id.Clinic);
+            var mine = (await tenant.Instruments.ListAsync()).Where(i => IsMine(i, id)).Select(i => i.Id).ToHashSet();
+            var rows = request.Entries
+                .Where(e => Directions.Contains(e.Direction) && (e.InstrumentId is null || mine.Contains(e.InstrumentId.Value)))
+                .Select(e => new
+                {
+                    agentId = id.Agent.Id,
+                    instrumentId = e.InstrumentId,
+                    at = e.At.ToUniversalTime(),
+                    direction = e.Direction,
+                    session = Truncate(e.Session, 64),
+                    hex = Truncate(e.Hex, MaxHexLength),
+                    note = Truncate(e.Note, 2000),
+                })
+                .ToList();
+
+            await using var connection = await tenant.Db.OpenAsync();
+            if (rows.Count > 0)
+            {
+                await connection.ExecuteAsync(
+                    """
+                    INSERT INTO agent_log (agent_id, instrument_id, at, direction, session, hex, note)
+                    VALUES (@agentId, @instrumentId, @at, @direction, @session, @hex, @note)
+                    """,
+                    rows);
+            }
+
+            // Dọn dòng cũ: mỗi phòng khám tối đa một lần mỗi giờ.
+            var now = DateTimeOffset.UtcNow;
+            if (LastPurge.GetValueOrDefault(id.Clinic.Id) < now.AddHours(-1))
+            {
+                LastPurge[id.Clinic.Id] = now;
+                await connection.ExecuteAsync($"DELETE FROM agent_log WHERE at < now() - interval '{LogRetentionDays} days'");
+            }
+
+            return Results.Ok(new { stored = rows.Count });
+        });
+
         group.MapPost("/status", async (StatusRequest request, HttpContext http, MasterStore master) =>
         {
             await master.TouchAgentAsync(Identity(http).Agent.Id, JsonSerializer.Serialize(request.Instruments, Json));
             return Results.NoContent();
         });
     }
+
+    private const int MaxLogBatch = 500;
+    private const int MaxHexLength = 64 * 1024;
+    private const int LogRetentionDays = 14;
+    private static readonly HashSet<string> Directions = ["in", "out", "event", "agent"];
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTimeOffset> LastPurge = new();
+
+    private static string? Truncate(string? text, int max) => text is null || text.Length <= max ? text : text[..max];
 
     private static AgentIdentity Identity(HttpContext http) => (AgentIdentity)http.Items[IdentityItem]!;
 

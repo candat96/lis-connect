@@ -26,6 +26,11 @@ const STATUS: Record<string, Record<string, StatusDef>> = {
     offline: { label: 'Agent không báo về', color: 'warning', icon: <ExclamationCircleOutlined /> },
     'no-agent': { label: 'Chưa gán agent', color: 'default', icon: <QuestionCircleOutlined /> },
   },
+  agent: {
+    online: { label: 'Đang chạy', color: 'success', icon: <CheckCircleOutlined /> },
+    offline: { label: 'Không báo về', color: 'warning', icon: <ExclamationCircleOutlined /> },
+    never: { label: 'Chưa từng kết nối', color: 'default', icon: <QuestionCircleOutlined /> },
+  },
 };
 
 export function StatusTag({ domain, value }: { domain: keyof typeof STATUS; value: string }) {

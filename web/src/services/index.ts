@@ -108,6 +108,20 @@ export interface InstrumentStatus {
   pendingToRetry: number;
 }
 
+export type ConnectionKind = 'none' | 'serial' | 'tcp-server' | 'tcp-client';
+
+/** Cấu hình kết nối máy ↔ agent (cổng COM hoặc TCP). */
+export interface Connection {
+  kind: ConnectionKind;
+  portName?: string;
+  baudRate?: number;
+  dataBits?: number;
+  parity?: string;
+  stopBits?: number;
+  host?: string;
+  tcpPort?: number;
+}
+
 export interface Instrument {
   id: string;
   name: string;
@@ -115,11 +129,23 @@ export interface Instrument {
   protocolFamily: string | null;
   workstationCode: string | null;
   active: boolean;
+  connection: Connection;
   connectionText: string | null;
   channelCount: number;
   pendingServiceCount: number;
-  agent: { name: string; lastSeenAt: string | null; online: boolean } | null;
+  unmappedCount: number;
+  agent: { id: string; name: string; lastSeenAt: string | null; online: boolean } | null;
   status: InstrumentStatus | null;
+}
+
+/** Dữ liệu form thêm / sửa máy. */
+export interface InstrumentInput {
+  name: string;
+  model: string | null;
+  protocolFamily: string | null;
+  workstationCode: string | null;
+  active: boolean;
+  connection: Connection;
 }
 
 export interface Channel {
@@ -133,9 +159,76 @@ export interface Channel {
   sendOnQuery: boolean;
 }
 
+export interface ChannelInput {
+  channelCode: string;
+  serviceCode: string;
+  decimals: number | null;
+  factor: number | null;
+  keepComparator: boolean;
+  sendOnQuery: boolean;
+}
+
+export interface UnmappedChannel {
+  channelCode: string;
+  count: number;
+  lastValue: string;
+  lastUnit: string | null;
+  lastAt: string;
+}
+
 export const instrumentService = {
   list: () => api<Instrument[]>('/instruments'),
+  create: (input: InstrumentInput) => api<{ id: string }>('/instruments', { method: 'POST', body: input }),
+  update: (id: string, input: InstrumentInput) => api<void>(`/instruments/${id}`, { method: 'PUT', body: input }),
+  remove: (id: string) => api<void>(`/instruments/${id}`, { method: 'DELETE' }),
   channels: (instrumentId: string) => api<Channel[]>(`/instruments/${instrumentId}/channels`),
+  addChannel: (instrumentId: string, input: ChannelInput) => api<{ id: string }>(`/instruments/${instrumentId}/channels`, { method: 'POST', body: input }),
+  updateChannel: (instrumentId: string, channelId: string, input: ChannelInput) =>
+    api<void>(`/instruments/${instrumentId}/channels/${channelId}`, { method: 'PUT', body: input }),
+  removeChannel: (instrumentId: string, channelId: string) => api<void>(`/instruments/${instrumentId}/channels/${channelId}`, { method: 'DELETE' }),
+  declare: (instrumentId: string, serviceCode: string) => api<void>(`/instruments/${instrumentId}/declared`, { method: 'POST', body: { serviceCode } }),
+  undeclare: (instrumentId: string, serviceCode: string) =>
+    api<void>(`/instruments/${instrumentId}/declared/${encodeURIComponent(serviceCode)}`, { method: 'DELETE' }),
+  unmapped: (instrumentId: string) => api<UnmappedChannel[]>(`/instruments/${instrumentId}/unmapped`),
+};
+
+// ---- Agent (máy tính cạnh máy xét nghiệm) ----
+export interface Agent {
+  id: string;
+  name: string;
+  workstationCode: string;
+  lastSeenAt: string | null;
+  online: boolean;
+  instruments: { id: string; name: string; status: InstrumentStatus | null }[];
+}
+
+export const agentService = {
+  list: () => api<Agent[]>('/agents'),
+  /** Trả về khoá agent — chỉ hiện một lần. */
+  create: (input: { name: string; workstationCode: string }) => api<{ id: string; key: string }>('/agents', { method: 'POST', body: input }),
+  update: (id: string, input: { name: string; workstationCode: string }) => api<void>(`/agents/${id}`, { method: 'PATCH', body: input }),
+  regenerateKey: (id: string) => api<{ key: string }>(`/agents/${id}/key`, { method: 'POST' }),
+  remove: (id: string) => api<void>(`/agents/${id}`, { method: 'DELETE' }),
+};
+
+// ---- Log agent ----
+export type LogDirection = 'in' | 'out' | 'event' | 'agent';
+
+export interface AgentLog {
+  id: string;
+  at: string;
+  agentId: string;
+  instrumentId: string | null;
+  instrumentName: string | null;
+  direction: LogDirection;
+  session: string | null;
+  hex: string | null;
+  note: string | null;
+}
+
+export const logService = {
+  list: (filter: { agentId?: string; instrumentId?: string; direction?: string; q?: string; beforeId?: string; limit?: number }) =>
+    api<AgentLog[]>('/agent-logs', { query: filter }),
 };
 
 /** Khoá cache TanStack Query — một chỗ để không gõ trùng/sai. */
@@ -145,4 +238,7 @@ export const qk = {
   catalog: ['catalog', 'services'] as const,
   instruments: ['instruments'] as const,
   channels: (id: string) => ['instruments', id, 'channels'] as const,
+  unmapped: (id: string) => ['instruments', id, 'unmapped'] as const,
+  agents: ['agents'] as const,
+  logs: (filter: object) => ['agent-logs', filter] as const,
 };

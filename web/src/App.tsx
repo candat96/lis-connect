@@ -8,6 +8,8 @@ const LoginPage = lazy(() => import('@/modules/dang-nhap/LoginPage'));
 const ResultsPage = lazy(() => import('@/modules/ket-qua/ResultsPage'));
 const CatalogPage = lazy(() => import('@/modules/danh-muc/CatalogPage'));
 const InstrumentsPage = lazy(() => import('@/modules/may/InstrumentsPage'));
+const AgentsPage = lazy(() => import('@/modules/agent/AgentsPage'));
+const LogsPage = lazy(() => import('@/modules/agent/LogsPage'));
 
 export default function App() {
   return (
@@ -20,6 +22,8 @@ export default function App() {
               <Route path="/ket-qua" element={<ResultsPage />} />
               <Route path="/danh-muc" element={<CatalogPage />} />
               <Route path="/may" element={<InstrumentsPage />} />
+              <Route path="/agent" element={<AgentsPage />} />
+              <Route path="/log-agent" element={<LogsPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/ket-qua" replace />} />
           </Routes>

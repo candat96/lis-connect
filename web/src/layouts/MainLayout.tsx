@@ -1,4 +1,4 @@
-import { ApiOutlined, AppstoreOutlined, DownOutlined, ExperimentOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ShopOutlined } from '@ant-design/icons';
+import { ApiOutlined, AppstoreOutlined, ClusterOutlined, DownOutlined, FileSearchOutlined, ExperimentOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ShopOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { Avatar, Button, Dropdown, Flex, Grid, Layout, Menu, Spin, Typography } from 'antd';
 import { Suspense, useState } from 'react';
@@ -11,6 +11,8 @@ export const NAV = [
   { key: '/ket-qua', label: 'Kết quả', icon: <ExperimentOutlined /> },
   { key: '/danh-muc', label: 'Danh mục', icon: <AppstoreOutlined /> },
   { key: '/may', label: 'Máy & map kênh', icon: <ApiOutlined /> },
+  { key: '/agent', label: 'Agent', icon: <ClusterOutlined /> },
+  { key: '/log-agent', label: 'Log agent', icon: <FileSearchOutlined /> },
 ];
 
 const ROLE_LABEL: Record<string, string> = {

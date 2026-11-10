@@ -25,6 +25,7 @@ var dataRoot = builder.Configuration["DataDirectory"];
 builder.Services.AddSingleton(string.IsNullOrWhiteSpace(dataRoot) ? AgentPaths.Default : new AgentPaths(dataRoot));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(new ServerClient(ServerClient.CreateHttp(serverUrl, agentKey)));
+builder.Services.AddSingleton<LogUploader>();
 builder.Services.AddHostedService<AgentWorker>();
 
 await builder.Build().RunAsync();

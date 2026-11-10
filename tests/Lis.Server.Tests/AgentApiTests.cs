@@ -171,4 +171,27 @@ public sealed class AgentApiTests(ServerFixture fixture) : IClassFixture<ServerF
         forbidden.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await StoredValueAsync(a.Db, a.GluItemId)).ShouldBeNull();
     }
+
+    [Fact]
+    public async Task Logs_StoredForOwnInstruments_OthersDropped()
+    {
+        var env = await NewClinicAsync("pkl");
+        await using var factory = Factory();
+        var client = Client(factory, env.AgentKey);
+
+        await client.SendLogsAsync(
+        [
+            new AgentLogLine(env.InstrumentId, At, "in", "phien-1", "024142430D", null),
+            new AgentLogLine(env.InstrumentId, At.AddSeconds(1), "event", "phien-1", null, "Đã kết nối"),
+            new AgentLogLine(null, At.AddSeconds(2), "agent", null, null, "Agent khởi động"),
+            // Máy không thuộc agent này và chiều lạ → bỏ.
+            new AgentLogLine(Guid.NewGuid(), At, "in", null, "00", null),
+            new AgentLogLine(env.InstrumentId, At, "la", null, "00", null),
+        ], TestContext.Current.CancellationToken);
+
+        await using var connection = await env.Db.OpenAsync(TestContext.Current.CancellationToken);
+        var rows = (await connection.QueryAsync<(string Direction, string? Hex, string? Note)>(
+            "SELECT direction, hex, note FROM agent_log ORDER BY at")).ToList();
+        rows.ShouldBe([("in", "024142430D", null), ("event", null, "Đã kết nối"), ("agent", null, "Agent khởi động")]);
+    }
 }

@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { AgentsController } from './agents/agents.controller';
 import { AuthController } from './auth/auth.controller';
+import { LogsController } from './logs/logs.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { CatalogController } from './catalog/catalog.controller';
@@ -21,7 +23,7 @@ const configProvider = { provide: APP_CONFIG, useFactory: loadConfig };
       useFactory: (config: AppConfig) => ({ secret: config.jwtSecret, signOptions: { expiresIn: '12h' } }),
     }),
   ],
-  controllers: [AuthController, ResultsController, CatalogController, InstrumentsController],
+  controllers: [AuthController, ResultsController, CatalogController, InstrumentsController, AgentsController, LogsController],
   providers: [configProvider, TenancyService, AuthService, AuthGuard, ResultsService],
 })
 export class AppModule {}

@@ -15,6 +15,9 @@ public sealed record ReadingResponse(int Stored, int PendingReplacement, int Unm
 
 public sealed record OrderQueryResponse(IReadOnlyList<string> ChannelCodes);
 
+/// <summary>Một dòng log đẩy lên server: byte đi/về với máy (hex), sự kiện kết nối, hoặc cảnh báo của agent.</summary>
+public sealed record AgentLogLine(Guid? InstrumentId, DateTimeOffset At, string Direction, string? Session, string? Hex, string? Note);
+
 public sealed record InstrumentStatusReport(
     Guid InstrumentId, string State, string Text, DateTimeOffset? LastResultAt, int SamplesReceived, int PendingToRetry);
 
@@ -42,6 +45,12 @@ public sealed class ServerClient(HttpClient http)
 
     public async Task<IReadOnlyList<string>> OrderQueryAsync(Guid instrumentId, string barcode, CancellationToken ct = default) =>
         (await PostAsync<OrderQueryResponse>("agent/v1/order-queries", new { instrumentId, barcode }, ct)).ChannelCodes;
+
+    public async Task SendLogsAsync(IReadOnlyList<AgentLogLine> entries, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("agent/v1/logs", new { entries }, Json, ct);
+        await EnsureOkAsync(response, ct);
+    }
 
     public async Task SendStatusAsync(IReadOnlyList<InstrumentStatusReport> instruments, CancellationToken ct = default)
     {

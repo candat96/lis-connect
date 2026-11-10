@@ -16,7 +16,7 @@ npm test && npm run typecheck
 Cần PostgreSQL 18. Phòng khám và agent hiện tạo bằng lệnh của server .NET
 (`LisServer clinic add …`, `LisServer agent add …` — xem `../docs/server-agent.md`).
 
-## API đã có (đợt 1 — chỉ đọc)
+## API đã có
 
 | | |
 |---|---|
@@ -26,6 +26,10 @@ Cần PostgreSQL 18. Phòng khám và agent hiện tạo bằng lệnh của ser
 | `GET /api/samples/:id` | bảng chỉ số của mẫu (kèm khoảng tham chiếu, cờ, bản chờ thay thế) |
 | `GET /api/catalog/services` | cây dịch vụ / chỉ số |
 | `GET /api/instruments`, `GET /api/instruments/:id/channels` | máy, trạng thái agent báo về, map kênh |
+| `POST/PUT/DELETE /api/instruments…` | thêm / sửa / xoá máy, cấu hình kết nối, gán agent (Quản trị) |
+| `POST/PUT/DELETE /api/instruments/:id/channels…`, `…/declared`, `GET …/unmapped` | map kênh, khai chỉ số chờ dò, mã kênh máy gửi chưa map |
+| `GET/POST/PATCH/DELETE /api/agents`, `POST /api/agents/:id/key` | quản lý agent, cấp khoá (khoá chỉ trả một lần) |
+| `GET /api/agent-logs` | log agent đẩy lên (byte thô + sự kiện), lọc theo agent / máy / chiều / chữ |
 
 Mọi API trừ đăng nhập cần `Authorization: Bearer <token>`; token xác định luôn phòng khám.
 Mật khẩu dùng chung định dạng Argon2id với app .NET nên tài khoản cũ đăng nhập được.

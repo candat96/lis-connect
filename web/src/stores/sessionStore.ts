@@ -22,6 +22,9 @@ interface SessionState {
   clear: () => void;
 }
 
+/** Tài khoản Quản trị mới được sửa cài đặt (máy, map kênh, agent); máy chủ vẫn là nơi chặn cuối cùng. */
+export const useIsAdmin = () => useSessionStore((s) => s.user?.roles.includes('quan-tri') ?? false);
+
 // Phiên đăng nhập giữ ở localStorage: mở lại trình duyệt không phải đăng nhập lại cho tới khi
 // token hết hạn (12 giờ) hoặc bấm Đăng xuất.
 export const useSessionStore = create<SessionState>()(
