@@ -1,5 +1,7 @@
 # LIS Connect
 
+> **Bản web (server + agent + web):** xem [docs/HUONG-DAN-CAI-DAT.md](docs/HUONG-DAN-CAI-DAT.md) — khởi tạo, cài đặt, kết nối máy.
+
 Phần mềm quản lý xét nghiệm (LIS) cho khoa xét nghiệm, cài trên Windows, nối hai chiều với máy xét nghiệm và tích hợp được với HIS. Chi tiết mục đích, phạm vi và các quyết định thiết kế nằm ở bản thiết kế: [`docs/superpowers/specs/2026-11-03-lis-windows-design.md`](docs/superpowers/specs/2026-11-03-lis-windows-design.md).
 
 Kế hoạch triển khai (chia theo task) nằm ở: [`docs/superpowers/plans/2026-11-03-lis-01-nen-tang-va-lis-doc-lap.md`](docs/superpowers/plans/2026-11-03-lis-01-nen-tang-va-lis-doc-lap.md).

@@ -1,4 +1,6 @@
+using Lis.Core.Auth;
 using Lis.Data;
+using Lis.Data.Auth;
 using Lis.Server.Tenancy;
 using Npgsql;
 
@@ -7,7 +9,7 @@ namespace Lis.Server;
 /// <summary>Lệnh quản trị dòng lệnh của server: thêm phòng khám (tạo + migrate CSDL), thêm agent (in khoá).</summary>
 public static class AdminCommands
 {
-    public static bool IsCommand(string[] args) => args.Length > 0 && args[0] is "clinic" or "agent";
+    public static bool IsCommand(string[] args) => args.Length > 0 && args[0] is "clinic" or "agent" or "user";
 
     public static async Task<int> RunAsync(string[] args, MasterStore master, TenantRegistry tenants)
     {
@@ -26,10 +28,15 @@ public static class AdminCommands
                     }
 
                     return 0;
+                case ("user", "add"):
+                    return await AddUserAsync(
+                        Option(args, "--clinic"), Option(args, "--username"), Option(args, "--name"), Option(args, "--password"),
+                        OptionOrDefault(args, "--role", Roles.QuanTri), master, tenants);
                 case ("agent", "add"):
                     return await AddAgentAsync(Option(args, "--clinic"), Option(args, "--name"), Option(args, "--workstation"), master);
                 default:
-                    Console.Error.WriteLine("Lệnh: clinic add --code --name --db | clinic list | agent add --clinic --name --workstation");
+                    Console.Error.WriteLine(
+                        "Lệnh: clinic add --code --name --db | clinic list | user add --clinic --username --name --password [--role] | agent add --clinic --name --workstation");
                     return 2;
             }
         }
@@ -92,6 +99,37 @@ public static class AdminCommands
         Console.WriteLine("Khoá agent — CHỈ HIỆN MỘT LẦN, dán vào appsettings.json của agent (Server:AgentKey):");
         Console.WriteLine(key);
         return 0;
+    }
+
+    /// <summary>
+    /// Tạo một tài khoản đăng nhập cho phòng khám (mặc định vai trò Quản trị) — dùng để tạo tài khoản đầu tiên của phòng khám mới;
+    /// các tài khoản sau tạo trên web (mục Nhân sự).
+    /// </summary>
+    public static async Task<int> AddUserAsync(
+        string clinicCode, string username, string fullName, string password, string role, MasterStore master, TenantRegistry tenants)
+    {
+        var clinic = await master.FindClinicAsync(clinicCode);
+        if (clinic is null)
+        {
+            Console.Error.WriteLine($"Không có phòng khám mã {clinicCode}");
+            return 2;
+        }
+
+        if (!Roles.All.Contains(role))
+        {
+            Console.Error.WriteLine($"Vai trò không hợp lệ: {role}. Hợp lệ: {string.Join(", ", Roles.All)}");
+            return 2;
+        }
+
+        var user = await new UserStore(tenants.For(clinic).Db).CreateAsync(username.Trim(), fullName.Trim(), title: null, password, [role]);
+        Console.WriteLine($"Đã tạo tài khoản {user.Username} ({user.FullName}, vai trò {role}) cho phòng khám {clinic.Code}.");
+        return 0;
+    }
+
+    private static string OptionOrDefault(string[] args, string name, string fallback)
+    {
+        var index = Array.IndexOf(args, name);
+        return index >= 0 && index + 1 < args.Length ? args[index + 1] : fallback;
     }
 
     private static string Option(string[] args, string name)

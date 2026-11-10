@@ -1,9 +1,12 @@
-// Danh mục dịch vụ / chỉ số: bảng cây — gói mở ra các chỉ số con. Đợt này chỉ xem; sửa danh mục vẫn ở app Windows.
-import { SearchOutlined } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
-import { Alert, Card, Empty, Flex, Input, Select, Space, Table, Tag, Typography } from 'antd';
+// Danh mục dịch vụ / chỉ số: bảng cây — gói mở ra các chỉ số con. Quản trị thêm / sửa / xoá được (ServiceModal).
+import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert, App, Button, Card, Empty, Flex, Input, Select, Space, Table, Tag, Typography } from 'antd';
 import { useMemo, useState } from 'react';
 import { catalogService, qk, type CatalogService } from '@/services';
+import { DeleteButton } from '@/shared/ui/DeleteButton';
+import { useIsAdmin } from '@/stores/sessionStore';
+import { ServiceModal } from './ServiceModal';
 
 // Dòng của bảng cây: chỉ số lá không có `children` (mảng rỗng sẽ làm antd hiện nút mở vô nghĩa).
 type Row = Omit<CatalogService, 'children'> & { children?: Row[]; childCount: number };
@@ -20,6 +23,16 @@ const fold = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').rep
 export default function CatalogPage() {
   const [search, setSearch] = useState('');
   const [group, setGroup] = useState<string | undefined>();
+  const [editing, setEditing] = useState<string | 'new' | null>(null);
+  const isAdmin = useIsAdmin();
+  const { message } = App.useApp();
+  const queryClient = useQueryClient();
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['catalog'] });
+  const remove = useMutation({
+    mutationFn: (id: string) => catalogService.remove(id),
+    onSuccess: async () => { await refresh(); message.success('Đã xoá dịch vụ'); },
+    onError: (e) => message.error((e as Error).message, 8),
+  });
   const services = useQuery({ queryKey: qk.catalog, queryFn: catalogService.services, staleTime: 60_000 });
 
   const groups = useMemo(() => [...new Set((services.data ?? []).map((s) => s.groupName ?? 'Khác'))], [services.data]);
@@ -43,7 +56,10 @@ export default function CatalogPage() {
     <div data-screen="danh-muc">
       <div className="page-header">
         <h1 className="page-title">Danh mục dịch vụ và chỉ số</h1>
-        <Typography.Text type="secondary">{rows.length} dịch vụ · {leafCount} chỉ số</Typography.Text>
+        <Space size={12}>
+          <Typography.Text type="secondary">{rows.length} dịch vụ · {leafCount} chỉ số</Typography.Text>
+          {isAdmin && <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>Thêm dịch vụ</Button>}
+        </Space>
       </div>
 
       <Card size="small">
@@ -56,7 +72,7 @@ export default function CatalogPage() {
           </Flex>
           {services.error && <Alert type="error" showIcon message={(services.error as Error).message} />}
           <Table<Row>
-            rowKey="id" size="small" bordered loading={services.isLoading} dataSource={rows} scroll={{ x: 1180 }}
+            rowKey="id" size="small" bordered loading={services.isLoading} dataSource={rows} scroll={{ x: 1300 }}
             pagination={{ defaultPageSize: 50, showSizeChanger: true, showTotal: (total) => `${total} dịch vụ` }}
             // Đang tìm thì mở sẵn các gói để thấy chỉ số con khớp.
             expandable={search.trim() ? { expandedRowKeys: rows.filter((r) => r.isPanel).map((r) => r.id) } : undefined}
@@ -78,10 +94,25 @@ export default function CatalogPage() {
               { title: 'Kiểu KQ', dataIndex: 'valueType', width: 92, render: (v: string, row) => (row.isPanel ? '' : VALUE_TYPE[v] ?? v) },
               { title: 'Đơn vị', dataIndex: 'unit', width: 92, render: (v: string | null, row) => (row.isPanel ? '' : v ?? '') },
               { title: 'Khoảng tham chiếu', dataIndex: 'rangeText', render: (v: string | null, row) => (row.isPanel ? '' : v ?? '') },
+              ...(isAdmin
+                ? [{
+                  // Ghim phải để nút luôn thấy khi bảng phải cuộn ngang.
+                  title: '', width: 116, align: 'right' as const, fixed: 'right' as const,
+                  render: (_: unknown, row: Row) => (
+                    <Space size={4}>
+                      <Button size="small" onClick={() => setEditing(row.id)}>Sửa</Button>
+                      <DeleteButton title={`Xoá "${row.name}"?`} description="Chỉ xoá được dịch vụ chưa từng có trong phiếu chỉ định." onConfirm={() => remove.mutateAsync(row.id)} />
+                    </Space>
+                  ),
+                }]
+                : []),
             ]}
           />
         </Flex>
       </Card>
+
+      <ServiceModal target={editing} services={services.data ?? []} onClose={() => setEditing(null)}
+        onSaved={async () => { setEditing(null); await refresh(); }} />
     </div>
   );
 }

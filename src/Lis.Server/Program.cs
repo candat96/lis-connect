@@ -6,6 +6,7 @@ using Lis.Server.Tenancy;
 // Lệnh quản trị (chạy rồi thoát):
 //   LisServer clinic add --code pkstl --name "Phòng khám STL" --db lis
 //   LisServer clinic list
+//   LisServer user add --clinic pkstl --username admin --name "Quản trị" --password "..."   (tài khoản Quản trị đầu tiên)
 //   LisServer agent add --clinic pkstl --name "Máy phòng xét nghiệm" --workstation XN-01
 // Không có lệnh → chạy server web.
 var builder = WebApplication.CreateBuilder(args);

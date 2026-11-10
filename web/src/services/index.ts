@@ -119,8 +119,64 @@ export interface CatalogService {
   children: CatalogService[];
 }
 
+/** Một khoảng tham chiếu. Tuổi lưu theo ngày (1 tháng = 30 ngày, 1 năm = 365 ngày). */
+export interface RangeInput {
+  sex: 'M' | 'F' | null;
+  ageFromDays: number | null;
+  ageToDays: number | null;
+  instrumentId: string | null;
+  low: number | null;
+  high: number | null;
+  criticalLow: number | null;
+  criticalHigh: number | null;
+  textRange: string | null;
+}
+
+/** Luật quy đổi giá trị định tính máy gửi ("pos") sang chữ hiển thị ("Dương tính") và cờ. */
+export interface QualitativeRuleInput {
+  instrumentId: string | null;
+  rawValue: string;
+  displayValue: string;
+  flag: string | null;
+}
+
+export interface ServiceInput {
+  code: string;
+  name: string;
+  groupName: string | null;
+  specimenTypeId: string;
+  unit: string | null;
+  valueType: string;
+  decimals: number | null;
+  printOrder: number | null;
+  isPanel: boolean;
+  autoApprove: boolean;
+  active: boolean;
+  hisCode: string | null;
+  childIds: string[];
+  ranges: RangeInput[];
+  qualitativeRules: QualitativeRuleInput[];
+}
+
+export interface ServiceDetail extends Omit<ServiceInput, 'childIds' | 'specimenTypeId'> {
+  id: string;
+  specimenTypeId: string | null;
+  children: { id: string; code: string; name: string }[];
+}
+
+export interface CatalogMeta {
+  specimenTypes: { id: string; code: string; name: string }[];
+  groups: string[];
+  instruments: { id: string; name: string }[];
+}
+
 export const catalogService = {
   services: () => api<CatalogService[]>('/catalog/services'),
+  meta: () => api<CatalogMeta>('/catalog/meta'),
+  detail: (id: string) => api<ServiceDetail>(`/catalog/services/${id}`),
+  create: (input: ServiceInput) => api<{ id: string }>('/catalog/services', { method: 'POST', body: input }),
+  update: (id: string, input: ServiceInput) => api<void>(`/catalog/services/${id}`, { method: 'PUT', body: input }),
+  remove: (id: string) => api<void>(`/catalog/services/${id}`, { method: 'DELETE' }),
 };
 
 // ---- Máy xét nghiệm ----
@@ -293,6 +349,8 @@ export const qk = {
   sample: (id: string) => ['sample', id] as const,
   resultHistory: (orderItemId: string) => ['result-history', orderItemId] as const,
   catalog: ['catalog', 'services'] as const,
+  catalogMeta: ['catalog', 'meta'] as const,
+  catalogDetail: (id: string) => ['catalog', 'detail', id] as const,
   instruments: ['instruments'] as const,
   channels: (id: string) => ['instruments', id, 'channels'] as const,
   unmapped: (id: string) => ['instruments', id, 'unmapped'] as const,
