@@ -1,6 +1,6 @@
 using System.Text;
 using System.Threading.Channels;
-using Lis.App.Services.Connections;
+using Lis.Connections;
 using Lis.Core.Drivers.Hl7;
 using Lis.Core.Ingest;
 using Lis.Core.Instruments;

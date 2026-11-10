@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using Lis.Core.Instruments;
 
-namespace Lis.App.Services.Connections;
+namespace Lis.Connections;
 
 /// <summary>
 /// Một đường truyền byte hai chiều tới máy xét nghiệm (COM hoặc TCP). <see cref="OpenAsync"/> chờ

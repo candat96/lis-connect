@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Server LIS Connect online: giữ dữ liệu của nhiều phòng khám (mỗi phòng khám một CSDL),
+       nhận kết quả từ Lis.Agent đặt cạnh máy xét nghiệm, phục vụ giao diện web. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>LisServer</AssemblyName>
+    <RootNamespace>Lis.Server</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lis.Core\Lis.Core.csproj" />
+    <ProjectReference Include="..\Lis.Data\Lis.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lis.Server.Tests" />
+  </ItemGroup>
+
+</Project>

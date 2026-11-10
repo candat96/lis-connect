@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lis.App.Services;
-using Lis.App.Services.Connections;
+using Lis.Connections;
 using Lis.Core.Auth;
 using Lis.Core.Instruments;
 using Lis.Data.Auth;

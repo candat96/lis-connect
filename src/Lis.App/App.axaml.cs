@@ -24,7 +24,7 @@ public partial class App : Application
     private MainWindow? _mainWindow;
 
     /// <summary>Kết nối máy của phiên đăng nhập hiện tại — đóng khi thoát từ khay.</summary>
-    private Lis.App.Services.Connections.IInstrumentConnections? _activeConnections;
+    private Lis.Connections.IInstrumentConnections? _activeConnections;
 
     public override void Initialize()
     {
@@ -302,7 +302,7 @@ public partial class App : Application
     /// trước khi mở bộ mới. Lỗi (CSDL chưa lên) không chặn giao diện; mở màn Máy &amp; map / lưu máy
     /// sẽ nạp lại.
     /// </summary>
-    private async Task SwitchConnectionsAsync(Lis.App.Services.Connections.IInstrumentConnections next)
+    private async Task SwitchConnectionsAsync(Lis.Connections.IInstrumentConnections next)
     {
         var previous = _activeConnections;
         _activeConnections = next;

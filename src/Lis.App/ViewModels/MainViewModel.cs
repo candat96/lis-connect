@@ -47,7 +47,7 @@ public partial class MainViewModel : ObservableObject
         HisProfileStore hisProfileStore, HisConnectionTester hisConnectionTester,
         ICatalogExcelImporter catalogExcelImporter, IFilePicker filePicker,
         ISerialPortService? serialPorts = null, IRawLogStore? rawLogs = null,
-        Lis.App.Services.Connections.IInstrumentConnections? connections = null, string? workstationCode = null,
+        Lis.Connections.IInstrumentConnections? connections = null, string? workstationCode = null,
         Lis.Data.Ingest.IChannelMapLearning? channelLearning = null)
     {
         CurrentUser = currentUser;

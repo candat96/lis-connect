@@ -3,7 +3,7 @@ using Lis.Core.Instruments;
 using Lis.Data.Ingest;
 using Lis.Data.Instruments;
 
-namespace Lis.App.Services.Connections;
+namespace Lis.Connections;
 
 /// <summary>Kết nối máy đang chạy trên máy trạm này — màn Máy &amp; map đọc trạng thái và gọi nạp lại sau khi lưu.</summary>
 public interface IInstrumentConnections
@@ -28,7 +28,7 @@ public interface IInstrumentConnections
 /// trạm nhận để kết quả không ghi hai lần.
 /// </summary>
 public sealed class InstrumentConnectionManager(
-    IInstrumentStore store,
+    Func<Task<IReadOnlyList<InstrumentInfo>>> listInstruments,
     string? workstationCode,
     IRawLogStore rawLogs,
     IReadingSink sink,
@@ -66,7 +66,7 @@ public sealed class InstrumentConnectionManager(
         await _lock.WaitAsync();
         try
         {
-            var instruments = await store.ListAsync();
+            var instruments = await listInstruments();
             var wanted = new Dictionary<Guid, (InstrumentInfo Instrument, ConnectionSettings Settings, string Signature)>();
             foreach (var instrument in instruments)
             {

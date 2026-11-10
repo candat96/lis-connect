@@ -6,7 +6,7 @@ using Lis.Core.Instruments;
 using Lis.Data.Ingest;
 using Lis.Data.Instruments;
 
-namespace Lis.App.Services.Connections;
+namespace Lis.Connections;
 
 /// <summary>Trạng thái đường truyền của một máy.</summary>
 public enum LinkState

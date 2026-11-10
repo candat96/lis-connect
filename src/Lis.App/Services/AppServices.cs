@@ -1,5 +1,5 @@
 using Dapper;
-using Lis.App.Services.Connections;
+using Lis.Connections;
 using Lis.Data;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
@@ -51,7 +51,7 @@ public sealed class AppServices
         SerialPorts = new SerialPortService();
         RawLogs = new RawLogStore(RawLogStore.DefaultRoot);
         Connections = new InstrumentConnectionManager(
-            Instruments, WorkstationCode, RawLogs, new IngestReadingSink(new IngestService(Db, TimeProvider.System), ChannelLearning),
+            Instruments.ListAsync, WorkstationCode, RawLogs, new IngestReadingSink(new IngestService(Db, TimeProvider.System), ChannelLearning),
             new OrderQueryService(Db), InstrumentConnectionManager.DefaultPendingRoot, TimeProvider.System);
     }
 

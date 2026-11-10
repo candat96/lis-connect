@@ -11,6 +11,7 @@
     <ProjectReference Include="..\Lis.Core\Lis.Core.csproj" />
     <ProjectReference Include="..\Lis.Data\Lis.Data.csproj" />
     <ProjectReference Include="..\Lis.Reports\Lis.Reports.csproj" />
+    <ProjectReference Include="..\Lis.Connections\Lis.Connections.csproj" />
   </ItemGroup>
 
   <ItemGroup>
