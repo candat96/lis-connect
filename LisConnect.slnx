@@ -14,9 +14,11 @@
     <Project Path="tests/Lis.Data.Tests/Lis.Data.Tests.csproj" />
     <Project Path="tests/Lis.Reports.Tests/Lis.Reports.Tests.csproj" />
     <Project Path="tests/Lis.Server.Tests/Lis.Server.Tests.csproj" />
+    <Project Path="tests/Lis.Simulator.Tests/Lis.Simulator.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Lis.Screenshots/Lis.Screenshots.csproj" />
+    <Project Path="tools/Lis.Simulator/Lis.Simulator.csproj" />
     <Project Path="tools/Lis.SeedTool/Lis.SeedTool.csproj" />
   </Folder>
 </Solution>

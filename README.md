@@ -96,3 +96,20 @@ Tóm tắt:
 3. Chạy `LisConnect.exe` → hoàn thành wizard cài đặt
 4. Nạp danh mục từ `mau-danh-muc.xlsx`
 5. Tạo dữ liệu demo (tuỳ chọn): `Lis.SeedTool.exe seed-demo --conn "..."`
+
+## Bộ giả lập máy
+
+`tools/Lis.Simulator` đóng vai **máy xét nghiệm** nói chuyện với LIS qua TCP hoặc COM, để test và demo khi chưa có máy thật. Kết nối (chọn một): `--connect host:port` (LIS là TCP server), `--listen port` (LIS là TCP client), `--com COM3 --baud 9600`. Chữ ký ASTM/HL7/AU dựng đúng khuôn mà driver của `Lis.Core` hiểu; mã kênh viết đúng như máy gửi (AU: số Online Test No.).
+
+```
+# 1. Phát lại một tệp log thô (.listrace) — giữ khoảng thời gian gốc, --speed 0 = không chờ
+dotnet run --project tools/Lis.Simulator -- replay --file mau.listrace --connect 127.0.0.1:5100 --speed 1
+
+# 2. Gửi kết quả (hl7-mllp | astm-e1394 | beckman-au; --qc để gửi như mẫu QC)
+dotnet run --project tools/Lis.Simulator -- send --family hl7-mllp --barcode 2611100001 --result WBC=7.5 --result HGB=135 --connect 127.0.0.1:5100
+
+# 3. Hỏi chỉ định như máy (astm-e1394 | beckman-au), in câu LIS trả lời
+dotnet run --project tools/Lis.Simulator -- query --family beckman-au --barcode 2611100 --class-b --com COM3 --baud 9600
+```
+
+Riêng Beckman AU, bố cục cột phải khớp màn Online trên máy: `--class-b --bcc --test-digits 2|3 --sample-id-length N` hoặc `--au-config '{...}'` (cùng JSON với `driver_config` của máy). Test vòng tròn (bản tin của giả lập đưa qua driver thật) ở `tests/Lis.Simulator.Tests`.

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Lis.Core\Lis.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" />
+  </ItemGroup>
+
+  <!--
+    Bộ giả lập máy xét nghiệm (dòng lệnh): đóng vai MÁY nói chuyện với LIS qua TCP hoặc COM,
+    để test và demo khi chưa có máy thật. Phần dựng bản tin (Messages/) là lớp thuần, không IO.
+  -->
+
+</Project>
