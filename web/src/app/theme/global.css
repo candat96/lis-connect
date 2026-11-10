@@ -1,156 +1,828 @@
-html, body, #root { height: 100%; margin: 0; background: #EDF1F5; }
-/* Không dùng antialiased: trên macOS làm chữ mảnh và mờ */
-body { font-variant-numeric: tabular-nums; text-rendering: optimizeLegibility; }
-/* Chữ thường đậm 500 (Inter 400 trên Windows quá mảnh); khớp tokens.font.weight */
-body { font-weight: 500; }
-/* Nhãn trường đậm hơn chữ thường một bậc */
-.ant-form-item-label > label { font-weight: 600; }
-/* Tiêu đề khối: chữ đậm + vạch màu bên trái */
-.ant-card-head-title { font-weight: 600; }
-.ant-card-small > .ant-card-head { border-left: 3px solid #2C3782; }
-/* Ô bị khóa vẫn đọc được giá trị */
-.ant-input-disabled, .ant-input[disabled], .ant-select-disabled .ant-select-selection-item, .ant-picker-disabled input { color: #374151 !important; }
-/* Hậu tố đơn vị và placeholder của ô bị khóa: nền xám #F5F5F5 làm chữ nhạt chỉ còn ~2:1, đổi sang xám đậm đạt 4.5:1 */
-.ant-input-number-disabled .ant-input-number-suffix, .ant-input-number-affix-wrapper-disabled .ant-input-number-suffix, .ant-input-affix-wrapper-disabled .ant-input-suffix, .ant-select-disabled .ant-select-selection-placeholder { color: #4B5563 !important; }
-:focus-visible { outline: 2px solid #2C3782; outline-offset: 1px; }
-/* Ô nhập antd đã có viền + quầng sáng màu chủ đạo khi focus: bỏ outline chung để không thành viền đôi */
-.ant-input:focus-visible, .ant-input-affix-wrapper input:focus-visible, .ant-input-number-input:focus-visible,
-.ant-select-selection-search-input:focus-visible, .ant-picker input:focus-visible, textarea.ant-input:focus-visible,
-.ant-input-password input:focus-visible { outline: none; }
-@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
-/* Số tiền, số lượng: cùng font giao diện, chữ số đều cột; mã (BN, lượt, toa…): font đơn cách */
-.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
-.code { font-family: 'Roboto Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-/* Inter: bật chữ số đều cột toàn cục cho bảng và ô nhập */
-body { font-feature-settings: 'tnum' 1, 'cv11' 1; }
-/* Dấu * bắt buộc cho ô chọn (không dùng cờ required của Form.Item vì antd đặt aria-required lên div, sai ARIA) */
-.form-req .ant-form-item-label > label::before { content: '*'; display: inline-block; margin-inline-end: 4px; color: #DC2626; font-family: SimSun, sans-serif; line-height: 1; }
-/* Tab trong màn (không áp cho thanh đa tab .ws-tabs). Quy ước chung cho mọi màn, kể cả màn làm sau.
-   Cấp 1 (mặc định): thanh phân đoạn — các tab nằm chung một rãnh nền xám, tab đang chọn tô nền màu chính, chữ trắng đậm.
-   Cấp 2 (size="small", tab con trong khối): nhẹ hơn để không tranh với cấp 1 — tab chọn nền xanh nhạt, chữ màu chính đậm. */
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav { margin-bottom: 10px; }
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav::before { border-bottom: 0; }
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-ink-bar { display: none; }
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-nav-list { background: #E2E8EF; border-radius: 8px; padding: 3px; gap: 2px; }
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab {
-  margin: 0 !important; padding: 5px 16px !important; border: 0; border-radius: 6px;
-  background: transparent; font-weight: 600; transition: background 0.15s, color 0.15s;
+/* Biến --c-* do applyCssVars() sinh từ tokens.ts. Không viết mã hex ở đây. */
+html,
+body,
+#root {
+  height: 100%;
 }
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab .ant-tabs-tab-btn { color: #1F2937; }
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab:not(.ant-tabs-tab-disabled):not(.ant-tabs-tab-active):hover { background: #FFFFFF; }
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab-active { background: #2C3782 !important; box-shadow: 0 1px 2px rgba(44, 55, 130, 0.35); }
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab-active .ant-tabs-tab-btn { color: #FFFFFF !important; font-weight: 700; }
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab-active .ant-badge-count { box-shadow: 0 0 0 1px #FFFFFF; }
-.ant-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab-disabled .ant-tabs-tab-btn { color: #4B5563; }
-/* Cấp 2 */
-.ant-tabs-small:not(.ws-tabs) > .ant-tabs-nav { margin-bottom: 8px; }
-.ant-tabs-small:not(.ws-tabs) > .ant-tabs-nav::before { border-bottom: 1px solid #DCE3EA; }
-.ant-tabs-small:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-nav-list { background: transparent; padding: 0 0 4px; gap: 4px; }
-.ant-tabs-small:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab { padding: 3px 12px !important; }
-.ant-tabs-small:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab:not(.ant-tabs-tab-disabled):not(.ant-tabs-tab-active):hover { background: #F3F7FA; }
-.ant-tabs-small:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab-active { background: #E2E4F5 !important; box-shadow: inset 0 0 0 1px #2C3782; }
-.ant-tabs-small:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab-active .ant-tabs-tab-btn { color: #2C3782 !important; }
-/* Tab màn khám: tab chưa chọn nền trắng có viền để nổi trên rãnh, tab chọn nền màu chính */
-.exam-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-nav-list { gap: 4px; }
-/* Tab Khám: màn ≥ 1280px chia hai cột (nhập khám | kết luận) để đỡ cuộn; hẹp hơn thì xếp dọc */
-.exam-two-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
-@media (min-width: 1280px) { .exam-two-col { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
-/* Form khám gọn: khoảng cách giữa các ô và nhãn sát ô */
-.exam-compact .ant-form-item { margin-bottom: 8px; }
-.exam-compact .ant-form-vertical .ant-form-item-label, .exam-compact .ant-form-vertical .ant-form-item .ant-form-item-label { padding-bottom: 2px; }
-.exam-compact .ant-card-small > .ant-card-body { padding: 8px 12px; }
-.exam-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab:not(.ant-tabs-tab-active) {
-  background: #FFFFFF; box-shadow: inset 0 0 0 1px #CBD5E1, 0 1px 1px rgba(15, 23, 42, 0.06);
-}
-.exam-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab:not(.ant-tabs-tab-disabled):not(.ant-tabs-tab-active):hover {
-  background: #F2F3FA; box-shadow: inset 0 0 0 1px #2C3782;
-}
-.exam-tabs:not(.ws-tabs) > .ant-tabs-nav .ant-tabs-tab:not(.ant-tabs-tab-active):hover .ant-tabs-tab-btn { color: #2C3782; }
-/* Bảng dạng danh sách thẻ (.card-rows): mỗi dòng là một thẻ tách rời có viền, vạch màu trái (--card-accent) */
-.card-rows .ant-table { background: transparent; }
-.card-rows .ant-table table { border-collapse: separate !important; border-spacing: 0 6px; }
-.card-rows .ant-table-tbody > tr > td { background: #FFFFFF; border-top: 1px solid #DCE3EA !important; border-bottom: 1px solid #DCE3EA !important; }
-.card-rows .ant-table-tbody > tr > td:first-child { border-left: 4px solid var(--card-accent, #AEB9C6); border-radius: 6px 0 0 6px; }
-.card-rows .ant-table-tbody > tr > td:last-child { border-right: 1px solid #DCE3EA; border-radius: 0 6px 6px 0; }
-.card-rows .ant-table-tbody > tr:hover > td { background: #F3F7FA !important; }
-.card-rows .ant-table-tbody > tr.card-row-selected > td { background: #E8EAF7 !important; border-top-color: #2C3782 !important; border-bottom-color: #2C3782 !important; }
-.card-rows .ant-table-tbody > tr.card-row-selected > td:last-child { border-right-color: #2C3782; }
-.card-rows .ant-table-tbody > tr.ant-table-placeholder > td { border: 0 !important; background: transparent; }
-/* Thẻ trong .card-rows: cột cố định để chữ dài cắt bằng dấu … thay vì đẩy rộng bảng */
-.card-rows .ant-table table { table-layout: fixed !important; width: 100% !important; }
-.doc-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; row-gap: 2px; align-items: baseline; }
-.doc-card__sub { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #374151; }
-.doc-card__meta { grid-column: 1 / -1; color: #4B5563; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.doc-card .ant-tag { margin-inline-end: 0; }
-/* Đợt 2: dòng chỉ số xét nghiệm bất thường (luôn đi kèm cờ có chữ, không chỉ dựa vào màu) */
-.lab-flag-warn > td { background: #FFF7E6 !important; }
-.lab-flag-danger > td { background: #FEF2F2 !important; }
-.lab-group-row > td { background: #F3F7FA !important; font-weight: 700; }
-/* Hàng đo độ rộng cột của bảng antd (aria-hidden) chứa bản sao tiêu đề cột, ví dụ ô chọn tất cả: ẩn hẳn để không còn phần tử nhận focus trong vùng aria-hidden (vẫn giữ bố cục để đo) */
-.ant-table-measure-row { visibility: hidden; }
-/* Đợt 2: in sổ xét nghiệm thì ẩn bộ lọc */
-@media print { .book-page .book-filter { display: none !important; } }
-/* Đợt 3: dòng tiêu đề nhóm của bảng ma trận theo ngày (DailyMatrixTable) */
-.daily-matrix-group-row > td { background: #F3F7FA !important; font-weight: 700; }
 
-/* Trang đăng nhập: hai khối (thương hiệu + form), xếp dọc khi màn hẹp */
-.login-shell { display: grid; grid-template-columns: minmax(280px, 400px) minmax(0, 480px); width: min(880px, 100%);
-  min-height: 520px; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(15, 40, 60, 0.16); }
-.login-brand { display: flex; flex-direction: column; gap: 16px; padding: 40px 36px; }
-.login-form { display: flex; flex-direction: column; justify-content: center; padding: 44px 48px; }
-.login-form kbd { font-family: inherit; font-size: 0.9em; padding: 1px 6px; border: 1px solid #AEB9C6; border-bottom-width: 2px; border-radius: 4px; }
-@media (max-width: 760px) {
-  .login-shell { grid-template-columns: 1fr; min-height: 0; }
-  .login-brand { padding: 24px; }
-  .login-form { padding: 28px 24px; }
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-fg);
+  font-family: var(--font-sans);
+  /* Chữ thường 500 (đậm hơn 400) cho màn hình y tế dễ đọc; mẫu in dùng font riêng của bản in */
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-/* Danh mục dịch vụ: màu dòng theo BHYT; dòng đang trỏ (↑/↓) nổi bật nhất.
-   Bảng cuộn ảo (virtual) dựng dòng bằng div nên chọn theo .ant-table-row > .ant-table-cell (áp được cả tr/td). */
-.ant-table-row.svc-row-bhyt > .ant-table-cell { background: #F0FAF5; }
-.ant-table-row.svc-row-ngoai > .ant-table-cell { background: #FFF7E6; }
-.ant-table-row.svc-row-bhyt:hover > .ant-table-cell { background: #DDF3E8 !important; }
-.ant-table-row.svc-row-ngoai:hover > .ant-table-cell { background: #FDEBC8 !important; }
-.ant-table-row.lookup-row-active > .ant-table-cell { background: #C9CDEC !important; font-weight: 600; }
-.ant-table-row.lookup-row-active > .ant-table-cell:first-child { box-shadow: inset 4px 0 0 #2C3782; }
-.svc-legend { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; border: 1px solid #AEB9C6; }
-.svc-legend-bhyt { background: #F0FAF5; border-color: #059669; }
-.svc-legend-ngoai { background: #FFF7E6; border-color: #D97706; }
-/* Bảng có kẻ (bordered): đường kẻ đậm hơn mặc định antd để dễ dò cột/dòng */
-.ant-table-wrapper .ant-table.ant-table-bordered > .ant-table-container { border-color: #AEB9C6 !important; }
-.ant-table-wrapper .ant-table.ant-table-bordered .ant-table-cell { border-color: #AEB9C6 !important; }
-.ant-table-wrapper .ant-table.ant-table-bordered .ant-table-thead > tr > th { border-bottom: 2px solid #8A97A8 !important; }
-/* Ô nhập kết quả CĐHA: nền trắng, viền đậm, focus viền màu chính + vầng sáng — nổi trên nền bảng xám */
-.ris-input.ant-input, .ris-input.ant-input-outlined { background: #FFFFFF !important; border: 1px solid #AEB9C6 !important; border-radius: 4px; }
-.ris-input.ant-input:hover { border-color: #2C3782 !important; }
-.ris-input.ant-input:focus, .ris-input.ant-input-focused { border-color: #2C3782 !important; box-shadow: 0 0 0 3px rgba(44, 55, 130, 0.22) !important; background: #FFFFFF !important; }
 
-/* Bảng kết quả xét nghiệm: kẻ ô rõ từng dòng/cột, đầu bảng dính, dòng đang nhập tô nền */
-.lab-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; background: #FFFFFF; }
-.lab-table th, .lab-table td { border: 1px solid #AEB9C6; padding: 3px 8px; vertical-align: middle; }
-.lab-table thead th { position: sticky; top: 0; z-index: 2; background: #DCE6EF; font-weight: 700; text-align: left; padding: 6px 8px; box-shadow: inset 0 -2px 0 #6B7480; }
-.lab-table tr.lab-group td { background: #2C3782; color: #FFFFFF; font-weight: 700; letter-spacing: .2px; padding: 5px 8px; }
-.lab-table tr.lab-svc td { background: #E8EAF7; font-weight: 700; }
-.lab-table tr.lab-ind.lab-odd td { background: #F7F9FB; }
-.lab-table tr.lab-ind:hover td { background: #EEEFF9; }
-.lab-table tr.lab-ind.lab-H td { background: #FEF2F2; }
-.lab-table tr.lab-ind.lab-L td { background: #EFF6FF; }
-.lab-table tr.lab-ind:focus-within td { background: #D8DBF1; }
-.lab-table td.lab-stt { text-align: center; color: #4B5563; }
-.lab-table td.lab-muted { color: #374151; }
-.lab-table .ant-select { width: 100%; }
-/* Popup chọn phòng + DV khám (tiếp đón): cùng bảng màu danh mục chỉ định — hưởng BHYT xanh lá, ngoài DM BHYT cam;
-   dòng đang trỏ xanh đậm có vạch trái. Dòng dựng bằng div nên có lớp riêng. */
-.pick-row { border-radius: 4px; border-left: 4px solid transparent; }
-.pick-row-bhyt { background: #F0FAF5; border-left-color: #059669; }
-.pick-row-ngoai { background: #FFF7E6; border-left-color: #D97706; }
-.pick-row-bhyt:hover { background: #DDF3E8; }
-.pick-row-ngoai:hover { background: #FDEBC8; }
-.pick-row-room:hover { background: #F3F7FA; }
-.pick-row.pick-row-active { background: #C9CDEC; border-left-color: #2C3782; font-weight: 600; }
-.pick-row.pick-row-dim { opacity: .55; }
-.pick-chip { display: inline-block; padding: 0 6px; border-radius: 4px; line-height: 20px; }
-.pick-chip-bhyt { background: #DDF3E8; color: #065F46; }
-.pick-chip-ngoai { background: #FDEBC8; color: #92400E; }
-/* Kết quả XN mức nguy hiểm (HH/LL): nền đỏ đậm hơn, viền trái để nhìn ra ngay */
-.lab-table tr.lab-ind.lab-crit td { background: #FDE2E2; }
-.lab-table tr.lab-ind.lab-crit td:first-child { box-shadow: inset 3px 0 0 #B42318; }
+h1,
+h2,
+h3,
+.page-title {
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 22px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.surface {
+  background: var(--c-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+/* Menu, nhãn form, đầu bảng: 500 cho dễ đọc */
+.ant-menu-item,
+.ant-menu-submenu-title,
+.ant-form-item-label > label,
+.ant-table-thead > tr > th {
+  font-weight: 500;
+}
+
+/* Launcher */
+.launcher-grid {
+  display: grid;
+  /* 4 phân hệ đang dùng: một hàng 4 ô đều nhau; màn hẹp 2 ô, điện thoại 1 ô */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 960px) {
+  .launcher-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .launcher-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.module-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  min-height: 150px;
+  background: var(--c-card);
+  border: 1px solid var(--c-border);
+  border-radius: 16px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition:
+    border-color 0.15s,
+    transform 0.15s,
+    box-shadow 0.15s;
+}
+
+.module-tile:hover,
+.module-tile:focus-visible {
+  border-color: var(--c-brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-ring) 35%, transparent);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.module-tile__icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 22px;
+  background: var(--c-brand-tint);
+  color: var(--c-brand-hover);
+}
+
+.module-tile__name {
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.module-tile__desc {
+  color: var(--c-muted-fg);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Khung đăng nhập */
+/* ===== Trang đăng nhập: ảnh nền + lớp sóng xanh ngọc, thẻ đăng nhập bên phải (thiết kế Figma) ===== */
+.login-page {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--c-hero-deep) center / cover no-repeat;
+  color: var(--c-card);
+}
+/* Phủ màu xanh ngọc từ trên xuống cho ảnh dịu lại, chữ trắng đọc rõ */
+.login-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--c-hero-deep) 70%, transparent) 0%,
+    color-mix(in srgb, var(--c-hero-deep) 25%, transparent) 45%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+.login-wave {
+  position: absolute;
+  left: -10%;
+  width: 125%;
+  height: 70%;
+  pointer-events: none;
+}
+.login-wave--light {
+  bottom: -14%;
+  transform: rotate(11.6deg);
+  transform-origin: left bottom;
+}
+.login-wave--deep {
+  bottom: -18%;
+  transform: rotate(8.2deg);
+  transform-origin: left bottom;
+}
+.login-top {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 36px 48px 0;
+}
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+.login-lang.ant-select .ant-select-selector {
+  border-radius: 999px !important;
+  border-color: var(--c-card) !important;
+  font-weight: 600;
+}
+.login-body {
+  position: relative;
+  z-index: 2;
+  min-height: calc(100vh - 110px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 463px;
+  align-items: center;
+  gap: 48px;
+  padding: 24px 150px 48px 68px;
+}
+.login-hero {
+  align-self: end;
+  max-width: 660px;
+  padding-bottom: 6vh;
+}
+.login-hero h1 {
+  margin: 0 0 24px;
+  font-size: clamp(32px, 3.3vw, 48px);
+  white-space: nowrap;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.4px;
+  color: var(--c-card);
+}
+.login-hero p {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.login-card {
+  width: 100%;
+  background: var(--c-card);
+  color: var(--c-fg);
+  border-radius: 20px;
+  padding: 48px;
+  box-shadow: 0 40px 60px rgba(18, 26, 26, 0.18);
+}
+.login-card__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  margin-bottom: 40px;
+}
+.login-card__head h2 {
+  margin: 28px 0 0;
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--c-hero-deep);
+}
+.login-card__head p {
+  margin: 0;
+  color: var(--c-hero-deep);
+  font-size: 15px;
+}
+.login-card .ant-form-item-label > label {
+  color: var(--c-muted-fg);
+  font-weight: 500;
+}
+.login-card .login-req {
+  color: var(--c-danger);
+  margin-inline-start: 2px;
+}
+@media (max-width: 1180px) {
+  .login-body {
+    padding: 24px 48px 48px;
+  }
+  .login-hero p {
+    font-size: 18px;
+  }
+}
+@media (max-width: 900px) {
+  .login-body {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 24px 16px 48px;
+  }
+  .login-hero {
+    display: none;
+  }
+  .login-card {
+    max-width: 463px;
+    padding: 32px 24px;
+  }
+  .login-top {
+    padding: 20px 16px 0;
+  }
+  .login-brand {
+    font-size: 22px;
+  }
+}
+
+/* Số thứ tự tiếp đón (ô số lớn trên màn và phiếu) */
+.queue-no {
+  min-width: 64px;
+  padding: 4px 10px;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--c-brand);
+  border: 2px solid var(--c-brand);
+  border-radius: 12px;
+}
+
+/* Thanh nút thao tác chính ghim ở đáy vùng nội dung */
+.sticky-actions {
+  /* Ghim đáy màn hình (kể cả khi nội dung ngắn), chừa menu trái theo --content-left của ModuleLayout */
+  position: fixed;
+  bottom: 0;
+  left: var(--content-left, 0px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 24px;
+  background: var(--c-card);
+  border-top: 1px solid var(--c-border);
+  box-shadow: 0 -4px 12px color-mix(in srgb, var(--c-fg) 8%, transparent);
+}
+/* Chừa chỗ cho thanh nút ghim đáy để nội dung cuối trang không bị che */
+.module-content:has(.sticky-actions) {
+  padding-bottom: 88px !important;
+}
+/* Tiêu đề thẻ nhỏ có nút bên phải (extra): đệm trên dưới để nút không sát mép */
+.ant-card-small > .ant-card-head {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+/* Thẻ có đầu màu nhạt theo brand (màn nghiệp vụ nhiều khối) */
+.card-accent > .ant-card-head {
+  background: var(--c-brand-tint);
+  color: var(--c-brand-hover);
+  border-bottom-color: color-mix(in srgb, var(--c-brand) 20%, transparent);
+}
+
+/* Hàng đợi phòng khám */
+.queue-item {
+  padding: 8px !important;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.queue-item:hover {
+  background: var(--c-muted);
+}
+.queue-item.active {
+  background: var(--c-brand-tint);
+}
+.queue-no.queue-no-sm {
+  min-width: 40px;
+  padding: 2px 6px;
+  font-size: 18px;
+  border-width: 1.5px;
+  border-radius: 8px;
+}
+.text-danger {
+  color: var(--c-danger);
+}
+
+/* Phiếu khám: 2 cột, mỗi cột các thẻ xếp dọc, thẻ cuối giãn cho hai cột bằng nhau */
+.exam-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.exam-form .ant-form-item {
+  margin-bottom: 12px;
+}
+.exam-info-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin-top: 6px;
+}
+.exam-info {
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * Modal neo cạnh trên (cách đỉnh ~6% màn hình), không căn giữa dọc: modal có ô tìm + danh sách thì khi lọc ra
+ * danh sách ngắn/dài, ô tìm vẫn đứng yên (căn giữa thì cả modal nhảy lên xuống theo chiều cao).
+ * Hộp xác nhận (confirm) ngắn, cố định → vẫn căn giữa.
+ */
+.ant-modal-wrap {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.ant-modal-wrap:has(> .ant-modal-confirm) {
+  align-items: center;
+}
+.ant-modal-wrap .ant-modal {
+  top: 0;
+  margin: max(24px, 6vh) auto 24px;
+  padding-bottom: 0;
+}
+/* Độ rộng modal theo nội dung (prop width: MODAL_LG / MODAL_MD / MODAL_SM ở shared/modalSize.ts); nội dung dài cuộn bên trong */
+.ant-modal:not(.ant-modal-confirm):not(.print-modal) .ant-modal-body {
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Giữ chỗ thanh cuộn: lọc danh sách dài ↔ ngắn không làm ô tìm / cột nhảy ngang */
+  scrollbar-gutter: stable;
+}
+
+/* Dòng đã hủy trong bảng lịch sử: mờ đi nhưng vẫn đọc được */
+.row-muted td {
+  color: var(--c-muted-fg);
+  text-decoration: line-through;
+  text-decoration-color: var(--c-input);
+}
+
+/* Bảng kế hoạch buổi gói: căn trên cho ô nhiều dòng, không tô nền khi rê chuột (bảng nhập liệu) */
+.plan-table .ant-table-tbody > tr > td {
+  vertical-align: top;
+}
+.plan-table .ant-table-tbody > tr.ant-table-row:hover > td {
+  background: var(--c-card);
+}
+
+/* Ô nhập bị khóa (phiếu đã xong, chỉ xem): chữ vẫn đen để đọc rõ — nền xám + con trỏ cấm đã đủ báo không sửa được.
+   Nút bị khóa giữ màu mờ mặc định để không lẫn với nút bấm được. */
+.ant-input[disabled],
+.ant-input-disabled,
+.ant-input-affix-wrapper-disabled .ant-input,
+.ant-input-number-disabled .ant-input-number-input,
+.ant-picker-disabled .ant-picker-input > input,
+.ant-select-disabled .ant-select-selection-item,
+.ant-select-disabled .ant-select-selection-search-input,
+.ant-select-disabled.ant-select-multiple .ant-select-selection-item-content,
+textarea.ant-input[disabled] {
+  color: var(--c-fg) !important;
+  -webkit-text-fill-color: var(--c-fg);
+  opacity: 1;
+}
+.ant-input-number-disabled .ant-input-number-group-addon,
+.ant-input-group-addon:has(+ .ant-input-disabled),
+.ant-radio-button-wrapper-disabled.ant-radio-button-wrapper-checked,
+.ant-checkbox-wrapper-disabled .ant-checkbox-disabled + span {
+  color: var(--c-fg);
+}
+.ant-input[disabled]::placeholder,
+.ant-input-disabled::placeholder,
+.ant-input-affix-wrapper-disabled .ant-input::placeholder,
+.ant-input-number-disabled .ant-input-number-input::placeholder,
+.ant-picker-disabled .ant-picker-input > input::placeholder {
+  -webkit-text-fill-color: var(--c-input);
+  color: var(--c-input) !important;
+}
+
+/* Bảng Mô tả | Diễn giải của kết quả CĐHA (như RIS của HIS) */
+.ris-lines {
+  border: 1px solid var(--c-input);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ris-lines-head,
+.ris-line {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+}
+.ris-lines-head {
+  background: var(--c-muted);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--c-fg);
+}
+.ris-lines-head > span {
+  padding: 6px 10px;
+}
+.ris-lines-head > span:first-child {
+  border-right: 1px solid var(--c-input);
+}
+/* Mỗi ô kẻ rõ: đường ngang giữa các dòng, đường dọc giữa Mô tả | Diễn giải, chữ đen */
+.ris-line {
+  border-top: 1px solid var(--c-input);
+  align-items: stretch;
+}
+.ris-line > :first-child {
+  border-right: 1px solid var(--c-input);
+  border-radius: 0;
+  background: var(--c-muted);
+}
+.ris-line input,
+.ris-line textarea {
+  color: var(--c-fg) !important;
+  font-size: 14px;
+}
+.ris-line textarea {
+  resize: none;
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0;
+  padding: 5px 10px;
+}
+.ris-line > :first-child:focus,
+.ris-line textarea:focus {
+  background: var(--c-brand-tint);
+}
+.ris-line-group > :first-child {
+  background: var(--c-brand-tint);
+}
+
+/* Giờ thực hiện | giờ trả kết quả (cột phải màn CĐHA) */
+.ris-times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* Phiếu xét nghiệm (một bảng cho mọi dịch vụ của phiếu) */
+.lab-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+@media (max-width: 1100px) {
+  .lab-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.lab-field > label {
+  display: block;
+  font-size: 12px;
+  color: var(--c-muted-fg);
+  margin-bottom: 2px;
+}
+.lab-grid-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--c-input);
+  border-radius: 8px;
+}
+.lab-grid {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  color: var(--c-fg);
+}
+.lab-grid th {
+  background: var(--c-muted);
+  font-weight: 600;
+  font-size: 13px;
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--c-input);
+}
+.lab-grid td {
+  padding: 3px 8px;
+  border-top: 1px solid var(--c-input);
+  vertical-align: middle;
+}
+.lab-grid th + th,
+.lab-grid td + td {
+  border-left: 1px solid var(--c-input);
+}
+.lab-grid td.c {
+  text-align: center;
+}
+.lab-grid tr.lab-svc td {
+  background: var(--c-brand-tint);
+  padding: 6px 8px;
+}
+.lab-grid tr.lab-abn td {
+  background: var(--c-warning-tint);
+}
+
+/* Dòng kiểm kê đang lệch */
+.row-diff > td {
+  background: var(--c-warning-tint) !important;
+}
+
+/* Menu trái: tên dài (báo cáo, danh mục) xuống dòng hiện đủ thay vì cắt "…" */
+.module-menu.ant-menu-inline .ant-menu-item,
+.module-menu.ant-menu-inline .ant-menu-submenu-title {
+  height: auto;
+  min-height: 40px;
+  line-height: 1.4;
+  padding-top: 9px;
+  padding-bottom: 9px;
+  white-space: normal;
+}
+.module-menu.ant-menu-inline .ant-menu-title-content {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* Toàn hệ thống: nhãn / tiêu đề đậm và rõ màu hơn */
+.ant-descriptions-bordered .ant-descriptions-view {
+  background: var(--c-card);
+}
+.ant-descriptions-item-label {
+  font-weight: 600;
+}
+.ant-descriptions-item-content {
+  font-weight: 600;
+}
+.ant-table-thead > tr > th {
+  font-weight: 700 !important;
+}
+.ant-tabs-tab {
+  font-weight: 600;
+}
+/* Tab đang chọn: chữ đậm + vạch dưới dày, đường kẻ nền rõ hơn để thấy ngay đang ở tab nào */
+.ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  font-weight: 700;
+}
+/*
+ * Tab dạng "line" (mặc định) hiển thị như các nút tách rời: mỗi tab có viền + nền nhạt, cách nhau 6px;
+ * tab đang chọn nền brand chữ trắng — nhìn là biết đang ở tab nào. Tab dạng card giữ kiểu antd.
+ */
+.ant-tabs-top:not(.ant-tabs-card) > .ant-tabs-nav {
+  margin-bottom: 12px;
+}
+.ant-tabs-top:not(.ant-tabs-card) > .ant-tabs-nav::before {
+  border-bottom: 0;
+}
+.ant-tabs-top:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-ink-bar {
+  display: none;
+}
+.ant-tabs-top:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab {
+  padding: 6px 14px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-muted);
+  color: var(--c-fg);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+.ant-tabs-top:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab + .ant-tabs-tab {
+  margin-left: 6px;
+}
+.ant-tabs-top:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab:hover {
+  border-color: var(--c-brand);
+  color: var(--c-brand);
+  background: var(--c-brand-tint);
+}
+.ant-tabs-top:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-active {
+  background: var(--c-brand);
+  border-color: var(--c-brand);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.ant-tabs-top:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn,
+.ant-tabs-top:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn:focus {
+  color: #fff !important;
+}
+.ant-tabs-top:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-disabled {
+  opacity: 0.5;
+}
+/* Segmented (tab lọc trạng thái): mục chọn nền brand chữ trắng đậm */
+.ant-segmented .ant-segmented-item-selected {
+  font-weight: 700;
+}
+.ant-segmented .ant-segmented-item-label {
+  font-weight: 600;
+}
+.ant-form-item-label > label {
+  font-weight: 600;
+}
+.ant-menu-item-group-title {
+  font-weight: 600;
+}
+.ant-card-head-title {
+  font-weight: 700;
+}
+
+/* Ngày giờ trong bảng / danh sách: một dòng, đậm, chữ số đều cột */
+.dt {
+  white-space: nowrap;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ant-table-cell .dt {
+  font-size: 14px;
+}
+
+/* Thanh mẫu PTTT ở đầu phiếu */
+.tpl-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: var(--c-brand-tint);
+  border: 1px solid color-mix(in srgb, var(--c-brand) 25%, transparent);
+  border-radius: 12px;
+}
+
+/* ── HRM: lưới lịch ca tuần */
+.shift-grid-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  background: var(--c-card);
+}
+.shift-grid {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 980px;
+  table-layout: fixed;
+}
+.shift-grid th,
+.shift-grid td {
+  border-bottom: 1px solid var(--c-border);
+  border-right: 1px solid var(--c-border);
+  padding: 6px;
+  vertical-align: top;
+}
+.shift-grid th {
+  background: var(--c-muted);
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+.shift-grid th:first-child,
+.shift-grid td.who {
+  width: 190px;
+  position: sticky;
+  left: 0;
+  background: var(--c-card);
+  z-index: 1;
+}
+.shift-grid th:first-child {
+  background: var(--c-muted);
+}
+.shift-grid .today {
+  background: var(--c-brand-tint);
+}
+.shift-grid td.who .muted {
+  color: var(--c-muted-fg);
+  font-size: 12px;
+}
+.shift-chip {
+  border: 1.5px solid;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shift-chip-room {
+  font-weight: 500;
+  color: var(--c-muted-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shift-grid td .shift-add {
+  opacity: 0.35;
+}
+.shift-grid td:hover .shift-add {
+  opacity: 1;
+}
+.att-grid td {
+  text-align: center;
+}
+
+/* Chọn gói dịch vụ (combo): danh sách chọn bằng ↑↓ + Enter */
+.combo-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.combo-item {
+  padding: 10px 12px;
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.combo-item.is-active {
+  border-color: var(--c-brand);
+  background: var(--c-brand-tint);
+}
+.combo-item.is-used {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Mã khách hàng đã lưu: một dòng gọn thay cho ô nhập */
+.login-card .login-tenant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--c-hero-light-bg, rgba(0, 0, 0, 0.04));
+}
+.login-card .login-tenant__name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.login-card .login-tenant__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  opacity: 0.7;
+}
+/* Nhãn tab bọc trong Badge (đếm số) phải ăn màu chữ của tab (trắng khi đang chọn) */
+.ant-tabs-tab-btn > .ant-badge {
+  color: inherit;
+}
+
+/* Trang luôn giữ chỗ thanh cuộn dọc: danh sách ngắn ↔ dài không làm cả trang (ô tìm, bảng) nhảy ngang */
+html {
+  scrollbar-gutter: stable;
+}
+/* Tiếp đón nhanh (form tiếp đón trong modal): nút Tiếp đón ghim đáy thân modal, không phủ ra ngoài màn */
+.quick-reception-modal .sticky-actions {
+  position: sticky;
+  left: auto;
+  right: auto;
+  bottom: 0;
+  margin-top: 12px;
+  padding: 10px 0 0;
+}
+
+/* Dòng bảng bấm để mở chi tiết (Danh sách tiếp đón) */
+.row-clickable {
+  cursor: pointer;
+}
+.row-clickable:focus-visible > td {
+  outline: none;
+  background: var(--c-brand-tint);
+}

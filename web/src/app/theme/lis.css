@@ -1,0 +1,64 @@
+/* Bổ sung riêng của LIS trên nền global.css chép từ clinic-web (để global.css đồng bộ lại được nguyên văn).
+   Chỉ dùng biến --c-* sinh từ tokens.ts, không viết mã hex. */
+
+/* Mã (barcode, mã chỉ số, mã kênh máy): chữ đơn cách, chữ số đều cột */
+.code {
+  font-family: 'Roboto Mono', ui-monospace, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dòng đang chọn trong bảng danh sách (mẫu, máy): nền brand nhạt + vạch brand bên trái */
+.ant-table-row.row-active > .ant-table-cell {
+  background: var(--c-brand-tint) !important;
+  font-weight: 600;
+}
+.ant-table-row.row-active > .ant-table-cell:first-child {
+  box-shadow: inset 4px 0 0 var(--c-brand);
+}
+
+/* Trang hai cột (danh sách | chi tiết): mỗi cột cuộn riêng, cao vừa màn hình */
+.split-page {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+.split-pane {
+  max-height: calc(100vh - 64px - 48px - 54px);
+  overflow: auto;
+}
+
+/* Bảng kết quả (.lab-grid của clinic): thêm dòng cờ thấp / cao / nguy hiểm — luôn kèm chữ ở cột Đánh giá */
+.lab-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.lab-grid td.muted,
+.lab-grid .muted {
+  color: var(--c-muted-fg);
+}
+.lab-grid tr.lab-low td {
+  background: var(--c-info-tint);
+}
+.lab-grid tr.lab-crit td {
+  background: var(--c-danger-tint);
+}
+.lab-grid tr.lab-crit td:first-child {
+  box-shadow: inset 3px 0 0 var(--c-danger);
+}
+.lab-grid .flag-text {
+  font-weight: 700;
+}
+.lab-grid tr.lab-abn .flag-text {
+  color: var(--c-warning);
+}
+.lab-grid tr.lab-low .flag-text {
+  color: var(--c-info);
+}
+.lab-grid tr.lab-crit .flag-text {
+  color: var(--c-danger);
+}

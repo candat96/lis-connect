@@ -1,9 +1,9 @@
 // Danh mục dịch vụ / chỉ số: bảng cây — gói mở ra các chỉ số con. Đợt này chỉ xem; sửa danh mục vẫn ở app Windows.
-import { useMemo, useState } from 'react';
-import { Alert, Card, Empty, Input, Select, Space, Table, Tag, Typography } from 'antd';
+import { SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
+import { Alert, Card, Empty, Flex, Input, Select, Space, Table, Tag, Typography } from 'antd';
+import { useMemo, useState } from 'react';
 import { catalogService, qk, type CatalogService } from '@/services';
-import { tokens } from '@/app/theme/tokens';
 
 // Dòng của bảng cây: chỉ số lá không có `children` (mảng rỗng sẽ làm antd hiện nút mở vô nghĩa).
 type Row = Omit<CatalogService, 'children'> & { children?: Row[]; childCount: number };
@@ -37,45 +37,51 @@ export default function CatalogPage() {
       });
   }, [services.data, search, group]);
 
-  const leafCount = useMemo(() => rows.reduce((n, s) => n + (s.isPanel ? s.childCount : 1), 0), [rows]);
+  const leafCount = useMemo(() => rows.reduce((n, s) => n + (s.isPanel ? s.children?.length ?? 0 : 1), 0), [rows]);
 
   return (
-    <Card data-screen="danh-muc" size="small" title="Danh mục dịch vụ và chỉ số" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-      styles={{ body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: tokens.space.sm } }}>
-      <Space wrap>
-        <Input.Search aria-label="Tìm theo mã hoặc tên" placeholder="Tìm theo mã hoặc tên (gõ không dấu cũng được)" allowClear style={{ width: 340 }}
-          onChange={(e) => setSearch(e.target.value)} />
-        <Select aria-label="Lọc theo nhóm" placeholder="Tất cả nhóm" allowClear style={{ width: 240 }} value={group} onChange={setGroup}
-          options={groups.map((g) => ({ value: g, label: g }))} />
+    <div data-screen="danh-muc">
+      <div className="page-header">
+        <h1 className="page-title">Danh mục dịch vụ và chỉ số</h1>
         <Typography.Text type="secondary">{rows.length} dịch vụ · {leafCount} chỉ số</Typography.Text>
-      </Space>
-      {services.error && <Alert type="error" showIcon message={(services.error as Error).message} />}
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-        <Table<Row>
-          rowKey="id" size="small" bordered sticky pagination={false} loading={services.isLoading} dataSource={rows}
-          // Đang tìm thì mở sẵn các gói để thấy chỉ số con khớp.
-          expandable={{ childrenColumnName: 'children', ...(search.trim() ? { expandedRowKeys: rows.filter((r) => r.isPanel).map((r) => r.id) } : {}) }}
-          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Không có dịch vụ nào khớp" /> }}
-          columns={[
-            { title: 'Mã', dataIndex: 'code', width: 190, render: (v: string) => <span className="code" style={{ fontWeight: 700 }}>{v}</span> },
-            {
-              title: 'Tên dịch vụ / chỉ số', dataIndex: 'name',
-              render: (v: string, row) => (
-                <Space size={6}>
-                  <span style={{ fontWeight: row.isPanel ? 700 : undefined }}>{v}</span>
-                  {row.isPanel && <Tag color="blue" style={{ marginInlineEnd: 0 }}>Gói · {row.childCount} chỉ số</Tag>}
-                  {!row.active && <Tag style={{ marginInlineEnd: 0 }}>Ngừng dùng</Tag>}
-                </Space>
-              ),
-            },
-            { title: 'Nhóm', dataIndex: 'groupName', width: 170, ellipsis: true, render: (v: string | null) => v ?? 'Khác' },
-            { title: 'Loại mẫu', dataIndex: 'specimenName', width: 190, ellipsis: true, render: (v: string | null) => v ?? '—' },
-            { title: 'Kiểu KQ', dataIndex: 'valueType', width: 84, render: (v: string, row) => (row.isPanel ? '' : VALUE_TYPE[v] ?? v) },
-            { title: 'Đơn vị', dataIndex: 'unit', width: 100, render: (v: string | null, row) => (row.isPanel ? '' : v ?? '') },
-            { title: 'Khoảng tham chiếu', dataIndex: 'rangeText', width: 300, ellipsis: true, render: (v: string | null, row) => (row.isPanel ? '' : v ?? '') },
-          ]}
-        />
       </div>
-    </Card>
+
+      <Card size="small">
+        <Flex vertical gap={12}>
+          <Flex gap={8} wrap>
+            <Input aria-label="Tìm theo mã hoặc tên" placeholder="Tìm theo mã hoặc tên (gõ không dấu cũng được)" allowClear prefix={<SearchOutlined />}
+              style={{ width: 380 }} onChange={(e) => setSearch(e.target.value)} />
+            <Select aria-label="Lọc theo nhóm" placeholder="Tất cả nhóm" allowClear style={{ width: 260 }} value={group} onChange={setGroup}
+              options={groups.map((g) => ({ value: g, label: g }))} />
+          </Flex>
+          {services.error && <Alert type="error" showIcon message={(services.error as Error).message} />}
+          <Table<Row>
+            rowKey="id" size="small" bordered loading={services.isLoading} dataSource={rows} scroll={{ x: 1180 }}
+            pagination={{ defaultPageSize: 50, showSizeChanger: true, showTotal: (total) => `${total} dịch vụ` }}
+            // Đang tìm thì mở sẵn các gói để thấy chỉ số con khớp.
+            expandable={search.trim() ? { expandedRowKeys: rows.filter((r) => r.isPanel).map((r) => r.id) } : undefined}
+            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Không có dịch vụ nào khớp" /> }}
+            columns={[
+              { title: 'Mã', dataIndex: 'code', width: 168, render: (v: string) => <span className="code">{v}</span> },
+              {
+                title: 'Tên dịch vụ / chỉ số', dataIndex: 'name', width: 340,
+                render: (v: string, row) => (
+                  <Space size={8}>
+                    <span style={{ fontWeight: row.isPanel ? 700 : undefined }}>{v}</span>
+                    {row.isPanel && <Tag color="green" style={{ marginInlineEnd: 0 }}>Gói · {row.childCount} chỉ số</Tag>}
+                    {!row.active && <Tag style={{ marginInlineEnd: 0 }}>Ngừng dùng</Tag>}
+                  </Space>
+                ),
+              },
+              { title: 'Nhóm', dataIndex: 'groupName', width: 130, ellipsis: true, render: (v: string | null) => v ?? 'Khác' },
+              { title: 'Loại mẫu', dataIndex: 'specimenName', width: 170, ellipsis: true, render: (v: string | null) => v ?? '—' },
+              { title: 'Kiểu KQ', dataIndex: 'valueType', width: 92, render: (v: string, row) => (row.isPanel ? '' : VALUE_TYPE[v] ?? v) },
+              { title: 'Đơn vị', dataIndex: 'unit', width: 92, render: (v: string | null, row) => (row.isPanel ? '' : v ?? '') },
+              { title: 'Khoảng tham chiếu', dataIndex: 'rangeText', render: (v: string | null, row) => (row.isPanel ? '' : v ?? '') },
+            ]}
+          />
+        </Flex>
+      </Card>
+    </div>
   );
 }

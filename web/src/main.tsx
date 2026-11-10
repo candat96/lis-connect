@@ -1,12 +1,13 @@
-// Font giao diện: Be Vietnam Pro (như his-web) — tự chứa, không cần Internet
-import '@fontsource/be-vietnam-pro/400.css';
-import '@fontsource/be-vietnam-pro/500.css';
-import '@fontsource/be-vietnam-pro/600.css';
-import '@fontsource/be-vietnam-pro/700.css';
+// Roboto (variable, có bộ chữ tiếng Việt) — cùng font với clinic-web
+import '@fontsource-variable/roboto/index.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { applyCssVars } from './app/theme/tokens';
 import './app/theme/global.css';
+import './app/theme/lis.css';
+
+applyCssVars();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

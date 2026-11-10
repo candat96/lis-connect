@@ -4,7 +4,7 @@ import viVN from 'antd/locale/vi_VN';
 import { QueryClientProvider } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import 'dayjs/locale/vi';
-import { antdTheme } from '@/app/theme/antdTheme';
+import { theme } from '@/app/theme/tokens';
 import { createQueryClient } from '@/services';
 
 dayjs.locale('vi');
@@ -13,8 +13,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
   // Mỗi cây App một QueryClient riêng để test không dùng chung cache
   const [client] = useState(createQueryClient);
   return (
-    <ConfigProvider theme={antdTheme} locale={viVN} componentSize="small">
-      <AntApp>
+    // Cấu hình như clinic-web: theme từ tokens, ô chọn thả xuống rộng theo nội dung
+    <ConfigProvider theme={theme} locale={viVN} popupMatchSelectWidth={false}>
+      <AntApp style={{ height: '100%' }}>
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
       </AntApp>
     </ConfigProvider>

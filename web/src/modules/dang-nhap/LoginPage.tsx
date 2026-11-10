@@ -1,16 +1,14 @@
-// Đăng nhập: chữ to, ô nhập lớn, thao tác bằng bàn phím (Enter chuyển ô → Enter đăng nhập). Bố cục như his-web.
-import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Form, Input, Typography, type InputRef } from 'antd';
+// Đăng nhập theo thiết kế của clinic-web: ảnh nền + sóng xanh ngọc, giới thiệu bên trái, thẻ đăng nhập bên phải.
 import { BankOutlined, LockOutlined, UserOutlined } from '@ant-design/icons';
+import { Alert, Button, ConfigProvider, Form, Input } from 'antd';
+import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import dayjs from 'dayjs';
+import bgPhoto from '@/assets/login/bg.jpg';
+import logo from '@/assets/logo.png';
+import { APP_NAME } from '@/app/appName';
+import { palette } from '@/app/theme/tokens';
 import { authService } from '@/services';
 import { useSessionStore } from '@/stores/sessionStore';
-import { tokens } from '@/app/theme/tokens';
-
-const LAST_KEY = 'lis-last-login';
-const BIG = 17;
-const FIELD_HEIGHT = 48;
 
 interface LoginForm {
   clinicCode: string;
@@ -18,6 +16,7 @@ interface LoginForm {
   password: string;
 }
 
+const LAST_KEY = 'lis-last-login';
 const readLast = (): Partial<LoginForm> => {
   try {
     return JSON.parse(localStorage.getItem(LAST_KEY) ?? '{}') as Partial<LoginForm>;
@@ -35,32 +34,34 @@ const saveLast = (v: LoginForm) => {
 };
 const safeNext = (n: unknown) => (typeof n === 'string' && n.startsWith('/') && !n.startsWith('//') && !n.startsWith('/dang-nhap') ? n : '/ket-qua');
 
-function useClock() {
-  const [now, setNow] = useState(() => dayjs());
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(dayjs()), 15_000);
-    return () => window.clearInterval(t);
-  }, []);
-  return now;
+/** Đường sóng của thiết kế: một hình, hai lớp lệch góc. */
+const WAVE =
+  'M1654.41 311.949C931.976 -113.67 250.456 -13.177 0 90.2722V601.296H1654.41C1655.96 507.18 1658.14 317.549 1654.41 311.949Z';
+
+function Wave({ light }: { light?: boolean }) {
+  return (
+    <svg className={`login-wave ${light ? 'login-wave--light' : 'login-wave--deep'}`} viewBox="0 0 1656.47 601.296" preserveAspectRatio="none" aria-hidden>
+      {light && (
+        <defs>
+          <linearGradient id="login-wave-grad" x1="1265.74" y1="165.928" x2="179.415" y2="150.092" gradientUnits="userSpaceOnUse">
+            <stop style={{ stopColor: 'var(--c-hero-deep)' }} />
+            <stop offset="1" style={{ stopColor: 'var(--c-hero-light)' }} />
+          </linearGradient>
+        </defs>
+      )}
+      <path d={WAVE} style={{ fill: light ? 'url(#login-wave-grad)' : 'var(--c-hero-deep)' }} />
+    </svg>
+  );
 }
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { token, setSession } = useSessionStore();
-  const now = useClock();
-  const [form] = Form.useForm<LoginForm>();
-  const usernameRef = useRef<InputRef>(null);
-  const passwordRef = useRef<InputRef>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [capsLock, setCapsLock] = useState(false);
   const [last] = useState(readLast);
   const next = safeNext((location.state as { next?: unknown } | null)?.next);
-
-  useEffect(() => {
-    if (last.clinicCode && last.username) passwordRef.current?.focus();
-  }, [last]);
 
   if (token) return <Navigate to={next} replace />;
 
@@ -75,55 +76,75 @@ export default function LoginPage() {
       navigate(next, { replace: true });
     } catch (e) {
       setError((e as Error).message);
-      form.setFieldValue('password', '');
-      passwordRef.current?.focus();
     } finally {
       setLoading(false);
     }
   };
 
-  const onKey = (e: React.KeyboardEvent) => setCapsLock(e.getModifierState?.('CapsLock') ?? false);
-  const label = (text: string) => <span style={{ fontSize: BIG - 1, fontWeight: 600 }}>{text}</span>;
-
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: tokens.colors.bg, padding: tokens.space.lg }}>
-      <div data-screen="dang-nhap" className="login-shell">
-        <section className="login-brand" style={{ background: tokens.colors.primaryStrong, color: tokens.colors.surface }}>
-          <div style={{ fontSize: 44, fontWeight: 800, letterSpacing: 2, lineHeight: 1 }}>LIS</div>
-          <div style={{ fontSize: 22, fontWeight: 600, marginTop: tokens.space.md, lineHeight: 1.35 }}>Hệ thống quản lý xét nghiệm</div>
-          <div style={{ marginTop: 'auto' }}>
-            <div style={{ fontSize: 56, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{now.format('HH:mm')}</div>
-            <div style={{ fontSize: BIG, marginTop: tokens.space.sm, textTransform: 'capitalize' }}>{now.locale('vi').format('dddd, DD/MM/YYYY')}</div>
-          </div>
+    <div data-screen="dang-nhap" className="login-page" style={{ backgroundImage: `url(${bgPhoto})` }}>
+      <Wave light />
+      <Wave />
+
+      <header className="login-top">
+        <div className="login-brand" aria-label={APP_NAME}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 17 }}>
+            <img src={logo} alt="" aria-hidden width={56} height={56} style={{ objectFit: 'contain' }} />
+            <span style={{ fontSize: 34, fontWeight: 700, letterSpacing: 0.3, lineHeight: 1 }}>{APP_NAME}</span>
+          </span>
+        </div>
+      </header>
+
+      <main className="login-body">
+        <section className="login-hero">
+          <h1>
+            Quản lý xét nghiệm
+            <br />
+            kết nối thẳng với máy
+          </h1>
+          <p>Tiếp nhận mẫu, nhận kết quả tự động từ máy xét nghiệm, duyệt và trả kết quả — đồng bộ theo thời gian thực giữa các phòng khám.</p>
         </section>
 
-        <section className="login-form" style={{ background: tokens.colors.surface }}>
-          <Typography.Title level={1} style={{ fontSize: 30, margin: 0 }}>Đăng nhập</Typography.Title>
-          <Typography.Paragraph style={{ fontSize: BIG, color: tokens.colors.textSecondary, marginTop: tokens.space.sm }}>
-            Nhập mã phòng khám, tên đăng nhập và mật khẩu, nhấn <kbd>Enter</kbd> để vào hệ thống.
-          </Typography.Paragraph>
+        {/* Thẻ đăng nhập dùng màu xanh ngọc của thiết kế cho nút / viền chọn */}
+        <ConfigProvider theme={{ token: { colorPrimary: palette.heroDeep, borderRadius: 12 } }}>
+          <section className="login-card">
+            <div className="login-card__head">
+              <img src={logo} alt="" aria-hidden width={86} height={86} style={{ objectFit: 'contain' }} />
+              <h2>Đăng nhập</h2>
+              <p>Dùng tài khoản do quản trị phòng khám cấp.</p>
+            </div>
 
-          <Form form={form} layout="vertical" requiredMark={false} onFinish={onFinish} size="large" onKeyDown={onKey} onKeyUp={onKey}
-            initialValues={{ clinicCode: last.clinicCode ?? '', username: last.username ?? '' }}>
-            <Form.Item name="clinicCode" label={label('Mã phòng khám')} rules={[{ required: true, whitespace: true, message: 'Nhập mã phòng khám' }]}>
-              <Input prefix={<BankOutlined />} autoFocus={!last.clinicCode} autoComplete="organization" autoCapitalize="none" style={{ height: FIELD_HEIGHT, fontSize: BIG }}
-                onPressEnter={(e) => { e.preventDefault(); usernameRef.current?.focus(); }} />
-            </Form.Item>
-            <Form.Item name="username" label={label('Tên đăng nhập')} rules={[{ required: true, whitespace: true, message: 'Nhập tên đăng nhập' }]}>
-              <Input ref={usernameRef} prefix={<UserOutlined />} autoFocus={!!last.clinicCode && !last.username} autoComplete="username" autoCapitalize="none"
-                style={{ height: FIELD_HEIGHT, fontSize: BIG }} onPressEnter={(e) => { e.preventDefault(); passwordRef.current?.focus(); }} />
-            </Form.Item>
-            <Form.Item name="password" label={label('Mật khẩu')} rules={[{ required: true, message: 'Nhập mật khẩu' }]}
-              extra={capsLock ? <span style={{ color: tokens.colors.warningText, fontWeight: 600 }}>Caps Lock đang bật</span> : undefined}>
-              <Input.Password ref={passwordRef} prefix={<LockOutlined />} autoComplete="current-password" style={{ height: FIELD_HEIGHT, fontSize: BIG }} />
-            </Form.Item>
-            {error && <Alert type="error" showIcon message={<span style={{ fontSize: BIG - 1 }}>{error}</span>} style={{ marginBottom: tokens.space.lg }} role="alert" />}
-            <Button type="primary" htmlType="submit" block loading={loading} style={{ height: FIELD_HEIGHT + 4, fontSize: BIG + 1, fontWeight: 600 }}>
-              Đăng nhập
-            </Button>
-          </Form>
-        </section>
-      </div>
+            {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} role="alert" />}
+
+            <Form<LoginForm>
+              layout="vertical"
+              onFinish={onFinish}
+              size="large"
+              initialValues={{ clinicCode: last.clinicCode ?? '', username: last.username ?? '' }}
+              // Dấu * đỏ sau nhãn như thiết kế
+              requiredMark={(label, { required }) => (
+                <>
+                  {label}
+                  {required && <span className="login-req">*</span>}
+                </>
+              )}
+            >
+              <Form.Item name="clinicCode" label="Mã phòng khám" rules={[{ required: true, whitespace: true, message: 'Nhập mã phòng khám' }]}>
+                <Input variant="filled" prefix={<BankOutlined />} placeholder="VD: PKSTL" autoComplete="organization" autoCapitalize="none" autoFocus={!last.clinicCode} />
+              </Form.Item>
+              <Form.Item name="username" label="Tên đăng nhập" rules={[{ required: true, whitespace: true, message: 'Nhập tên đăng nhập' }]}>
+                <Input variant="filled" prefix={<UserOutlined />} autoComplete="username" autoCapitalize="none" autoFocus={!!last.clinicCode && !last.username} />
+              </Form.Item>
+              <Form.Item name="password" label="Mật khẩu" rules={[{ required: true, message: 'Nhập mật khẩu' }]} style={{ marginBottom: 32 }}>
+                <Input.Password variant="filled" prefix={<LockOutlined />} autoComplete="current-password" autoFocus={!!last.clinicCode && !!last.username} />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" block loading={loading}>
+                Đăng nhập
+              </Button>
+            </Form>
+          </section>
+        </ConfigProvider>
+      </main>
     </div>
   );
 }
