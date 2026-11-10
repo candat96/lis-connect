@@ -88,7 +88,8 @@ public partial class MainViewModel : ObservableObject
             : null;
 
         Settings = new SettingsViewModel(
-            new FacilitySettingsViewModel(facility), new PrinterSettingsViewModel(settings, printService), dbConnection, hisConnection);
+            new FacilitySettingsViewModel(facility), new PrinterSettingsViewModel(settings, printService), dbConnection, hisConnection,
+            new RawLogSettingsViewModel(settings, rawLogs));
 
         // Đặt sau khi các ViewModel con đã có — OnSelectedItemChanged có thể tải màn đầu tiên ngay.
         SelectedItem = NavItems.FirstOrDefault();

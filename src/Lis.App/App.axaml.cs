@@ -211,6 +211,9 @@ public partial class App : Application
     {
         var services = new AppServices(config);
         _ = SwitchConnectionsAsync(services.Connections);
+        _ = RawLogJanitor.RunLoopAsync(services.Settings, services.RawLogs, TimeProvider.System,
+            () => ReferenceEquals(_activeConnections, services.Connections));
+
         if (TryResume(services) is { } rememberedUser)
         {
             ShowMain(desktop, services, rememberedUser, config);

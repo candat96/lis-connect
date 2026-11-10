@@ -98,6 +98,8 @@ internal static class Program
         Capture(outputDirectory, "16-cai-dat-ket-noi-csdl.png", CreateDbConnectionWindow());
         Capture(outputDirectory, "17-cai-dat-ket-noi-his.png", CreateHisSettingsWindow());
         Capture(outputDirectory, "19-log-tho.png", CreateRawLogWindow());
+        Capture(outputDirectory, "20-log-tho-giai-ma-thu.png", CreateRawLogWindow(decode: true));
+        Capture(outputDirectory, "21-cai-dat-log-tho.png", CreateRawLogSettingsWindow());
         Capture(outputDirectory, "18-danh-muc-nhap-excel.png", CreateCatalogImportResultWindow());
 
         Console.WriteLine($"Đã lưu ảnh vào {outputDirectory}");
@@ -297,7 +299,7 @@ internal static class Program
     /// Màn "Log thô" với log giả của một máy ASTM (sự kiện mở cổng, ENQ/ACK, các khung H/P/O/R/L,
     /// một lần mất kết nối) ghi vào thư mục tạm.
     /// </summary>
-    private static Window CreateRawLogWindow()
+    private static Window CreateRawLogWindow(bool decode = false)
     {
         var instrumentId = Guid.NewGuid();
         var instrument = new InstrumentInfo(
@@ -309,20 +311,28 @@ internal static class Program
         void Add(double seconds, RawLogDirection direction, string text, string? note = null) =>
             logs.Append(instrumentId, new RawLogEntry(t = t.AddSeconds(seconds), direction, "phien-1", System.Text.Encoding.Latin1.GetBytes(text), note));
 
+        // Khung ASTM đúng chuẩn: <STX>số khung + bản ghi <CR><ETX> checksum <CR><LF> (checksum = tổng byte từ số khung tới ETX, mod 256).
+        static string Frame(int number, string record)
+        {
+            var body = $"{number % 8}{record}\r\u0003";
+            var sum = body.Sum(c => (int)c) % 256;
+            return $"\u0002{body}{sum:X2}\r\n";
+        }
+
         Add(0, RawLogDirection.Event, "", "Mở cổng COM4 · 9600 8N1");
         Add(42.3, RawLogDirection.In, "\u0005");
         Add(0.04, RawLogDirection.Out, "\u0006");
-        Add(0.05, RawLogDirection.In, "\u00021H|\\^&|||CELL-DYN Ruby^1.0|||||||P|1|20261108081247\r\u000346\r\n");
+        Add(0.05, RawLogDirection.In, Frame(1, "H|\\^&|||CELL-DYN Ruby^1.0|||||||P|1|20261108081247"));
         Add(0.03, RawLogDirection.Out, "\u0006");
-        Add(0.05, RawLogDirection.In, "\u00022P|1||||Nguyen^Van Mau\r\u00034E\r\n");
+        Add(0.05, RawLogDirection.In, Frame(2, "P|1||||Nguyen^Van Mau"));
         Add(0.03, RawLogDirection.Out, "\u0006");
-        Add(0.05, RawLogDirection.In, "\u00023O|1|9261108012||^^^ALL|R\r\u000391\r\n");
+        Add(0.05, RawLogDirection.In, Frame(3, "O|1|9261108012||^^^ALL|R"));
         Add(0.03, RawLogDirection.Out, "\u0006");
-        Add(0.05, RawLogDirection.In, "\u00024R|1|^^^WBC|7.2|10^9/L||N||F\r\u0003C2\r\n");
+        Add(0.05, RawLogDirection.In, Frame(4, "R|1|^^^WBC|7.2|10^9/L||N||F"));
         Add(0.03, RawLogDirection.Out, "\u0006");
-        Add(0.05, RawLogDirection.In, "\u00025R|2|^^^HGB|132|g/L||N||F\r\u0003A9\r\n");
+        Add(0.05, RawLogDirection.In, Frame(5, "R|2|^^^HGB|132|g/L||N||F"));
         Add(0.03, RawLogDirection.Out, "\u0006");
-        Add(0.05, RawLogDirection.In, "\u00026L|1|N\r\u000309\r\n");
+        Add(0.05, RawLogDirection.In, Frame(6, "L|1|N"));
         Add(0.03, RawLogDirection.Out, "\u0006");
         Add(0.05, RawLogDirection.In, "\u0004");
         Add(612.4, RawLogDirection.In, "\u00022R|3|^^^");
@@ -330,6 +340,10 @@ internal static class Program
 
         var viewModel = new RawLogViewModel(new SeededInstrumentStore(instrument, []), logs);
         viewModel.LoadAsync().GetAwaiter().GetResult();
+        if (decode)
+        {
+            viewModel.DecodeTry();
+        }
 
         return new Window
         {
@@ -520,6 +534,41 @@ internal static class Program
             Height = 420,
             Content = view,
         };
+    }
+
+    /// <summary>Tab "Log thô" của màn Cài đặt: giữ 30 ngày, đang dùng vượt ngưỡng (log tạm giả 1,3 GB không ghi thật — dùng bản giả đếm dung lượng).</summary>
+    private static Window CreateRawLogSettingsWindow()
+    {
+        var viewModel = new RawLogSettingsViewModel(new UnusedSettingStore(), new SizedRawLogStore(1_400_000_000))
+        {
+            UsedBytes = 1_400_000_000,
+            SuccessMessage = "Đã xóa 12 tệp log quá hạn",
+        };
+
+        return new Window
+        {
+            Title = "LIS Connect — Cài đặt",
+            Width = 900,
+            Height = 420,
+            Content = new RawLogSettingsView { DataContext = viewModel },
+        };
+    }
+
+    private sealed class SizedRawLogStore(long bytes) : IRawLogStore
+    {
+        public string RootDirectory => @"C:\ProgramData\LIS Connect\rawlog";
+
+        public void Append(Guid instrumentId, RawLogEntry entry)
+        {
+        }
+
+        public IReadOnlyList<DateOnly> ListDates(Guid instrumentId) => [];
+
+        public IReadOnlyList<RawLogEntry> Read(Guid instrumentId, DateOnly date) => [];
+
+        public string FilePath(Guid instrumentId, DateOnly date) => "";
+
+        public long TotalBytes() => bytes;
     }
 
     /// <summary>Raster hóa tem mẫu 50 × 25 mm (300 DPI) bằng PDFtoImage — PDFium chỉ có bản native cho Windows/Linux/macOS.</summary>

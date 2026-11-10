@@ -23,17 +23,21 @@ nằm ở nơi khác — xem mục "Tài liệu liên quan" cuối trang.
 - **Nhân viên tiếp nhận / kỹ thuật viên** dùng hằng ngày: chỉ cần `03-su-dung.md`.
 - **Khi gặp lỗi**: `04-xu-ly-su-co.md`, kèm tệp `loi.log` khi báo cho IT.
 
-## Phạm vi phiên bản hiện tại (Đợt 1 — Nền tảng)
+## Phạm vi phiên bản hiện tại (Đợt 1 + Đợt 2)
 
-Bộ tài liệu này chỉ mô tả những gì **đã có** trong bản Đợt 1. Các tính năng dưới đây **chưa có**,
-sẽ được bổ sung ở các đợt sau — nếu gặp tài liệu hoặc hướng dẫn nào mô tả khác, đó là tính năng
-tương lai, không áp dụng cho bản đang chạy:
+Đã có: toàn bộ Đợt 1 (tiếp nhận, barcode, kết quả, duyệt, in phiếu) và phần chính của Đợt 2 —
+kết nối thật tới máy xét nghiệm qua COM/TCP (driver Mindray BC-5380, Beckman AU480, Beckman
+Access 2 và chế độ "Chỉ nghe"), map kênh có gợi ý, màn **Log thô** (lọc, hex, giải mã thử,
+xuất/nhập `.listrace`, tự xóa log cũ) và bộ giả lập máy cho IT thử kết nối.
 
-- **Đợt 2**: dịch vụ nền Windows (tự chạy khi khởi động máy), kết nối thật tới máy xét nghiệm
-  (nhận kết quả qua LAN/USB), xem log thô trong giao diện.
-- **Đợt 3**: đồng bộ thật với HIS (kéo chỉ định, đẩy kết quả, đồng bộ nhân sự) — Đợt 1 chỉ lưu
-  cấu hình kết nối và cho "Thử kết nối".
-- **Đợt 5**: bộ cài `.msi` chuyên nghiệp — Đợt 1 chạy bằng tệp `.exe` tự chứa, giải nén từ `.zip`.
+Chưa có, sẽ bổ sung ở các đợt sau:
+
+- Kết nối máy hiện chạy trong ứng dụng (đóng cửa sổ thì thu xuống khay, vẫn nhận kết quả từ màn
+  đăng nhập). Dịch vụ nền Windows chạy khi chưa ai đăng nhập Windows chưa tách riêng.
+- **Đợt 3**: đồng bộ thật với HIS (kéo chỉ định, đẩy kết quả, đồng bộ nhân sự). Hiện mới lưu
+  cấu hình kết nối và có nút "Thử kết nối".
+- **Đợt 4**: driver các máy còn lại trong `docs/drivers/`.
+- **Đợt 5**: bộ cài `.msi`. Hiện chạy bằng tệp `.exe` tự chứa, giải nén từ `.zip`.
 
 ## Ảnh minh họa
 

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Lis.Core.Drivers.Astm;
 using Lis.Core.Drivers.BeckmanAu;
 using Lis.Core.Drivers.Hl7;
+using Lis.Core.Drivers.ListenOnly;
 
 namespace Lis.Core.Drivers;
 
@@ -20,7 +21,7 @@ public static class DriverRegistry
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public static IReadOnlyCollection<string> SupportedFamilies { get; } = ["hl7-mllp", "astm-e1394", "beckman-au"];
+    public static IReadOnlyCollection<string> SupportedFamilies { get; } = ["hl7-mllp", "astm-e1394", "beckman-au", ListenOnlyDriver.FamilyCode];
 
     /// <summary>Tạo driver. Cấu hình driver JSON sai → <see cref="ArgumentException"/>.</summary>
     public static IInstrumentDriver? Create(string? family, string? model = null, string? driverConfigJson = null)
@@ -37,6 +38,9 @@ public static class DriverRegistry
 
             case "beckman-au":
                 return new BeckmanAuDriver(ParseOptions<BeckmanAuOptions>(driverConfigJson) ?? BeckmanAuOptions.Au480);
+
+            case ListenOnlyDriver.FamilyCode:
+                return new ListenOnlyDriver();
 
             default:
                 return null;

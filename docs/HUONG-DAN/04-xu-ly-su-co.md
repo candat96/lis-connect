@@ -127,13 +127,33 @@ dụng ghi thời điểm + chi tiết lỗi (ngoại lệ .NET kèm stack trace
 - macOS (máy phát triển): `~/Library/Application Support/LIS Connect/loi.log`
 
 Tệp này **không chứa dữ liệu người bệnh** — gửi kèm tệp này khi báo lỗi với bộ phận hỗ trợ kỹ
-thuật. Bản Đợt 1 **chưa có màn xem nhật ký trong giao diện ứng dụng** (sẽ có ở Đợt 2 cùng với
-log thô của máy xét nghiệm) — phải mở tệp trực tiếp bằng Notepad hoặc trình soạn thảo văn bản.
+thuật. Tệp này mở bằng Notepad hoặc trình soạn thảo văn bản. Log trao đổi với máy xét nghiệm là
+thứ khác, xem trong màn **Log thô** (mục 12).
 
-## 12. Liên hệ hỗ trợ
+## 12. Máy gửi kết quả nhưng không thấy trên màn Kết quả
+
+Vào **Log thô**, chọn máy và ngày:
+
+- **Không có dòng "Máy → LIS" nào**: máy chưa gửi tới LIS. Kiểm tra cáp, cổng COM/địa chỉ IP,
+  tốc độ baud ở màn **Máy & map**, và cài đặt "Host/LIS" trên máy xét nghiệm.
+- **Có dòng nhưng không ra kết quả**: chọn đúng họ giao thức ở ô cạnh nút **Giải mã thử** rồi bấm
+  nút đó. Bảng "Giải mã thử" cho biết driver hiểu ra barcode và các kênh nào, hoặc báo lỗi
+  (checksum sai, sai số khung…). Giải mã thử không ghi gì vào CSDL.
+- **Chưa biết máy nói giao thức gì**: đặt họ giao thức của máy là `chi-nghe` (Chỉ nghe), cho máy
+  gửi một mẫu, rồi xem log thô. Ở chế độ này LIS không trả lời máy, nên máy có thể báo lỗi
+  truyền. Chuyện đó là bình thường.
+- **Cần gửi log cho người hỗ trợ**: chọn phiên rồi bấm **Xuất .listrace**. Tệp này **chứa dữ liệu
+  người bệnh**, chỉ gửi qua kênh nội bộ. Người nhận mở bằng nút **Mở tệp .listrace** hoặc phát lại
+  bằng bộ giả lập máy (`tools/Lis.Simulator`, xem README của repo).
+
+Log thô lưu ở `C:\ProgramData\LIS Connect\rawlog\`, mỗi máy mỗi ngày một tệp, tự xóa sau số ngày
+đặt ở **Cài đặt → Log thô** (mặc định 30 ngày). Tab đó cũng hiện dung lượng đang dùng và cảnh báo
+khi vượt ngưỡng.
+
+## 13. Liên hệ hỗ trợ
 
 Khi báo lỗi, chuẩn bị sẵn:
 
 1. Thông báo lỗi chi tiết hiện trên màn hình (chụp ảnh hoặc chép nguyên văn).
-2. Tệp `loi.log` (mục 11).
+2. Tệp `loi.log` (mục 11), và tệp `.listrace` nếu lỗi liên quan máy xét nghiệm (mục 12).
 3. Phiên bản Windows (ví dụ: Windows 10 22H2), phiên bản PostgreSQL, bước đang làm khi gặp lỗi.

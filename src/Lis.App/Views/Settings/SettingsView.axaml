@@ -19,6 +19,10 @@
             <settings:PrinterSettingsView DataContext="{Binding Printer}" />
         </TabItem>
 
+        <TabItem Header="Log thô" IsVisible="{Binding ShowRawLog}">
+            <settings:RawLogSettingsView DataContext="{Binding RawLog}" />
+        </TabItem>
+
         <TabItem Header="Kết nối CSDL" IsVisible="{Binding ShowDbConnection}">
             <settings:DbConnectionView DataContext="{Binding DbConnection}" />
         </TabItem>

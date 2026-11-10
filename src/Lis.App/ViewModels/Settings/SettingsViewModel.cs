@@ -4,7 +4,7 @@ using Lis.Data.Local;
 namespace Lis.App.ViewModels.Settings;
 
 /// <summary>
-/// ViewModel của mục "Cài đặt": 5 tab — Thông tin cơ sở, Barcode &amp; tem (dùng chung
+/// ViewModel của mục "Cài đặt": 6 tab (kể cả Log thô — <see cref="RawLogSettingsViewModel"/>) — Thông tin cơ sở, Barcode &amp; tem (dùng chung
 /// <see cref="FacilitySettingsViewModel"/>), Máy in (<see cref="PrinterSettingsViewModel"/>,
 /// không nhân bản logic), Kết nối CSDL (<see cref="DbConnectionViewModel"/>) và Kết nối HIS
 /// (<see cref="HisSettingsViewModel"/>) — hai tab sau chỉ cho vai trò <c>quan-tri</c>, null với
@@ -16,8 +16,10 @@ public sealed class SettingsViewModel : ObservableObject
         FacilitySettingsViewModel facility,
         PrinterSettingsViewModel printer,
         DbConnectionViewModel? dbConnection,
-        HisSettingsViewModel? hisConnection)
+        HisSettingsViewModel? hisConnection,
+        RawLogSettingsViewModel? rawLog = null)
     {
+        RawLog = rawLog;
         Facility = facility;
         Printer = printer;
         DbConnection = dbConnection;
@@ -33,6 +35,11 @@ public sealed class SettingsViewModel : ObservableObject
 
     /// <summary>null khi người dùng hiện tại không có vai trò <c>quan-tri</c> — tab "Kết nối HIS" ẩn.</summary>
     public HisSettingsViewModel? HisConnection { get; }
+
+    /// <summary>Tab "Log thô" — null thì ẩn (vd màn chụp ảnh không cần).</summary>
+    public RawLogSettingsViewModel? RawLog { get; }
+
+    public bool ShowRawLog => RawLog is not null;
 
     public bool ShowDbConnection => DbConnection is not null;
 
@@ -54,6 +61,11 @@ public sealed class SettingsViewModel : ObservableObject
         if (HisConnection is not null)
         {
             await HisConnection.LoadAsync();
+        }
+
+        if (RawLog is not null)
+        {
+            await RawLog.LoadAsync();
         }
     }
 }

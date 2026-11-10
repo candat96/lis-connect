@@ -22,7 +22,7 @@ public partial class InstrumentsViewModel : ObservableObject
     /// <summary>Họ giao thức theo <c>docs/drivers/README.md</c> mục 2 (driver thật gắn ở Đợt 2).</summary>
     public static readonly IReadOnlyList<string> ProtocolFamilies =
     [
-        "astm-e1394", "hl7-mllp", "beckman-au", "sysmex-ca", "tosoh-g8", "dirui-h", "mindray-bc", "fixed-offset", "van-ban-ban-in", "khac",
+        "astm-e1394", "hl7-mllp", "beckman-au", "sysmex-ca", "tosoh-g8", "dirui-h", "mindray-bc", "fixed-offset", "van-ban-ban-in", "chi-nghe", "khac",
     ];
 
     private readonly IInstrumentStore _store;

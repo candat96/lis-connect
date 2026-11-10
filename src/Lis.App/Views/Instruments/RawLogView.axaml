@@ -28,7 +28,7 @@
         </Border>
 
         <!-- Phải: bộ lọc + bảng log -->
-        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,*">
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,*,Auto">
 
             <WrapPanel Grid.Row="0" Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
                 <StackPanel>
@@ -56,6 +56,12 @@
                 <Button Content="Tải lại" Command="{Binding ReloadCommand}" />
                 <Button Name="CopyButton" Content="Chép các dòng đang hiện" />
                 <Button Content="Mở thư mục log" Command="{Binding OpenFolderCommand}" />
+                <Button Name="ExportButton" Content="Xuất .listrace" ToolTip.Tip="Xuất phiên đang chọn ra tệp để gửi đi debug hoặc phát lại bằng bộ giả lập" />
+                <Button Name="ImportButton" Content="Mở tệp .listrace" ToolTip.Tip="Xem / giải mã thử log thô nhận từ nơi khác" />
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <ComboBox ItemsSource="{Binding DecodeFamilies}" SelectedItem="{Binding DecodeFamily}" Width="150" ToolTip.Tip="Driver dùng để giải mã thử" />
+                    <Button Classes="primary" Content="Giải mã thử" Command="{Binding DecodeTryCommand}" ToolTip.Tip="Chạy byte máy gửi của phiên đang chọn qua driver — không ghi CSDL" />
+                </StackPanel>
             </WrapPanel>
 
             <StackPanel Grid.Row="2" Margin="0,8">
@@ -65,7 +71,7 @@
 
             <Border Grid.Row="3" Classes="table">
                 <Grid RowDefinitions="Auto,*">
-                    <Grid Grid.Row="0" ColumnDefinitions="100,92,64,130,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="112,92,64,130,*">
                         <Border Grid.Column="0" Classes="th"><TextBlock Text="Giờ" /></Border>
                         <Border Grid.Column="1" Classes="th"><TextBlock Text="Chiều" /></Border>
                         <Border Grid.Column="2" Classes="th"><TextBlock Text="Byte" /></Border>
@@ -75,7 +81,7 @@
                     <ListBox Grid.Row="1" Classes="table" Name="LogList" ItemsSource="{Binding Rows}">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:RawLogRowViewModel">
-                                <Grid ColumnDefinitions="100,92,64,130,*">
+                                <Grid ColumnDefinitions="112,92,64,130,*">
                                     <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Time}" FontFamily="Consolas,Menlo,monospace" FontSize="12" Classes="muted" VerticalAlignment="Top" /></Border>
                                     <Border Grid.Column="1" Classes="td">
                                         <Panel VerticalAlignment="Top">
@@ -87,6 +93,42 @@
                                     <Border Grid.Column="2" Classes="td"><TextBlock Text="{Binding ByteCountText}" FontSize="12" Classes="muted" HorizontalAlignment="Right" VerticalAlignment="Top" /></Border>
                                     <Border Grid.Column="3" Classes="td"><TextBlock Text="{Binding Session}" FontSize="12" Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Top" /></Border>
                                     <Border Grid.Column="4" Classes="td last"><SelectableTextBlock Text="{Binding Text}" FontFamily="Consolas,Menlo,monospace" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Top" /></Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <!-- Kết quả giải mã thử -->
+            <Border Grid.Row="4" Classes="table" Margin="0,12,0,0" MaxHeight="280" IsVisible="{Binding IsDecodeOpen}">
+                <Grid RowDefinitions="Auto,Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="12,8">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Classes="heading" Text="Giải mã thử" />
+                            <TextBlock Classes="muted" Text="{Binding DecodeSummary}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Đóng" Command="{Binding CloseDecodeCommand}" VerticalAlignment="Top" />
+                    </Grid>
+                    <Grid Grid.Row="1" ColumnDefinitions="112,110,130,*">
+                        <Border Grid.Column="0" Classes="th"><TextBlock Text="Giờ" /></Border>
+                        <Border Grid.Column="1" Classes="th"><TextBlock Text="Loại" /></Border>
+                        <Border Grid.Column="2" Classes="th"><TextBlock Text="Phiên" /></Border>
+                        <Border Grid.Column="3" Classes="th last"><TextBlock Text="Driver hiểu ra" /></Border>
+                    </Grid>
+                    <ListBox Grid.Row="2" Classes="table" ItemsSource="{Binding DecodeRows}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DecodeRowViewModel">
+                                <Grid ColumnDefinitions="112,110,130,*">
+                                    <Border Grid.Column="0" Classes="td"><TextBlock Text="{Binding Time}" FontFamily="Consolas,Menlo,monospace" FontSize="12" Classes="muted" VerticalAlignment="Top" /></Border>
+                                    <Border Grid.Column="1" Classes="td">
+                                        <Panel VerticalAlignment="Top">
+                                            <TextBlock Text="{Binding Kind}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrushPrimary}" IsVisible="{Binding !IsNote}" />
+                                            <TextBlock Text="{Binding Kind}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrushWarning}" IsVisible="{Binding IsNote}" />
+                                        </Panel>
+                                    </Border>
+                                    <Border Grid.Column="2" Classes="td"><TextBlock Text="{Binding Session}" FontSize="12" Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Top" /></Border>
+                                    <Border Grid.Column="3" Classes="td last"><SelectableTextBlock Text="{Binding Text}" FontFamily="Consolas,Menlo,monospace" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Top" /></Border>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>

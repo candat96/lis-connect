@@ -20,6 +20,12 @@ public interface IRawLogStore
 
     /// <summary>Đường dẫn tệp log của máy trong ngày (có thể chưa tồn tại).</summary>
     string FilePath(Guid instrumentId, DateOnly date);
+
+    /// <summary>Xóa tệp log cũ hơn <paramref name="keepDays"/> ngày; trả số tệp đã xóa.</summary>
+    int DeleteOlderThan(DateOnly today, int keepDays) => 0;
+
+    /// <summary>Tổng dung lượng log thô (byte).</summary>
+    long TotalBytes() => 0;
 }
 
 /// <summary>
@@ -93,6 +99,66 @@ public sealed class RawLogStore(string rootDirectory) : IRawLogStore
 
     public string FilePath(Guid instrumentId, DateOnly date) =>
         Path.Combine(InstrumentDirectory(instrumentId), date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".listrace");
+
+    /// <summary>
+    /// Xóa các tệp log có ngày (theo tên tệp) cũ hơn <paramref name="keepDays"/> ngày tính đến
+    /// <paramref name="today"/> — ngày hôm nay và <c>keepDays - 1</c> ngày trước được giữ. Tệp
+    /// đang mở bởi tiến trình khác hoặc không xóa được thì bỏ qua, lần sau xóa tiếp. Trả số tệp đã xóa.
+    /// </summary>
+    public int DeleteOlderThan(DateOnly today, int keepDays)
+    {
+        if (keepDays < 1 || !Directory.Exists(RootDirectory))
+        {
+            return 0;
+        }
+
+        var cutoff = today.AddDays(-(keepDays - 1));
+        var deleted = 0;
+        foreach (var file in Directory.EnumerateFiles(RootDirectory, "*.listrace", SearchOption.AllDirectories))
+        {
+            if (!DateOnly.TryParseExact(Path.GetFileNameWithoutExtension(file), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+                || date >= cutoff)
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Delete(file);
+                deleted++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Tệp đang bị khóa — để lần dọn sau.
+            }
+        }
+
+        return deleted;
+    }
+
+    /// <summary>Tổng dung lượng (byte) các tệp log thô trên máy trạm này.</summary>
+    public long TotalBytes()
+    {
+        if (!Directory.Exists(RootDirectory))
+        {
+            return 0;
+        }
+
+        long total = 0;
+        foreach (var file in Directory.EnumerateFiles(RootDirectory, "*.listrace", SearchOption.AllDirectories))
+        {
+            try
+            {
+                total += new FileInfo(file).Length;
+            }
+            catch (IOException)
+            {
+                // Tệp vừa bị xóa giữa chừng.
+            }
+        }
+
+        return total;
+    }
 
     private string InstrumentDirectory(Guid instrumentId) => Path.Combine(RootDirectory, instrumentId.ToString("N"));
 }
