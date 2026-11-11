@@ -8,6 +8,7 @@ const PROTOCOLS = [
   { value: 'hl7-mllp', label: 'HL7 MLLP (vd Mindray BC-5380)' },
   { value: 'astm-e1394', label: 'ASTM E1394 (vd Beckman Access 2)' },
   { value: 'beckman-au', label: 'Beckman AU (vd AU480)' },
+  { value: 'chi-nghe', label: 'Chỉ nghe — chỉ ghi log thô, không trả lời máy' },
 ];
 const BAUD_RATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
 

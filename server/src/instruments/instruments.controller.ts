@@ -12,7 +12,7 @@ import { InstrumentStatusReport } from '../tenancy/master.entities';
 import { TenancyService } from '../tenancy/tenancy.service';
 
 /** Họ giao thức đã có driver (Lis.Core.Drivers.DriverRegistry). */
-export const PROTOCOL_FAMILIES = ['hl7-mllp', 'astm-e1394', 'beckman-au'];
+export const PROTOCOL_FAMILIES = ['hl7-mllp', 'astm-e1394', 'beckman-au', 'chi-nghe'];
 const BAUD_RATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
 
 /** Cấu hình kết nối — cùng định dạng JSON với ConnectionSettings của agent .NET (type/role/port/host/baudRate…). */

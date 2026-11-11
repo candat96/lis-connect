@@ -106,4 +106,8 @@ public sealed class UploadingRawLogStore(RawLogStore local, LogUploader uploader
     public IReadOnlyList<RawLogEntry> Read(Guid instrumentId, DateOnly date) => local.Read(instrumentId, date);
 
     public string FilePath(Guid instrumentId, DateOnly date) => local.FilePath(instrumentId, date);
+
+    public int DeleteOlderThan(DateOnly today, int keepDays) => local.DeleteOlderThan(today, keepDays);
+
+    public long TotalBytes() => local.TotalBytes();
 }

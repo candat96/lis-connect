@@ -30,6 +30,11 @@ public sealed class AgentWorker(
     ServerClient server, AgentPaths paths, LogUploader uploader, ILogger<AgentWorker> logger, TimeProvider clock) : BackgroundService
 {
     public static readonly TimeSpan ReloadInterval = TimeSpan.FromSeconds(30);
+
+    /// <summary>Log thô trên đĩa máy agent giữ bao nhiêu ngày (bản gốc đã đẩy lên server).</summary>
+    public const int RawLogKeepDays = Lis.Data.Settings.RawLogDefaults.KeepDays;
+
+    private DateOnly _lastRawLogCleanup;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly Dictionary<Guid, InstrumentConnectionStatus> _statuses = [];
@@ -49,8 +54,9 @@ public sealed class AgentWorker(
         var uploading = uploader.RunAsync(stoppingToken);
         uploader.AgentNote($"Agent \"{me.AgentName}\" khởi động trên máy {Environment.MachineName}");
 
+        var rawLogs = new UploadingRawLogStore(new RawLogStore(paths.RawLog), uploader);
         var manager = new InstrumentConnectionManager(
-            ListInstrumentsAsync, me.WorkstationCode, new UploadingRawLogStore(new RawLogStore(paths.RawLog), uploader), new HttpReadingSink(server),
+            ListInstrumentsAsync, me.WorkstationCode, rawLogs, new HttpReadingSink(server),
             new HttpOrderQueries(server), paths.Pending, clock);
         manager.StatusChanged += status =>
         {
@@ -68,6 +74,7 @@ public sealed class AgentWorker(
             {
                 try
                 {
+                    CleanupRawLogs(rawLogs);
                     await manager.ReloadAsync();
                     await ReportStatusAsync(manager, stoppingToken);
                 }
@@ -93,6 +100,30 @@ public sealed class AgentWorker(
             catch (OperationCanceledException)
             {
             }
+        }
+    }
+
+    /// <summary>Dọn log thô cũ trên đĩa, mỗi ngày một lần — agent chạy liên tục nhiều tháng, không dọn thì đầy đĩa.</summary>
+    private void CleanupRawLogs(UploadingRawLogStore rawLogs)
+    {
+        var today = DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
+        if (today == _lastRawLogCleanup)
+        {
+            return;
+        }
+
+        _lastRawLogCleanup = today;
+        try
+        {
+            var deleted = rawLogs.DeleteOlderThan(today, RawLogKeepDays);
+            if (deleted > 0)
+            {
+                logger.LogInformation("Đã xóa {Count} tệp log thô cũ hơn {Days} ngày", deleted, RawLogKeepDays);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Dọn log thô cũ lỗi: {Message}", ex.Message);
         }
     }
 

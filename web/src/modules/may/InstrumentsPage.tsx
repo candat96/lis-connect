@@ -13,7 +13,7 @@ import { useIsAdmin } from '@/stores/sessionStore';
 import { ChannelModal, type ChannelDraft } from './ChannelModal';
 import { InstrumentModal } from './InstrumentModal';
 
-export const PROTOCOL: Record<string, string> = { 'hl7-mllp': 'HL7 MLLP', 'astm-e1394': 'ASTM E1394', 'beckman-au': 'Beckman AU' };
+export const PROTOCOL: Record<string, string> = { 'hl7-mllp': 'HL7 MLLP', 'astm-e1394': 'ASTM E1394', 'beckman-au': 'Beckman AU', 'chi-nghe': 'Chỉ nghe' };
 
 /** Trạng thái hiển thị của một máy: theo agent báo về; agent im lặng hoặc chưa gán thì nói rõ. */
 function linkState(instrument: Instrument): string {
