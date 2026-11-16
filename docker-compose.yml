@@ -31,8 +31,17 @@ services:
       # Giờ trong log. "Ngày địa phương" của nghiệp vụ lấy từ LocalUtcOffsetMinutes (mặc định 420 = UTC+7), không từ TZ.
       TZ: Asia/Ho_Chi_Minh
       LocalUtcOffsetMinutes: ${LocalUtcOffsetMinutes:-420}
+    # Mặc định chỉ mở cổng trên 127.0.0.1 (đi qua reverse proxy). Không dùng reverse proxy mà muốn máy khác trong mạng
+    # truy cập thẳng thì đặt LIS_BIND=0.0.0.0 trong .env.
     ports:
-      - "${LIS_PORT:-5080}:5080"
+      - "${LIS_BIND:-127.0.0.1}:${LIS_PORT:-5080}:5080"
+    # Image aspnet không có curl: chính LisServer tự gọi /healthz của mình (thoát 0 = khoẻ).
+    healthcheck:
+      test: ["CMD", "dotnet", "LisServer.dll", "--healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   lis-pgdata:

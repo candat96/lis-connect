@@ -50,8 +50,9 @@ Sửa `.env`, đổi **mọi** giá trị `CHANGE_ME`:
 | `Master__ConnectionString` | Chuỗi kết nối CSDL `lis_master` (giữ `Host=postgres`) |
 | `Tenants__ConnectionTemplate` | Mẫu chuỗi kết nối CSDL từng phòng khám (giữ nguyên `{db}`) |
 | `Jwt__Secret` | Khoá ký phiên đăng nhập, chuỗi ngẫu nhiên từ 24 ký tự: `openssl rand -base64 32`. Đổi thì mọi người đang đăng nhập phải đăng nhập lại |
-| `SETUP_KEY` | Mã thiết lập, nhập trên trang `/thiet-lap` ở bước 3.3. Để trống (hoặc còn `CHANGE_ME`) thì server tự sinh mỗi lần chạy và in ra log khi khởi động |
+| `SETUP_KEY` | Mã thiết lập, nhập trên trang `/thiet-lap` ở bước 3.3. Nếu đặt thì phải **từ 16 ký tự trở lên** (ngắn hơn server không khởi động). Để trống (hoặc còn `CHANGE_ME`) thì server tự sinh mỗi lần chạy và in ra log khi khởi động |
 | `LIS_PORT` | Cổng mở ra máy chủ (mặc định 5080) |
+| `LIS_BIND` | Địa chỉ gắn cổng, mặc định `127.0.0.1` (chỉ chính máy chủ truy cập được — dùng khi có reverse proxy, mục 6). Không dùng reverse proxy mà muốn máy khác (web, agent) vào thẳng cổng này thì đặt `LIS_BIND=0.0.0.0` |
 
 **Múi giờ phòng khám.** Mọi logic "ngày địa phương" của server (lọc danh sách mẫu theo ngày, tính tuổi người bệnh để chọn
 khoảng tham chiếu, kể cả kết quả máy gửi qua agent) dùng cấu hình `LocalUtcOffsetMinutes` (độ lệch so với UTC tính bằng phút,
@@ -63,7 +64,9 @@ cho container để giờ trong log khớp giờ phòng khám — chỉ để đ
 docker compose up -d --build
 ```
 
-Kiểm tra: mở `http://<máy chủ>:5080/healthz` thấy `{"ok":true}`, và `http://<máy chủ>:5080/` ra giao diện web.
+Kiểm tra: mở `http://<máy chủ>:5080/healthz` thấy `{"ok":true}`, và `http://<máy chủ>:5080/` ra giao diện web
+(với `LIS_BIND` mặc định thì chỉ mở được ngay trên máy chủ, địa chỉ `http://127.0.0.1:5080`). `docker compose ps` báo
+container `server` là `healthy` khi server đã chạy (kiểm tra bằng `LisServer --healthcheck`).
 Dữ liệu nằm trong volume `lis-pgdata`; `docker compose down` giữ dữ liệu, `docker compose down -v` **xoá sạch**.
 
 ### 3.2. Cách B — chạy trực tiếp
@@ -91,7 +94,7 @@ Sửa `publish/server/appsettings.json` (hoặc đặt biến môi trường cù
 - `{db}` giữ nguyên — server tự thay bằng tên CSDL của từng phòng khám.
 - `Web:Root` trỏ tới thư mục web đã build. Không đặt thì server tìm thư mục `wwwroot` cạnh tệp chạy; không có thì chỉ chạy API
   (không có giao diện).
-- Có thể đặt mã thiết lập bằng biến môi trường `SETUP_KEY`.
+- Có thể đặt mã thiết lập bằng biến môi trường `SETUP_KEY`. Mã đã đặt phải từ 16 ký tự trở lên, nếu không server từ chối khởi động.
 
 Chạy server (Windows: `LisServer.exe`, Linux: `./LisServer`), thường trực như dịch vụ (systemd / NSSM):
 

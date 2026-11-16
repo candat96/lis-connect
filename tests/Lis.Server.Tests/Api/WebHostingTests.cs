@@ -231,4 +231,37 @@ public sealed class WebHostingTests(ServerFixture fixture) : IClassFixture<Serve
         body.GetProperty("ip").GetString().ShouldBe("203.0.113.7");
         body.GetProperty("scheme").GetString().ShouldBe("https");
     }
+
+    [Theory]
+    [InlineData(null, "http://127.0.0.1:5080")]
+    [InlineData("", "http://127.0.0.1:5080")]
+    [InlineData("http://0.0.0.0:5080", "http://127.0.0.1:5080")]
+    [InlineData("http://+:8081", "http://127.0.0.1:8081")]
+    [InlineData("http://*:9000;https://*:9443", "http://127.0.0.1:9000")]
+    public void Healthcheck_goi_vao_cong_dau_tien_cua_server_qua_127_0_0_1(string? urls, string expected) =>
+        HealthCheck.LocalUrl(urls).ShouldBe(expected);
+
+    [Fact]
+    public async Task Healthcheck_thoat_0_khi_healthz_tra_200_va_1_khi_server_khong_len()
+    {
+        await using var host = await ApiHost.StartAsync(fixture);
+
+        (await HealthCheck.RunAsync(host.Anonymous)).ShouldBe(0);
+
+        using var dead = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:1") };
+        (await HealthCheck.RunAsync(dead)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Tep_chay_voi_healthcheck_thoat_1_khi_khong_co_server_lang_nghe()
+    {
+        var dll = typeof(Program).Assembly.Location;
+        var start = new System.Diagnostics.ProcessStartInfo("dotnet", $"\"{dll}\" --healthcheck") { RedirectStandardError = true, RedirectStandardOutput = true };
+        start.Environment["ASPNETCORE_URLS"] = "http://0.0.0.0:1";
+        using var process = System.Diagnostics.Process.Start(start)!;
+
+        await process.WaitForExitAsync(Ct);
+
+        process.ExitCode.ShouldBe(1);
+    }
 }

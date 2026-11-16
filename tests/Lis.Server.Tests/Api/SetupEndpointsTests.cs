@@ -50,6 +50,35 @@ public sealed class SetupEndpointsTests(ServerFixture fixture) : IClassFixture<S
         (await Create(host.Anonymous, Body("pk-thu-mau", key: "CHANGE_ME"))).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
 
+    [Theory]
+    [InlineData("Setup:Key", "ngan-qua")]
+    [InlineData("Setup:Key", "123456789012345")] // 15 ký tự
+    [InlineData("SETUP_KEY", "ngan-qua")]
+    public void Ma_thiet_lap_cau_hinh_ngan_hon_16_ky_tu_bi_tu_choi_luc_khoi_dong(string name, string value)
+    {
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationManager();
+        configuration["Jwt:Secret"] = ApiHost.TestSecret;
+        configuration[name] = value;
+
+        var ex = Should.Throw<InvalidOperationException>(() => ServerOptions.From(configuration));
+
+        ex.Message.ShouldContain("16");
+        ex.Message.ShouldContain("SETUP_KEY");
+    }
+
+    [Theory]
+    [InlineData("1234567890123456", "1234567890123456")] // đúng 16 ký tự
+    [InlineData("", null)]
+    [InlineData("CHANGE_ME", null)]
+    public void Ma_thiet_lap_du_dai_duoc_nhan_con_trong_hoac_CHANGE_ME_la_chua_cau_hinh(string configured, string? expected)
+    {
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationManager();
+        configuration["Jwt:Secret"] = ApiHost.TestSecret;
+        configuration["Setup:Key"] = configured;
+
+        ServerOptions.From(configuration).SetupKey.ShouldBe(expected);
+    }
+
     [Fact]
     public async Task Tao_phong_kham_roi_dang_nhap_bang_tai_khoan_vua_tao()
     {

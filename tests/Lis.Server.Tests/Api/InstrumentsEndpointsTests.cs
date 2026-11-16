@@ -280,7 +280,7 @@ public sealed class InstrumentsEndpointsTests(ServerFixture fixture) : IClassFix
     [MemberData(nameof(InvalidBodies))]
     public async Task Thieu_hoac_sai_du_lieu_thi_400_dung_cau(string name, Action<Dictionary<string, object?>> edit, string message)
     {
-        await using var s = await StartAsync($"pkibad{Math.Abs(name.GetHashCode()) % 100000}");
+        await using var s = await StartAsync("pkibad" + name.Replace("-", "_"));
 
         await ShouldFail(await s.Admin.PostAsJsonAsync("/api/instruments", Body("Máy Thử", null, edit), Ct), HttpStatusCode.BadRequest, message);
         (await Get(s.Admin, "/api/instruments")).GetArrayLength().ShouldBe(0);

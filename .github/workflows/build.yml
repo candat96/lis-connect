@@ -40,6 +40,40 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: dotnet test tests/Lis.Data.Tests --no-build --ignore-exit-code 8
 
+      # Lis.Server.Tests cũng dùng Testcontainers (cần Docker).
+      - name: Test Lis.Server.Tests (cần Docker)
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet test tests/Lis.Server.Tests --no-build
+
+      - name: Test Lis.Simulator.Tests
+        run: dotnet test tests/Lis.Simulator.Tests --no-build --ignore-exit-code 8
+
+  web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Lấy mã nguồn
+        uses: actions/checkout@v4
+
+      - name: Cài Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Cài gói web
+        run: npm ci
+        working-directory: web
+
+      - name: Test web
+        run: npm test
+        working-directory: web
+
+      - name: Build web
+        run: npm run build
+        working-directory: web
+
   publish-win-x64:
     needs: build-and-test
     runs-on: windows-latest

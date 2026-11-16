@@ -10,6 +10,7 @@ public sealed record ServerOptions(string JwtSecret, int LocalUtcOffsetMinutes, 
     public const string PlaceholderSecret = "CHANGE_ME";
     public const int DefaultLocalUtcOffsetMinutes = 420;
     public const int MinSecretLength = 24;
+    public const int MinSetupKeyLength = 16;
 
     /// <summary>Đọc cấu hình; <c>Jwt:Secret</c> thiếu, còn là "CHANGE_ME" hoặc ngắn hơn 24 ký tự → <see cref="InvalidOperationException"/>.</summary>
     public static ServerOptions From(IConfiguration configuration)
@@ -28,8 +29,18 @@ public sealed record ServerOptions(string JwtSecret, int LocalUtcOffsetMinutes, 
             string.IsNullOrWhiteSpace(configuration["Web:Root"]) ? null : configuration["Web:Root"]);
     }
 
-    // "CHANGE_ME" (giá trị mẫu trong .env.example) coi như chưa đặt.
-    private static string? SetupKeyOrNull(string? value) => value == Api.SetupGuard.Placeholder ? null : NonBlank(value);
+    // "CHANGE_ME" (giá trị mẫu trong .env.example) và chuỗi trống coi như chưa đặt (server tự sinh mã); đã đặt thì phải đủ dài.
+    private static string? SetupKeyOrNull(string? value)
+    {
+        var key = value == Api.SetupGuard.Placeholder ? null : NonBlank(value);
+        if (key is not null && key.Length < MinSetupKeyLength)
+        {
+            throw new InvalidOperationException(
+                $"Mã thiết lập (Setup:Key / SETUP_KEY) ngắn hơn {MinSetupKeyLength} ký tự — đặt mã dài hơn, hoặc để trống để server tự sinh mã mỗi lần chạy");
+        }
+
+        return key;
+    }
 
     private static string? NonBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
