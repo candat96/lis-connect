@@ -484,6 +484,24 @@ public sealed class InstrumentsEndpointsTests(ServerFixture fixture) : IClassFix
     }
 
     [Fact]
+    public async Task Hai_lenh_them_cung_ma_kenh_cung_luc_thi_mot_201_con_lai_409()
+    {
+        await using var s = await StartAsync("pkipar");
+        await s.Service("GLU", "Glucose Mẫu");
+        var id = await Create(s.Admin, Body());
+
+        // Hai máy trạm lưu cùng lúc: cả hai qua bước kiểm trùng, bên thua chạm ràng buộc UNIQUE — phải 409, không 500.
+        for (var round = 0; round < 5; round++)
+        {
+            var code = $"P{round}";
+            var responses = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ =>
+                s.Admin.PostAsJsonAsync($"/api/instruments/{id}/channels", Channel(code), Ct)));
+            responses.Count(r => r.StatusCode == HttpStatusCode.Created).ShouldBe(1);
+            responses.Count(r => r.StatusCode == HttpStatusCode.Conflict).ShouldBe(3);
+        }
+    }
+
+    [Fact]
     public async Task Sua_kenh_doi_ma_doi_chi_so_trung_ma_hay_kenh_cua_may_khac_thi_loi()
     {
         await using var s = await StartAsync("pkiupd");

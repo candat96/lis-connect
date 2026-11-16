@@ -19,6 +19,9 @@ public sealed class ClinicProvisioner(MasterStore master, TenantRegistry tenants
     /// <summary>Khoá <c>pg_advisory_lock</c> trên master xếp hàng việc tạo phòng khám ("LISCLINC").</summary>
     private const long CreateLockKey = 0x4C4953434C494E43;
 
+    /// <summary>CSDL sẵn có của PostgreSQL: không bao giờ dùng làm CSDL phòng khám (template1 là khuôn của mọi CSDL tạo sau).</summary>
+    private static readonly HashSet<string> SystemDatabases = new(["postgres", "template0", "template1"], StringComparer.OrdinalIgnoreCase);
+
     private readonly ConcurrentDictionary<Guid, string> _failedUpgrades = new();
 
     /// <summary>Phòng khám nâng cấp CSDL lỗi lúc khởi động → thông báo lỗi. Các route của phòng khám này trả 503.</summary>
@@ -56,9 +59,10 @@ public sealed class ClinicProvisioner(MasterStore master, TenantRegistry tenants
 
     /// <summary>
     /// Thêm phòng khám với CSDL đặt tên sẵn (lệnh <c>clinic add</c>): tạo CSDL nếu chưa có, migrate, ghi master.
-    /// CSDL có sẵn dữ liệu (chuyển từ bản cài tại chỗ) dùng lại được, trừ CSDL master. Tên CSDL chỉ gồm chữ không dấu, số, gạch dưới
-    /// (1–63 ký tự, không bắt đầu bằng số) vì được ghép thẳng vào <c>CREATE / DROP DATABASE</c>. Tên sai, trùng master hoặc migrate lỗi
-    /// → <see cref="ProvisioningException"/>.
+    /// CSDL có sẵn dữ liệu (chuyển từ bản cài tại chỗ) dùng lại được, trừ CSDL master và CSDL hệ thống của PostgreSQL. Tên CSDL chỉ
+    /// gồm chữ không dấu, số, gạch dưới (1–63 ký tự, không bắt đầu bằng số) vì được ghép thẳng vào <c>CREATE / DROP DATABASE</c>.
+    /// Tên sai hoặc migrate lỗi → <see cref="ProvisioningException"/>; trùng master, CSDL hệ thống, trùng mã hay CSDL đã gán phòng
+    /// khám khác → <see cref="ApiException"/> 409. Lệnh dòng lệnh in câu báo của cả hai loại.
     /// </summary>
     public Task<Clinic> AddAsync(string code, string name, string dbName, Action<string> log) =>
         ProvisionAsync(code, name, dbName, seed: null, log, adoptExisting: true);
@@ -104,6 +108,11 @@ public sealed class ClinicProvisioner(MasterStore master, TenantRegistry tenants
         if (!IsValidDatabaseName(dbName))
         {
             throw new ProvisioningException("Tên CSDL chỉ gồm chữ không dấu, số, gạch dưới (tối đa 63 ký tự, không bắt đầu bằng số)");
+        }
+
+        if (SystemDatabases.Contains(dbName))
+        {
+            throw ApiException.Conflict($"{dbName} là CSDL hệ thống của PostgreSQL — chọn tên CSDL khác");
         }
 
         if (string.Equals(dbName, master.DatabaseName, StringComparison.OrdinalIgnoreCase))
@@ -156,6 +165,7 @@ public sealed class ClinicProvisioner(MasterStore master, TenantRegistry tenants
         }
         catch when (created)
         {
+            tenants.Forget(probe);
             await DropDatabaseQuietlyAsync(connectionString, dbName);
             throw;
         }

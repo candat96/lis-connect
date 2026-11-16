@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Lis.Core.Auth;
 using Lis.Data.Auth;
+using Npgsql;
 
 namespace Lis.Server.Api;
 
@@ -40,8 +41,8 @@ public static partial class UsersEndpoints
         var details = await ctx.Tenant.Users.ListDetailsAsync();
         return Results.Ok(details.Select(d => new UserView(
             d.User.Id, d.User.Username, d.User.FullName, d.User.Title, d.User.Roles, d.User.Active,
-            d.LockedUntil is { } locked && locked > now ? Iso(locked) : null,
-            d.LastLoginAt is { } last ? Iso(last) : null)));
+            d.LockedUntil is { } locked && locked > now ? ApiFormat.Iso(locked) : null,
+            d.LastLoginAt is { } last ? ApiFormat.Iso(last) : null)));
     }
 
     private static async Task<IResult> CreateAsync(RequestContext ctx, CreateUserRequest body)
@@ -60,16 +61,16 @@ public static partial class UsersEndpoints
             var user = await ctx.Tenant.Users.CreateAsync(username.Trim(), fullName, NormalTitle(body.Title), password, roles);
             return Results.Json(new { id = user.Id }, statusCode: StatusCodes.Status201Created);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
-            // UserStore chỉ ném InvalidOperationException khi trùng tên đăng nhập.
+            // Chỉ lỗi UNIQUE mới là trùng tên đăng nhập; lỗi khác rơi xuống 500 thay vì báo nhầm.
             throw ApiException.Conflict("Tên đăng nhập đã tồn tại");
         }
     }
 
     private static async Task<IResult> UpdateAsync(RequestContext ctx, string id, UpdateUserRequest body)
     {
-        if (!Guid.TryParseExact(id, "D", out var userId)) throw ApiException.BadRequest("Validation failed (uuid is expected)");
+        var userId = ApiFormat.ParseId(id);
 
         var fullName = CheckFullName(body.FullName);
         CheckTitle(body.Title);
@@ -162,7 +163,6 @@ public static partial class UsersEndpoints
     }
 
     /// <summary>Dạng <c>toISOString()</c> của JS: UTC, đủ mili giây.</summary>
-    internal static string Iso(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
 
     [GeneratedRegex(@"^[A-Za-z0-9._-]+\z")]
     private static partial Regex UsernamePattern();

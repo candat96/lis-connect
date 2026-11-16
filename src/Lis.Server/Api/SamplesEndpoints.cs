@@ -42,6 +42,8 @@ public static class SamplesEndpoints
     /// <summary>Số mẫu tối đa trả về một lần (như <c>LIMIT 500</c> ở NestJS); danh sách đã xếp mới nhất trước.</summary>
     private const int MaxListItems = 500;
 
+    private static readonly ServiceEntryHint FreeTextHint = new("chu", []);
+
     private static readonly string[] Statuses = [SampleStatus.AwaitingResults, SampleStatus.AwaitingApproval, SampleStatus.Approved];
 
     public static void MapSamplesApi(this RouteGroupBuilder api)
@@ -78,23 +80,24 @@ public static class SamplesEndpoints
             throw ApiException.BadRequest("Trạng thái không hợp lệ");
         }
 
-        var items = await ctx.Tenant.Results.ListAsync(from, to, status, query["q"]);
-        return Results.Ok(items.Take(MaxListItems).Select(item => new SampleListItemView(
-            item.SampleId, item.Barcode, item.PatientName, item.PatientCode, UsersEndpoints.Iso(item.OrderedAt), item.SpecimenName,
+        var items = await ctx.Tenant.Results.ListAsync(from, to, status, query["q"], MaxListItems);
+        return Results.Ok(items.Select(item => new SampleListItemView(
+            item.SampleId, item.Barcode, item.PatientName, item.PatientCode, ApiFormat.Iso(item.OrderedAt), item.SpecimenName,
             item.Total, item.WithValue, StatusOf(item), item.HasAbnormal, item.HasPending)));
     }
 
     /// <summary>Bảng chỉ số của một mẫu kèm người bệnh, phiếu chỉ định và trạng thái duyệt.</summary>
     private static async Task<IResult> DetailAsync(RequestContext ctx, string id)
     {
-        var sampleId = ParseId(id);
+        var sampleId = ApiFormat.ParseId(id);
         var results = ctx.Tenant.Results;
         var (sample, hints, header) = await Translated(async () =>
             (await results.GetAsync(sampleId), await results.GetEntryHintsAsync(sampleId), await results.GetOrderHeaderAsync(sampleId)));
 
         var rows = sample.Rows.Select(row =>
         {
-            var hint = hints[row.ServiceId];
+            // Hai truy vấn đọc riêng: chỉ định thêm vào giữa chừng thì chưa có gợi ý — cho nhập chữ tự do thay vì 500.
+            var hint = hints.GetValueOrDefault(row.ServiceId) ?? FreeTextHint;
             return new ResultRowView(
                 row.OrderItemId, row.ResultId, hint.ValueType, hint.Choices, row.ServiceCode, row.ServiceName, row.IsPanelHeader, row.Depth,
                 row.Value, row.Unit, row.RefText, row.Flag.ToString(), row.Status, row.PendingValue, row.Source);
@@ -107,8 +110,8 @@ public static class SamplesEndpoints
             new SamplePatientView(
                 sample.PatientName, sample.PatientCode, patient.Sex.ToString(),
                 patient.Dob?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), patient.BirthYear),
-            new SampleOrderView(header.OrderingDoctor, header.OrderingDept, header.Diagnosis, UsersEndpoints.Iso(header.OrderedAt)),
-            sample.ApprovedAt is { } approvedAt ? UsersEndpoints.Iso(approvedAt) : null,
+            new SampleOrderView(header.OrderingDoctor, header.OrderingDept, header.Diagnosis, ApiFormat.Iso(header.OrderedAt)),
+            sample.ApprovedAt is { } approvedAt ? ApiFormat.Iso(approvedAt) : null,
             sample.ApprovedBy,
             rows));
     }
@@ -116,7 +119,7 @@ public static class SamplesEndpoints
     /// <summary>Duyệt mẫu: mọi kết quả đang có giá trị thành đã duyệt. Mẫu đã duyệt rồi thì không làm gì (vẫn 204).</summary>
     private static async Task<IResult> ApproveAsync(RequestContext ctx, string id)
     {
-        var sampleId = ParseId(id);
+        var sampleId = ApiFormat.ParseId(id);
         ctx.RequireResultEditor();
         await Translated(() => ctx.Tenant.Results.ApproveAsync(sampleId, ctx.User.Id));
         return Results.NoContent();
@@ -125,7 +128,7 @@ public static class SamplesEndpoints
     /// <summary>Hủy duyệt (bắt buộc lý do). Mẫu chưa duyệt thì không làm gì (vẫn 204).</summary>
     private static async Task<IResult> UnapproveAsync(RequestContext ctx, string id, ReasonBody body)
     {
-        var sampleId = ParseId(id);
+        var sampleId = ApiFormat.ParseId(id);
         var reason = body.Reason ?? throw ApiException.BadRequest(InvalidBody);
         if (reason.Length == 0) throw ApiException.BadRequest("Nhập lý do");
         if (reason.Length > MaxTextLength) throw ApiException.BadRequest(InvalidBody);
@@ -137,7 +140,7 @@ public static class SamplesEndpoints
     /// <summary>Nhập / sửa tay một giá trị. Ô đã có giá trị thì phải kèm lý do; mẫu đã duyệt thì phải hủy duyệt trước.</summary>
     private static async Task<IResult> SetValueAsync(RequestContext ctx, string orderItemId, SetValueBody body)
     {
-        var itemId = ParseId(orderItemId);
+        var itemId = ApiFormat.ParseId(orderItemId);
         var value = body.Value ?? throw ApiException.BadRequest(InvalidBody);
         if (value.Length > MaxTextLength || body.Reason is { Length: > MaxTextLength }) throw ApiException.BadRequest(InvalidBody);
         ctx.RequireResultEditor();
@@ -148,15 +151,15 @@ public static class SamplesEndpoints
     /// <summary>Lịch sử thao tác trên một chỉ số của mẫu, mới nhất trước.</summary>
     private static async Task<IResult> HistoryAsync(RequestContext ctx, string orderItemId)
     {
-        var itemId = ParseId(orderItemId);
+        var itemId = ApiFormat.ParseId(orderItemId);
         var history = await ctx.Tenant.Results.GetItemHistoryAsync(itemId);
-        return Results.Ok(history.Select(h => new ResultHistoryView(UsersEndpoints.Iso(h.At), h.Action, h.OldValue, h.NewValue, h.Reason, h.ActorName)));
+        return Results.Ok(history.Select(h => new ResultHistoryView(ApiFormat.Iso(h.At), h.Action, h.OldValue, h.NewValue, h.Reason, h.ActorName)));
     }
 
     /// <summary>Dùng giá trị máy gửi lại làm giá trị chính thức; mẫu đang duyệt thì về chưa duyệt.</summary>
     private static async Task<IResult> AcceptPendingAsync(RequestContext ctx, string resultId)
     {
-        var id = ParseId(resultId);
+        var id = ApiFormat.ParseId(resultId);
         ctx.RequireResultEditor();
         await Translated(() => ctx.Tenant.Results.AcceptPendingAsync(id, ctx.User.Id));
         return Results.NoContent();
@@ -165,7 +168,7 @@ public static class SamplesEndpoints
     /// <summary>Bỏ giá trị máy gửi lại, giữ giá trị đã duyệt.</summary>
     private static async Task<IResult> RejectPendingAsync(RequestContext ctx, string resultId)
     {
-        var id = ParseId(resultId);
+        var id = ApiFormat.ParseId(resultId);
         ctx.RequireResultEditor();
         await Translated(() => ctx.Tenant.Results.RejectPendingAsync(id, ctx.User.Id));
         return Results.NoContent();
@@ -179,9 +182,6 @@ public static class SamplesEndpoints
 
     private static bool TryParseDate(string? text, out DateOnly date) =>
         DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
-
-    private static Guid ParseId(string id) =>
-        Guid.TryParseExact(id, "D", out var guid) ? guid : throw ApiException.BadRequest("Validation failed (uuid is expected)");
 
     private static async Task Translated(Func<Task> action) => await Translated(async () =>
     {

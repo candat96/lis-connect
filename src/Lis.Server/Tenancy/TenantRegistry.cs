@@ -66,4 +66,10 @@ public sealed class TenantRegistry(
 
     public TenantServices For(Clinic clinic) =>
         _tenants.GetOrAdd(clinic.DbName, _ => new TenantServices(ConnectionStringFor(clinic), clock, _clinicClock));
+
+    /// <summary>
+    /// Bỏ bộ dịch vụ (và pool kết nối) của một CSDL, vd CSDL tạo dở vừa bị xoá — lần sau dùng lại tên đó sẽ mở kết nối mới
+    /// thay vì vấp kết nối cũ đã bị <c>DROP DATABASE … WITH (FORCE)</c> cắt.
+    /// </summary>
+    public void Forget(Clinic clinic) => _tenants.TryRemove(clinic.DbName, out _);
 }

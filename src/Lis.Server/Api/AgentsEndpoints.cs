@@ -60,7 +60,7 @@ public static class AgentsEndpoints
                 .Select(i => new AgentInstrumentView(i.Id, i.Name, online ? InstrumentsEndpoints.StatusOf(a.LastStatusJson, i.Id) : null))
                 .ToList();
             return new AgentView(
-                a.Agent.Id, a.Agent.Name, a.Agent.WorkstationCode, a.Agent.LastSeenAt is { } last ? UsersEndpoints.Iso(last) : null, online, mine);
+                a.Agent.Id, a.Agent.Name, a.Agent.WorkstationCode, a.Agent.LastSeenAt is { } last ? ApiFormat.Iso(last) : null, online, mine);
         }));
     }
 
@@ -83,7 +83,7 @@ public static class AgentsEndpoints
 
     private static async Task<IResult> UpdateAsync(RequestContext ctx, MasterStore master, string id, AgentBody body)
     {
-        var agentId = ParseId(id);
+        var agentId = ApiFormat.ParseId(id);
         var (name, workstationCode) = Check(body);
         ctx.RequireAdmin();
         await FindAsync(master, ctx, agentId);
@@ -112,7 +112,7 @@ public static class AgentsEndpoints
     /// <summary>Cấp khoá mới (khoá cũ hết hiệu lực ngay) — dùng khi lộ khoá hoặc cài lại máy tính agent.</summary>
     private static async Task<IResult> RegenerateKeyAsync(RequestContext ctx, MasterStore master, string id)
     {
-        var agentId = ParseId(id);
+        var agentId = ApiFormat.ParseId(id);
         ctx.RequireAdmin();
         try
         {
@@ -126,7 +126,7 @@ public static class AgentsEndpoints
 
     private static async Task<IResult> DeleteAsync(RequestContext ctx, MasterStore master, string id)
     {
-        var agentId = ParseId(id);
+        var agentId = ApiFormat.ParseId(id);
         ctx.RequireAdmin();
         var agent = await FindAsync(master, ctx, agentId);
         await using (var connection = await ctx.Tenant.Db.OpenAsync())
@@ -144,9 +144,6 @@ public static class AgentsEndpoints
     }
 
     // ---- dùng chung ----
-
-    private static Guid ParseId(string id) =>
-        Guid.TryParseExact(id, "D", out var guid) ? guid : throw ApiException.BadRequest("Validation failed (uuid is expected)");
 
     /// <summary>Agent phải thuộc phòng khám của phiên — không đụng được agent của phòng khám khác.</summary>
     private static async Task<AgentInfo> FindAsync(MasterStore master, RequestContext ctx, Guid id) =>
@@ -266,7 +263,7 @@ public static class AgentsEndpoints
             parameters);
 
         return Results.Ok(rows.Select(r => new AgentLogView(
-            r.Id.ToString(CultureInfo.InvariantCulture), UsersEndpoints.Iso(r.At), r.AgentId, r.InstrumentId, r.InstrumentName,
+            r.Id.ToString(CultureInfo.InvariantCulture), ApiFormat.Iso(r.At), r.AgentId, r.InstrumentId, r.InstrumentName,
             r.Direction, r.Session, r.Hex, r.Note)));
     }
 

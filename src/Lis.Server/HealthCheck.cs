@@ -12,10 +12,10 @@ public static class HealthCheck
 
     public static bool IsRequested(string[] args) => args.Length > 0 && args[0] == Flag;
 
-    /// <summary>Địa chỉ gọi vào chính server này: cổng đầu tiên trong <c>ASPNETCORE_URLS</c> (mặc định 5080), luôn qua 127.0.0.1.</summary>
-    public static string LocalUrl(string? aspNetCoreUrls)
+    /// <summary>Địa chỉ gọi vào chính server này: cổng đầu tiên trong cấu hình <c>urls</c> (mặc định 5080), luôn qua 127.0.0.1.</summary>
+    public static string LocalUrl(string? listenUrls)
     {
-        var first = (aspNetCoreUrls ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+        var first = (listenUrls ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
         var port = 5080;
         var scheme = "http";
         if (first is not null)

@@ -12,7 +12,9 @@ using Lis.Server.Tenancy;
 // Không có lệnh → chạy server web.
 if (HealthCheck.IsRequested(args))
 {
-    using var http = new HttpClient { BaseAddress = new Uri(HealthCheck.LocalUrl(Environment.GetEnvironmentVariable("ASPNETCORE_URLS"))) };
+    // Địa chỉ nghe đọc y như lúc chạy server (appsettings, ASPNETCORE_URLS, Urls, --urls) để đổi cổng ở đâu cũng không lệch.
+    var listenUrls = WebApplication.CreateBuilder(args[1..]).Configuration["urls"];
+    using var http = new HttpClient { BaseAddress = new Uri(HealthCheck.LocalUrl(listenUrls)) };
     return await HealthCheck.RunAsync(http);
 }
 

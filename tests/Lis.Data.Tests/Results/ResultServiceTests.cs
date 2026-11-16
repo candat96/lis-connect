@@ -535,6 +535,10 @@ public class ResultServiceTests(PostgresFixture fixture)
         (await env.Results.ListAsync(from, to, null, barcode[1..])).ShouldBeEmpty();
 
         (await env.Results.ListAsync(today.AddDays(-10), today.AddDays(-5), null, null)).ShouldBeEmpty();
+
+        // Giới hạn nằm trong SQL (server web chỉ trả 500 mẫu mới nhất), giữ đúng thứ tự mới nhất trước.
+        (await env.Results.ListAsync(from, to, null, null, limit: 2)).Select(s => s.SampleId).ShouldBe([approved, awaitingApproval]);
+        (await env.Results.ListAsync(from, to, SampleStatus.AwaitingResults, null, limit: 1)).Select(s => s.SampleId).ShouldBe([awaitingResults]);
     }
 
     [Fact]

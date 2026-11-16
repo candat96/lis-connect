@@ -31,10 +31,16 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
     /// Danh sách mẫu có chỉ định tạo trong khoảng ngày [<paramref name="from"/>, <paramref name="to"/>]
     /// theo giờ máy (múi giờ của <see cref="TimeProvider.LocalTimeZone"/>), mới nhất trước.
     /// <paramref name="query"/> khớp barcode chính xác (sau khi bỏ khoảng trắng hai đầu), mã
-    /// người bệnh, hoặc một phần họ tên không phân biệt dấu/hoa thường.
+    /// người bệnh, hoặc một phần họ tên không phân biệt dấu/hoa thường. <paramref name="limit"/> (nếu có)
+    /// chỉ lấy chừng ấy mẫu mới nhất.
     /// </summary>
-    public async Task<IReadOnlyList<SampleListItem>> ListAsync(DateOnly from, DateOnly to, string? status, string? query)
+    public async Task<IReadOnlyList<SampleListItem>> ListAsync(DateOnly from, DateOnly to, string? status, string? query, int? limit = null)
     {
+        if (limit is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), "Giới hạn phải lớn hơn 0");
+        }
+
         var (fromUtc, toUtcExclusive) = LocalDay.UtcRange(clock, from, to);
 
         var conditions = new List<string> { "o.created_at >= @fromUtc AND o.created_at < @toUtcExclusive" };
@@ -86,8 +92,9 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
             LEFT JOIN l ON l.sample_id = s.id
             WHERE {string.Join(" AND ", conditions)}
             ORDER BY o.created_at DESC, s.barcode DESC
+            {(limit is null ? "" : "LIMIT @limit")}
             """,
-            new { fromUtc, toUtcExclusive, query = trimmedQuery, pattern = $"%{EscapeLike(trimmedQuery ?? "")}%" });
+            new { fromUtc, toUtcExclusive, query = trimmedQuery, pattern = $"%{EscapeLike(trimmedQuery ?? "")}%", limit });
 
         return rows.Select(row => row.ToItem()).ToList();
     }

@@ -119,9 +119,9 @@ public sealed partial class CatalogStore
                 {
                     serviceId = await SaveServiceInTransactionAsync(connection, transaction, service with { Id = id ?? Guid.Empty });
                 }
-                catch (InvalidOperationException)
+                catch (InvalidOperationException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
                 {
-                    // SaveServiceInTransactionAsync chỉ ném InvalidOperationException khi trùng mã.
+                    // Chỉ lỗi UNIQUE mới là trùng mã; lỗi khác (vd mất kết nối) không được báo nhầm thành "đã tồn tại".
                     throw new CatalogException(CatalogFailure.DuplicateCode, "Mã dịch vụ đã tồn tại");
                 }
 

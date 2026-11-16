@@ -82,8 +82,7 @@ public sealed class ProvisioningSafetyTests(ServerFixture fixture) : IClassFixtu
 
         var response = await host.Anonymous.PostAsJsonAsync("/api/setup/clinic", Body(code), Ct);
 
-        ((int)response.StatusCode).ShouldBeInRange(400, 409);
-        response.StatusCode.ShouldNotBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await JsonOf(response)).GetProperty("message").GetString()!.ShouldContain("CSDL");
         (await TableExistsAsync(masterName, "app_user")).ShouldBeFalse();
         (await Master().FindClinicAsync(code)).ShouldBeNull();
@@ -105,6 +104,41 @@ public sealed class ProvisioningSafetyTests(ServerFixture fixture) : IClassFixtu
 
         await Should.ThrowAsync<ApiException>(() => provisioner.AddAsync("khac", "Phòng khám Mẫu", "lis_master", _ => { }));
         (await TableExistsAsync("lis_master", "app_user")).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("postgres")]
+    [InlineData("template0")]
+    [InlineData("template1")]
+    [InlineData("TEMPLATE1")]
+    public async Task Dong_lenh_tu_choi_CSDL_he_thong_cua_PostgreSQL(string dbName)
+    {
+        // template1 là khuôn của mọi CSDL tạo sau — migrate vào đó thì phòng khám nào tạo sau cũng mang sẵn bảng.
+        var provisioner = new ClinicProvisioner(Master(), Tenants());
+
+        var ex = await Should.ThrowAsync<ApiException>(() => provisioner.AddAsync("pk-he-thong", "Phòng khám Mẫu", dbName, _ => { }));
+
+        ex.Status.ShouldBe(409);
+        ex.Message.ShouldContain("CSDL hệ thống");
+        (await TableExistsAsync("template1", "app_user")).ShouldBeFalse();
+        (await TableExistsAsync("postgres", "app_user")).ShouldBeFalse();
+        (await Master().FindClinicAsync("pk-he-thong")).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Tao_loi_giua_chung_roi_thu_lai_cung_ma_thi_duoc_ngay()
+    {
+        var provisioner = new ClinicProvisioner(Master(), Tenants());
+
+        // Lỗi ở bước tạo tài khoản — sau khi đã mở kết nối tới CSDL mới — nên CSDL bị xoá (kéo theo kết nối trong pool).
+        await Should.ThrowAsync<ApiException>(() => provisioner.CreateAsync("pk-thu-lai", "Phòng khám Mẫu", "ad\0min", "Quản trị Thử", Password));
+        (await DatabaseExistsAsync("lis_pk_thu_lai")).ShouldBeFalse();
+
+        // Thử lại cùng mã: phải dùng kết nối mới, không vấp kết nối cũ đã chết.
+        var clinic = await provisioner.CreateAsync("pk-thu-lai", "Phòng khám Mẫu", "admin", "Quản trị Thử", Password);
+
+        clinic.DbName.ShouldBe("lis_pk_thu_lai");
+        (await TableExistsAsync("lis_pk_thu_lai", "app_user")).ShouldBeTrue();
     }
 
     [Fact]

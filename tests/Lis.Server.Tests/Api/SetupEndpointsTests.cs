@@ -112,8 +112,7 @@ public sealed class SetupEndpointsTests(ServerFixture fixture) : IClassFixture<S
         (await JsonOf(wrong)).GetProperty("message").GetString().ShouldBe("Mã thiết lập không đúng");
         missing.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await DatabaseExistsAsync("lis_pk_thu_sai")).ShouldBeFalse();
-        (await host.Anonymous.GetFromJsonAsync<JsonElement>("/api/setup/status", Ct)).GetProperty("hasClinic").GetBoolean()
-            .ShouldBe((await new MasterStore(fixture.MasterConnection).ClinicsAsync()).Count > 0);
+        (await new MasterStore(fixture.MasterConnection).FindClinicAsync("pk-thu-sai")).ShouldBeNull();
     }
 
     [Theory]

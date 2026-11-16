@@ -96,7 +96,7 @@ public static class InstrumentsEndpoints
                 instrument.Id, instrument.Name, instrument.Model, instrument.ProtocolFamily, instrument.WorkstationCode, instrument.Active,
                 ViewOf(connection), DescribeConnection(connection), channelCount, pending, unmapped,
                 agent is null ? null : new InstrumentAgentView(
-                    agent.Agent.Id, agent.Agent.Name, agent.Agent.LastSeenAt is { } last ? UsersEndpoints.Iso(last) : null, online),
+                    agent.Agent.Id, agent.Agent.Name, agent.Agent.LastSeenAt is { } last ? ApiFormat.Iso(last) : null, online),
                 // Trạng thái chỉ đáng tin khi agent còn đang báo về.
                 online ? StatusOf(agent!.LastStatusJson, instrument.Id) : null));
         }
@@ -116,7 +116,7 @@ public static class InstrumentsEndpoints
     /// <summary>Sửa máy. Agent tự nhận cấu hình mới trong vòng 30 giây và mở lại kết nối nếu cấu hình đổi.</summary>
     private static async Task<IResult> UpdateAsync(RequestContext ctx, MasterStore master, string id, InstrumentBody body)
     {
-        var instrumentId = ParseId(id);
+        var instrumentId = ApiFormat.ParseId(id);
         var input = Check(body);
         ctx.RequireAdmin();
         var existing = await FindAsync(ctx, instrumentId);
@@ -135,7 +135,7 @@ public static class InstrumentsEndpoints
 
     private static async Task<IResult> DeleteAsync(RequestContext ctx, string id)
     {
-        var instrumentId = ParseId(id);
+        var instrumentId = ApiFormat.ParseId(id);
         ctx.RequireAdmin();
         return await ctx.Tenant.Instruments.DeleteAsync(instrumentId) switch
         {
@@ -148,7 +148,7 @@ public static class InstrumentsEndpoints
     /// <summary>Bảng map kênh của một máy: kênh đã map trước, rồi dịch vụ đã khai đang chờ dò mã kênh.</summary>
     private static async Task<IResult> ChannelsAsync(RequestContext ctx, string id)
     {
-        var instrumentId = ParseId(id);
+        var instrumentId = ApiFormat.ParseId(id);
         await FindAsync(ctx, instrumentId);
         var store = ctx.Tenant.Instruments;
         var mapped = (await store.ChannelsAsync(instrumentId)).Select(c => new InstrumentChannelView(
@@ -161,7 +161,7 @@ public static class InstrumentsEndpoints
     /// <summary>Thêm một kênh (mã kênh máy → chỉ số). Trùng mã kênh trên cùng máy → báo đang trỏ tới chỉ số nào.</summary>
     private static async Task<IResult> AddChannelAsync(RequestContext ctx, string id, InstrumentChannelBody body)
     {
-        var instrumentId = ParseId(id);
+        var instrumentId = ApiFormat.ParseId(id);
         var input = CheckChannel(body);
         ctx.RequireAdmin();
         await FindAsync(ctx, instrumentId);
@@ -174,8 +174,8 @@ public static class InstrumentsEndpoints
 
     private static async Task<IResult> UpdateChannelAsync(RequestContext ctx, string id, string channelId, InstrumentChannelBody body)
     {
-        var instrumentId = ParseId(id);
-        var channelGuid = ParseId(channelId);
+        var instrumentId = ApiFormat.ParseId(id);
+        var channelGuid = ApiFormat.ParseId(channelId);
         var input = CheckChannel(body);
         ctx.RequireAdmin();
         var serviceId = await LeafServiceIdAsync(ctx, input.ServiceCode);
@@ -189,8 +189,8 @@ public static class InstrumentsEndpoints
 
     private static async Task<IResult> RemoveChannelAsync(RequestContext ctx, string id, string channelId)
     {
-        var instrumentId = ParseId(id);
-        var channelGuid = ParseId(channelId);
+        var instrumentId = ApiFormat.ParseId(id);
+        var channelGuid = ApiFormat.ParseId(channelId);
         ctx.RequireAdmin();
         if (await HasChannelAsync(ctx, instrumentId, channelGuid))
         {
@@ -203,7 +203,7 @@ public static class InstrumentsEndpoints
     /// <summary>Khai một chỉ số là máy này chạy được khi chưa biết mã kênh — hệ thống tự dò mã kênh theo barcode.</summary>
     private static async Task<IResult> DeclareAsync(RequestContext ctx, string id, DeclareBody body)
     {
-        var instrumentId = ParseId(id);
+        var instrumentId = ApiFormat.ParseId(id);
         var serviceCode = CheckServiceCode(body.ServiceCode);
         ctx.RequireAdmin();
         await FindAsync(ctx, instrumentId);
@@ -214,7 +214,7 @@ public static class InstrumentsEndpoints
 
     private static async Task<IResult> UndeclareAsync(RequestContext ctx, string id, string serviceCode)
     {
-        var instrumentId = ParseId(id);
+        var instrumentId = ApiFormat.ParseId(id);
         ctx.RequireAdmin();
         if (await ctx.Tenant.Catalog.FindByCodeAsync(serviceCode) is { } service)
         {
@@ -227,14 +227,11 @@ public static class InstrumentsEndpoints
     /// <summary>Mã kênh máy đã gửi mà chưa map (mới nhất trước).</summary>
     private static async Task<IResult> UnmappedAsync(RequestContext ctx, string id)
     {
-        var rows = await ctx.Tenant.Instruments.UnmappedChannelsAsync(ParseId(id));
-        return Results.Ok(rows.Select(r => new UnmappedChannelView(r.ChannelCode, r.Count, r.LastValue, r.LastUnit, UsersEndpoints.Iso(r.LastAt))));
+        var rows = await ctx.Tenant.Instruments.UnmappedChannelsAsync(ApiFormat.ParseId(id));
+        return Results.Ok(rows.Select(r => new UnmappedChannelView(r.ChannelCode, r.Count, r.LastValue, r.LastUnit, ApiFormat.Iso(r.LastAt))));
     }
 
     // ---- dùng chung ----
-
-    private static Guid ParseId(string id) =>
-        Guid.TryParseExact(id, "D", out var guid) ? guid : throw ApiException.BadRequest("Validation failed (uuid is expected)");
 
     private static async Task<InstrumentInfo> FindAsync(RequestContext ctx, Guid id) =>
         (await ctx.Tenant.Instruments.ListAsync()).FirstOrDefault(i => i.Id == id) ?? throw ApiException.NotFound(InstrumentNotFound);

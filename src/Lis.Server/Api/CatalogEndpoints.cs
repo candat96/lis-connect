@@ -84,7 +84,7 @@ public static class CatalogEndpoints
 
     private static async Task<IResult> DetailAsync(RequestContext ctx, string id)
     {
-        var serviceId = ParseId(id);
+        var serviceId = ApiFormat.ParseId(id);
         return Results.Ok(await ctx.Tenant.Catalog.DetailAsync(serviceId) ?? throw ApiException.NotFound("Không tìm thấy dịch vụ"));
     }
 
@@ -98,7 +98,7 @@ public static class CatalogEndpoints
 
     private static async Task<IResult> UpdateAsync(RequestContext ctx, string id, ServiceBody body)
     {
-        var serviceId = ParseId(id);
+        var serviceId = ApiFormat.ParseId(id);
         var input = Check(body);
         ctx.RequireAdmin();
         await SaveAsync(ctx, serviceId, input);
@@ -107,7 +107,7 @@ public static class CatalogEndpoints
 
     private static async Task<IResult> DeleteAsync(RequestContext ctx, string id)
     {
-        var serviceId = ParseId(id);
+        var serviceId = ApiFormat.ParseId(id);
         ctx.RequireAdmin();
         try
         {
@@ -173,9 +173,6 @@ public static class CatalogEndpoints
 
         return errors;
     }
-
-    private static Guid ParseId(string id) =>
-        Guid.TryParseExact(id, "D", out var guid) ? guid : throw ApiException.BadRequest("Validation failed (uuid is expected)");
 
     /// <summary>Kiểm thân request như DTO ở NestJS (cùng câu báo lỗi); lỗi không có câu riêng → "dữ liệu không hợp lệ".</summary>
     private static ServiceInput Check(ServiceBody body)

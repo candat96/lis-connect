@@ -123,6 +123,10 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
     public Task<IReadOnlyList<SampleListItem>> ListAsync(DateOnly from, DateOnly to, string? status, string? query) =>
         _query.ListAsync(from, to, status, query);
 
+    /// <summary>Như bản không giới hạn nhưng chỉ lấy <paramref name="limit"/> mẫu mới nhất — cắt trong SQL, không nạp hết rồi bỏ.</summary>
+    public Task<IReadOnlyList<SampleListItem>> ListAsync(DateOnly from, DateOnly to, string? status, string? query, int limit) =>
+        _query.ListAsync(from, to, status, query, limit);
+
     public Task<SampleResults> GetAsync(Guid sampleId) => _query.GetAsync(sampleId);
 
     public Task<OrderHeader> GetOrderHeaderAsync(Guid sampleId) => _query.GetOrderHeaderAsync(sampleId);
