@@ -67,60 +67,12 @@ public sealed class UserStore(Db db)
 
     public async Task UpdateAsync(Guid id, string fullName, string? title, IReadOnlyList<string> roles, bool active, string? newPassword)
     {
-        var rolesArray = roles.ToArray();
-
-        string? passwordHash = null;
-        if (newPassword is not null)
+        var result = await ApplyUpdateAsync(id, fullName, title, roles, active, newPassword, unlockOnPasswordReset: false);
+        if (result == UserUpdateResult.LastAdmin)
         {
-            RequireValidPassword(newPassword);
-            passwordHash = hasher.Hash(newPassword);
+            throw new InvalidOperationException(
+                "Phải còn ít nhất một tài khoản Quản trị đang hoạt động — không thể khóa hoặc bỏ vai trò Quản trị của tài khoản này");
         }
-
-        // Kiểm "còn ít nhất một quản trị đang hoạt động" và ghi UPDATE phải nằm trong CÙNG một
-        // giao dịch, có khóa hàng (FOR UPDATE) trên toàn bộ tập quản trị đang hoạt động — nếu
-        // không, hai máy trạm cùng lúc mỗi bên khóa một quản trị khác nhau đều có thể đọc "còn
-        // quản trị kia đang hoạt động" TRƯỚC khi bên kia ghi, rồi cả hai cùng commit, xóa sạch
-        // quản trị đang hoạt động. FOR UPDATE buộc giao dịch thứ hai chờ giao dịch thứ nhất
-        // commit/rollback rồi mới đọc lại đúng trạng thái mới nhất (Postgres re-check điều kiện
-        // WHERE sau khi lấy được khóa, dưới mức cô lập READ COMMITTED mặc định).
-        await db.InTransactionAsync(async (connection, transaction) =>
-        {
-            var activeAdminIds = (await connection.QueryAsync<Guid>(
-                "SELECT id FROM app_user WHERE active = true AND @quanTri = ANY(roles) FOR UPDATE",
-                new { quanTri = Roles.QuanTri }, transaction)).ToHashSet();
-
-            var wasActiveAdmin = activeAdminIds.Contains(id);
-            var willStayActiveAdmin = active && roles.Contains(Roles.QuanTri);
-
-            if (wasActiveAdmin && !willStayActiveAdmin)
-            {
-                var otherActiveAdmins = activeAdminIds.Count - 1; // trừ chính tài khoản đang sửa
-                if (otherActiveAdmins <= 0)
-                {
-                    throw new InvalidOperationException(
-                        "Phải còn ít nhất một tài khoản Quản trị đang hoạt động — không thể khóa hoặc bỏ vai trò Quản trị của tài khoản này");
-                }
-            }
-
-            if (passwordHash is null)
-            {
-                await connection.ExecuteAsync(
-                    "UPDATE app_user SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active WHERE id = @id",
-                    new { id, fullName, title, rolesArray, active }, transaction);
-            }
-            else
-            {
-                await connection.ExecuteAsync(
-                    """
-                    UPDATE app_user
-                    SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active, password_hash = @passwordHash
-                    WHERE id = @id
-                    """,
-                    new { id, fullName, title, rolesArray, active, passwordHash }, transaction);
-            }
-
-            return true;
-        });
     }
 
     public async Task<IReadOnlyList<UserInfo>> ListAsync()
@@ -143,12 +95,23 @@ public sealed class UserStore(Db db)
     /// <summary>
     /// Như <see cref="UpdateAsync"/> nhưng báo kết quả thay vì ném lỗi khi hết quản trị, báo <see cref="UserUpdateResult.NotFound"/>
     /// khi không có tài khoản, và đặt lại mật khẩu thì mở luôn khoá tạm (xoá số lần sai, thời điểm khoá).
-    /// Mật khẩu mới phải được kiểm hợp lệ trước (ném <see cref="ArgumentException"/> nếu dưới 8 ký tự).
+    /// Mật khẩu mới dưới 8 ký tự ném <see cref="ArgumentException"/>.
     /// </summary>
     public async Task<UserUpdateResult> UpdateAccountAsync(
         Guid id, string fullName, string? title, IReadOnlyList<string> roles, bool active, string? newPassword)
     {
+        return await ApplyUpdateAsync(id, fullName, title, roles, active, newPassword, unlockOnPasswordReset: true);
+    }
+
+    /// <summary>
+    /// Thân chung của <see cref="UpdateAsync"/> và <see cref="UpdateAccountAsync"/> — nơi DUY NHẤT giữ luật "luôn còn một
+    /// quản trị đang hoạt động".
+    /// </summary>
+    private async Task<UserUpdateResult> ApplyUpdateAsync(
+        Guid id, string fullName, string? title, IReadOnlyList<string> roles, bool active, string? newPassword, bool unlockOnPasswordReset)
+    {
         var rolesArray = roles.ToArray();
+
         string? passwordHash = null;
         if (newPassword is not null)
         {
@@ -156,6 +119,13 @@ public sealed class UserStore(Db db)
             passwordHash = hasher.Hash(newPassword);
         }
 
+        // Kiểm "còn ít nhất một quản trị đang hoạt động" và ghi UPDATE phải nằm trong CÙNG một
+        // giao dịch, có khóa hàng (FOR UPDATE) trên toàn bộ tập quản trị đang hoạt động — nếu
+        // không, hai máy trạm cùng lúc mỗi bên khóa một quản trị khác nhau đều có thể đọc "còn
+        // quản trị kia đang hoạt động" TRƯỚC khi bên kia ghi, rồi cả hai cùng commit, xóa sạch
+        // quản trị đang hoạt động. FOR UPDATE buộc giao dịch thứ hai chờ giao dịch thứ nhất
+        // commit/rollback rồi mới đọc lại đúng trạng thái mới nhất (Postgres re-check điều kiện
+        // WHERE sau khi lấy được khóa, dưới mức cô lập READ COMMITTED mặc định).
         return await db.InTransactionAsync(async (connection, transaction) =>
         {
             var activeAdminIds = (await connection.QueryAsync<Guid>(
@@ -163,24 +133,34 @@ public sealed class UserStore(Db db)
                 new { quanTri = Roles.QuanTri }, transaction)).ToHashSet();
 
             var wasActiveAdmin = activeAdminIds.Contains(id);
-            var staysActiveAdmin = active && roles.Contains(Roles.QuanTri);
-            if (wasActiveAdmin && !staysActiveAdmin && activeAdminIds.Count <= 1)
+            var willStayActiveAdmin = active && roles.Contains(Roles.QuanTri);
+
+            // Trừ chính tài khoản đang sửa: không còn quản trị nào khác thì từ chối.
+            if (wasActiveAdmin && !willStayActiveAdmin && activeAdminIds.Count - 1 <= 0)
             {
                 return UserUpdateResult.LastAdmin;
             }
 
-            var affected = passwordHash is null
-                ? await connection.ExecuteAsync(
+            int affected;
+            if (passwordHash is null)
+            {
+                affected = await connection.ExecuteAsync(
                     "UPDATE app_user SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active WHERE id = @id",
-                    new { id, fullName, title, rolesArray, active }, transaction)
-                : await connection.ExecuteAsync(
+                    new { id, fullName, title, rolesArray, active }, transaction);
+            }
+            else
+            {
+                affected = await connection.ExecuteAsync(
                     """
                     UPDATE app_user
-                    SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active,
-                        password_hash = @passwordHash, failed_count = 0, locked_until = NULL
+                    SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active, password_hash = @passwordHash,
+                        failed_count = CASE WHEN @unlock THEN 0 ELSE failed_count END,
+                        locked_until = CASE WHEN @unlock THEN NULL ELSE locked_until END
                     WHERE id = @id
                     """,
-                    new { id, fullName, title, rolesArray, active, passwordHash }, transaction);
+                    new { id, fullName, title, rolesArray, active, passwordHash, unlock = unlockOnPasswordReset }, transaction);
+            }
+
             return affected == 0 ? UserUpdateResult.NotFound : UserUpdateResult.Updated;
         });
     }
