@@ -23,39 +23,47 @@ public static class ApiSession
     {
         app.UseWhen(http => http.Request.Path.StartsWithSegments("/api"), branch => branch.Use(ApiErrors.HandleAsync));
 
-        var group = app.MapGroup("/api");
+        return NewApiGroup(app);
+    }
+
+    /// <summary>Tạo nhóm <c>/api</c> (không dựng middleware) — <see cref="MapApiGroup"/> dùng, và test dựng thêm route thử.</summary>
+    internal static RouteGroupBuilder NewApiGroup(IEndpointRouteBuilder routes)
+    {
+        var group = routes.MapGroup("/api");
         group.AddEndpointFilter(RejectUnknownMembersAsync);
         return group;
     }
 
+    /// <summary>Đánh dấu route cần phiên; <see cref="ApiErrors.HandleAsync"/> kiểm phiên TRƯỚC khi bind thân request.</summary>
+    private sealed record SessionRequired;
+
     /// <summary>
     /// Bắt buộc đăng nhập (header <c>Authorization: Bearer</c>) và gắn <see cref="RequestContext"/> — đọc bằng <see cref="Ctx"/>.
-    /// Tài khoản bị ngừng sau khi đăng nhập thì request kế tiếp bị từ chối ngay.
+    /// Kiểm phiên chạy trước cả bind thân request (như guard chạy trước pipe ở NestJS): chưa đăng nhập thì luôn 401,
+    /// dù thân gửi lên hỏng hay có trường lạ. Tài khoản bị ngừng sau khi đăng nhập thì request kế tiếp bị từ chối ngay.
     /// </summary>
-    public static RouteGroupBuilder RequireSession(this RouteGroupBuilder group)
+    public static RouteGroupBuilder RequireSession(this RouteGroupBuilder group) => group.WithMetadata(new SessionRequired());
+
+    internal static bool RequiresSession(HttpContext http) => http.GetEndpoint()?.Metadata.GetMetadata<SessionRequired>() is not null;
+
+    internal static async Task AuthenticateAsync(HttpContext http)
     {
-        group.AddEndpointFilter(async (context, next) =>
+        var services = http.RequestServices;
+
+        var session = services.GetRequiredService<SessionTokens>().Read(http.Request.Headers.Authorization.FirstOrDefault())
+            ?? throw ApiException.Unauthorized("Phiên đăng nhập hết hạn — đăng nhập lại");
+
+        var clinic = await services.GetRequiredService<MasterStore>().FindClinicByIdAsync(session.ClinicId)
+            ?? throw ApiException.Unauthorized("Phiên đăng nhập không hợp lệ");
+
+        var tenant = services.GetRequiredService<TenantRegistry>().For(clinic);
+        var user = await tenant.Users.FindAsync(session.UserId);
+        if (user is not { Active: true })
         {
-            var http = context.HttpContext;
-            var services = http.RequestServices;
+            throw ApiException.Unauthorized("Tài khoản đã ngừng hoạt động");
+        }
 
-            var session = services.GetRequiredService<SessionTokens>().Read(http.Request.Headers.Authorization.FirstOrDefault())
-                ?? throw ApiException.Unauthorized("Phiên đăng nhập hết hạn — đăng nhập lại");
-
-            var clinic = await services.GetRequiredService<MasterStore>().FindClinicByIdAsync(session.ClinicId)
-                ?? throw ApiException.Unauthorized("Phiên đăng nhập không hợp lệ");
-
-            var tenant = services.GetRequiredService<TenantRegistry>().For(clinic);
-            var user = await tenant.Users.FindAsync(session.UserId);
-            if (user is not { Active: true })
-            {
-                throw ApiException.Unauthorized("Tài khoản đã ngừng hoạt động");
-            }
-
-            http.Items[ContextItem] = new RequestContext(clinic, tenant, user);
-            return await next(context);
-        });
-        return group;
+        http.Items[ContextItem] = new RequestContext(clinic, tenant, user);
     }
 
     public static RequestContext Ctx(this HttpContext http) =>

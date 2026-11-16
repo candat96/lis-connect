@@ -1,3 +1,9 @@
+using Lis.Server.Api;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Hosting;
 using Shouldly;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -28,12 +34,29 @@ public sealed class ApiHost : IAsyncDisposable
             builder.UseSetting("Master:ConnectionString", fixture.MasterConnection);
             builder.UseSetting("Tenants:ConnectionTemplate", fixture.TenantTemplate);
             builder.UseSetting("Jwt:Secret", TestSecret);
+            builder.ConfigureServices(services => services.AddTransient<IStartupFilter, TestRoutes>());
             if (setupKey is not null)
             {
                 builder.UseSetting("Setup:Key", setupKey);
             }
         });
         Anonymous = Track(_factory.CreateClient());
+    }
+
+    /// <summary>Route thử chỉ có trong host kiểm thử: POST cần phiên, nhận thân JSON <c>{name}</c>.</summary>
+    public const string EchoRoute = "/api/test/echo";
+
+    private sealed record EchoBody(string Name);
+
+    private sealed class TestRoutes : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            next(app);
+            app.UseEndpoints(endpoints =>
+                ApiSession.NewApiGroup(endpoints).MapGroup("/test").RequireSession()
+                    .MapPost("/echo", (EchoBody body) => Results.Ok(new { body.Name })));
+        };
     }
 
     public HttpClient Anonymous { get; }

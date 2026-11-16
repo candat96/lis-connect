@@ -32,6 +32,11 @@ internal static class ApiErrors
         http.Request.EnableBuffering();
         try
         {
+            if (ApiSession.RequiresSession(http))
+            {
+                await ApiSession.AuthenticateAsync(http);
+            }
+
             await next(http);
         }
         catch (ApiException ex) when (!http.Response.HasStarted)

@@ -142,6 +142,36 @@ public sealed class AuthEndpointsTests(ServerFixture fixture) : IClassFixture<Se
     }
 
     [Fact]
+    public async Task Chua_dang_nhap_thi_401_truoc_khi_kiem_than_request()
+    {
+        await using var host = await ApiHost.StartAsync(fixture);
+        const string Expired = "Phiên đăng nhập hết hạn — đăng nhập lại";
+
+        var bodies = new[] { """{"name":"Mẫu","la":1}""", "{khong-phai-json" };
+        foreach (var json in bodies)
+        {
+            var response = await host.Anonymous.PostAsync(
+                ApiHost.EchoRoute, new StringContent(json, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+            response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+            (await JsonOf(response)).GetProperty("message").GetString().ShouldBe(Expired);
+        }
+    }
+
+    [Fact]
+    public async Task Da_dang_nhap_thi_route_co_phien_van_cam_truong_la()
+    {
+        await using var host = await ApiHost.StartAsync(fixture);
+        var clinic = await host.AddClinicAsync("pkecho", "Phòng khám Thử");
+        await host.AddUserAsync(clinic, "ktv", Password, "ky-thuat-vien");
+        var client = await host.LoginAsync("pkecho", "ktv", Password);
+
+        (await client.PostAsJsonAsync(ApiHost.EchoRoute, new { name = "Mẫu" }, TestContext.Current.CancellationToken))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await client.PostAsJsonAsync(ApiHost.EchoRoute, new { name = "Mẫu", la = 1 }, TestContext.Current.CancellationToken))
+            .StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Me_token_hop_le_tra_user_va_clinic()
     {
         await using var host = await ApiHost.StartAsync(fixture);
