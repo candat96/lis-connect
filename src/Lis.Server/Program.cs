@@ -54,6 +54,7 @@ api.MapAuthApi();
 api.MapUsersApi();
 api.MapCatalogApi();
 api.MapInstrumentsApi();
+api.MapAgentsApi();
 
 await app.RunAsync();
 return 0;

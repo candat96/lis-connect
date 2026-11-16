@@ -377,7 +377,7 @@ public static class InstrumentsEndpoints
     };
 
     /// <summary>Báo cáo trạng thái của một máy trong JSON agent đã đẩy lên; không có → null.</summary>
-    private static JsonElement? StatusOf(string? statusJson, Guid instrumentId)
+    internal static JsonElement? StatusOf(string? statusJson, Guid instrumentId)
     {
         if (string.IsNullOrEmpty(statusJson)) return null;
         using var document = JsonDocument.Parse(statusJson);

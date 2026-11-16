@@ -17,6 +17,22 @@ public sealed record AgentWithStatus(AgentInfo Agent, string? LastStatusJson);
 /// <summary>Agent đã xác thực kèm phòng khám của nó.</summary>
 public sealed record AgentIdentity(AgentInfo Agent, Clinic Clinic);
 
+/// <summary>Lý do một thao tác sửa / tạo agent thất bại.</summary>
+public enum AgentFailure
+{
+    /// <summary>Không có agent này trong phòng khám.</summary>
+    NotFound,
+
+    /// <summary>Mã máy trạm đã có agent khác của phòng khám dùng (ràng buộc duy nhất trong CSDL).</summary>
+    DuplicateWorkstation,
+}
+
+/// <summary>Lỗi nghiệp vụ của agent; <see cref="Exception.Message"/> là câu tiếng Việt hiển thị cho người dùng.</summary>
+public sealed class AgentException(AgentFailure failure, string message) : InvalidOperationException(message)
+{
+    public AgentFailure Failure { get; } = failure;
+}
+
 /// <summary>
 /// CSDL "master" của server: danh sách phòng khám và agent. Dữ liệu nghiệp vụ của mỗi phòng khám
 /// nằm ở CSDL riêng (<see cref="Clinic.DbName"/>) — cách ly hẳn, sao lưu/chuyển từng phòng khám độc lập.
@@ -115,16 +131,81 @@ public sealed class MasterStore(string connectionString)
         return rows.Select(r => new AgentWithStatus(new AgentInfo(r.Id, r.ClinicId, r.Name, r.WorkstationCode, r.LastSeenAt), r.LastStatus)).ToList();
     }
 
-    /// <summary>Tạo agent và trả về khoá — CHỈ hiện một lần, server chỉ lưu bản băm.</summary>
+    /// <summary>
+    /// Tạo agent và trả về khoá — CHỈ hiện một lần, server chỉ lưu bản băm.
+    /// Mã máy trạm trùng agent khác của phòng khám → <see cref="AgentException"/> (<see cref="AgentFailure.DuplicateWorkstation"/>).
+    /// </summary>
     public async Task<(AgentInfo Agent, string Key)> AddAgentAsync(Guid clinicId, string name, string workstationCode)
     {
         var id = Guid.CreateVersion7();
-        var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        var (key, hash) = NewKey(id);
         await using var connection = await OpenAsync();
-        await connection.ExecuteAsync(
-            "INSERT INTO agent (id, clinic_id, name, workstation_code, key_hash) VALUES (@id, @clinicId, @name, @workstationCode, @hash)",
-            new { id, clinicId, name = name.Trim(), workstationCode = workstationCode.Trim(), hash = Hash(secret) });
-        return (new AgentInfo(id, clinicId, name.Trim(), workstationCode.Trim(), null), $"{KeyPrefix}_{id:N}_{secret}");
+        try
+        {
+            await connection.ExecuteAsync(
+                "INSERT INTO agent (id, clinic_id, name, workstation_code, key_hash) VALUES (@id, @clinicId, @name, @workstationCode, @hash)",
+                new { id, clinicId, name = name.Trim(), workstationCode = workstationCode.Trim(), hash });
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw DuplicateWorkstation(workstationCode);
+        }
+
+        return (new AgentInfo(id, clinicId, name.Trim(), workstationCode.Trim(), null), key);
+    }
+
+    /// <summary>
+    /// Sửa tên và mã máy trạm của agent thuộc <paramref name="clinicId"/>; trả về mã máy trạm CŨ.
+    /// Không có (hoặc của phòng khám khác) → <see cref="AgentFailure.NotFound"/>; trùng mã → <see cref="AgentFailure.DuplicateWorkstation"/>.
+    /// </summary>
+    public async Task<string> UpdateAgentAsync(Guid clinicId, Guid agentId, string name, string workstationCode)
+    {
+        await using var connection = await OpenAsync();
+        try
+        {
+            var previous = await connection.ExecuteScalarAsync<string?>(
+                """
+                WITH old AS (SELECT workstation_code FROM agent WHERE id = @agentId AND clinic_id = @clinicId)
+                UPDATE agent SET name = @name, workstation_code = @workstationCode
+                WHERE id = @agentId AND clinic_id = @clinicId
+                RETURNING (SELECT workstation_code FROM old)
+                """,
+                new { agentId, clinicId, name = name.Trim(), workstationCode = workstationCode.Trim() });
+            return previous ?? throw NotFound();
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw DuplicateWorkstation(workstationCode);
+        }
+    }
+
+    /// <summary>Cấp khoá mới cho agent (khoá cũ hết hiệu lực ngay) và trả về khoá — CHỈ hiện một lần. Không có → <see cref="AgentFailure.NotFound"/>.</summary>
+    public async Task<string> RegenerateAgentKeyAsync(Guid clinicId, Guid agentId)
+    {
+        var (key, hash) = NewKey(agentId);
+        await using var connection = await OpenAsync();
+        var updated = await connection.ExecuteAsync(
+            "UPDATE agent SET key_hash = @hash WHERE id = @agentId AND clinic_id = @clinicId", new { hash, agentId, clinicId });
+        return updated == 1 ? key : throw NotFound();
+    }
+
+    /// <summary>Xoá agent thuộc <paramref name="clinicId"/>; false khi không có.</summary>
+    public async Task<bool> DeleteAgentAsync(Guid clinicId, Guid agentId)
+    {
+        await using var connection = await OpenAsync();
+        return await connection.ExecuteAsync("DELETE FROM agent WHERE id = @agentId AND clinic_id = @clinicId", new { agentId, clinicId }) == 1;
+    }
+
+    private static AgentException NotFound() => new(AgentFailure.NotFound, "Không tìm thấy agent");
+
+    private static AgentException DuplicateWorkstation(string workstationCode) =>
+        new(AgentFailure.DuplicateWorkstation, $"Mã máy trạm {workstationCode.Trim()} đã có agent khác dùng");
+
+    /// <summary>Khoá <c>lisa_&lt;id không gạch&gt;_&lt;bí mật hex&gt;</c> và bản băm của bí mật để lưu.</summary>
+    private static (string Key, string Hash) NewKey(Guid agentId)
+    {
+        var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        return ($"{KeyPrefix}_{agentId:N}_{secret}", Hash(secret));
     }
 
     /// <summary>Xác thực khoá agent (<c>lisa_&lt;id&gt;_&lt;bí mật&gt;</c>). Sai định dạng / không có / sai bí mật → null.</summary>
