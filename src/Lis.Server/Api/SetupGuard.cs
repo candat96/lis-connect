@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -14,14 +13,20 @@ public sealed class SetupGuard
     private const string Alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private const int GeneratedLength = 24;
     private const int MaxDelaySeconds = 10;
-    private const int MaxTrackedAddresses = 10_000;
+    public const int DefaultMaxTrackedAddresses = 10_000;
 
-    private readonly ConcurrentDictionary<string, int> _failures = new(StringComparer.Ordinal);
+    // Số lần thử liên tiếp (chưa đúng) theo địa chỉ, xếp theo lần dùng gần nhất (đầu = mới nhất) để chỉ đuổi địa chỉ lâu không dùng.
+    private readonly object _gate = new();
+    private readonly Dictionary<string, LinkedListNode<(string Address, int Attempts)>> _attempts = new(StringComparer.Ordinal);
+    private readonly LinkedList<(string Address, int Attempts)> _recent = new();
+    private readonly int _maxTrackedAddresses;
     private readonly byte[] _keyHash;
 
     /// <param name="configuredKey">Mã cấu hình; trống / chỉ khoảng trắng → sinh ngẫu nhiên.</param>
-    public SetupGuard(string? configuredKey)
+    /// <param name="maxTrackedAddresses">Số địa chỉ tối đa theo dõi; đầy thì đuổi địa chỉ lâu không dùng nhất.</param>
+    public SetupGuard(string? configuredKey, int maxTrackedAddresses = DefaultMaxTrackedAddresses)
     {
+        _maxTrackedAddresses = maxTrackedAddresses;
         Generated = string.IsNullOrWhiteSpace(configuredKey);
         Key = Generated ? RandomNumberGenerator.GetString(Alphabet, GeneratedLength) : configuredKey!;
         _keyHash = SHA256.HashData(Encoding.UTF8.GetBytes(Key));
@@ -46,26 +51,58 @@ public sealed class SetupGuard
         }
     }
 
-    /// <summary>Chờ theo số lần sai liên tiếp của địa chỉ rồi kiểm mã; sai → 403.</summary>
+    /// <summary>
+    /// Chờ theo số lần thử liên tiếp của địa chỉ rồi kiểm mã; sai → 403. Lần thử được ghi nhận NGAY lúc vào (trước khi chờ và
+    /// kiểm), nên các request song song từ một địa chỉ mỗi cái thấy một số đếm khác nhau và chậm dần, không thể cùng lọt qua
+    /// với độ trễ 0. Nhập đúng thì xoá số đếm của địa chỉ.
+    /// </summary>
     public async Task CheckAsync(string address, string? supplied, CancellationToken cancellationToken)
     {
-        if (_failures.TryGetValue(address, out var failures) && failures > 0)
+        var previous = Reserve(address);
+        if (previous > 0)
         {
-            await Delay(TimeSpan.FromSeconds(Math.Min(failures, MaxDelaySeconds)), cancellationToken);
+            await Delay(TimeSpan.FromSeconds(Math.Min(previous, MaxDelaySeconds)), cancellationToken);
         }
 
         if (!Matches(supplied))
         {
-            if (_failures.Count >= MaxTrackedAddresses)
-            {
-                _failures.Clear();
-            }
-
-            _failures.AddOrUpdate(address, 1, (_, n) => n + 1);
             throw ApiException.Forbidden("Mã thiết lập không đúng");
         }
 
-        _failures.TryRemove(address, out _);
+        Forget(address);
+    }
+
+    /// <summary>Tăng số lần thử của địa chỉ, trả số lần trước đó; địa chỉ vừa dùng được đưa lên đầu, bảng đầy thì đuổi địa chỉ cuối.</summary>
+    private int Reserve(string address)
+    {
+        lock (_gate)
+        {
+            var previous = 0;
+            if (_attempts.Remove(address, out var node))
+            {
+                previous = node.Value.Attempts;
+                _recent.Remove(node);
+            }
+            else if (_attempts.Count >= _maxTrackedAddresses && _recent.Last is { } oldest)
+            {
+                _attempts.Remove(oldest.Value.Address);
+                _recent.RemoveLast();
+            }
+
+            _attempts[address] = _recent.AddFirst((address, previous + 1));
+            return previous;
+        }
+    }
+
+    private void Forget(string address)
+    {
+        lock (_gate)
+        {
+            if (_attempts.Remove(address, out var node))
+            {
+                _recent.Remove(node);
+            }
+        }
     }
 
     // So hai băm cùng độ dài bằng FixedTimeEquals: không lộ độ dài hay vị trí ký tự khác nhau qua thời gian xử lý.

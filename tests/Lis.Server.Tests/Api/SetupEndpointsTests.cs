@@ -191,6 +191,50 @@ public sealed class SetupEndpointsTests(ServerFixture fixture) : IClassFixture<S
     }
 
     [Fact]
+    public async Task Sai_ma_song_song_tu_mot_dia_chi_van_bi_cham_dan_khong_ai_lot_qua_voi_do_tre_0()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, Key);
+        var delays = new ConcurrentQueue<TimeSpan>();
+        host.SetupGuard.Delay = (span, _) =>
+        {
+            delays.Enqueue(span);
+            return Task.CompletedTask;
+        };
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 6).Select(_ => Task.Run(() => Create(host.Anonymous, Body("pk-thu-song-sai", key: "sai")), Ct)));
+
+        responses.ShouldAllBe(r => r.StatusCode == HttpStatusCode.Forbidden);
+        delays.Select(d => (int)d.TotalSeconds).Order().ShouldBe([1, 2, 3, 4, 5]);
+    }
+
+    [Fact]
+    public async Task Bo_dem_chi_duoi_dia_chi_lau_khong_dung_khong_xoa_dem_cua_dia_chi_dang_sai()
+    {
+        var guard = new SetupGuard("khoa-thu", maxTrackedAddresses: 3);
+        var delays = new List<int>();
+        guard.Delay = (span, _) =>
+        {
+            delays.Add((int)span.TotalSeconds);
+            return Task.CompletedTask;
+        };
+
+        async Task Wrong(string address) =>
+            await Should.ThrowAsync<ApiException>(() => guard.CheckAsync(address, "sai", Ct));
+
+        await Wrong("a");
+        await Wrong("b");
+        await Wrong("c");
+        await Wrong("a");
+        delays.ShouldBe([1]);
+
+        // Bảng đầy (a, b, c): d vào thì đuổi địa chỉ lâu không dùng nhất (b), không đụng tới a đang sai.
+        await Wrong("d");
+        delays.Clear();
+        await Wrong("a");
+        delays.ShouldBe([2]);
+    }
+
+    [Fact]
     public async Task Khong_cau_hinh_ma_thi_sinh_24_ky_tu_ngau_nhien_va_dung_duoc()
     {
         await using var host = await ApiHost.StartAsync(fixture);
