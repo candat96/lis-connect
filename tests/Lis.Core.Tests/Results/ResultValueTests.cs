@@ -64,4 +64,22 @@ public class ResultValueTests
         value.IsEmpty.ShouldBeTrue();
         value.Number.ShouldBeNull();
     }
+
+    /// <summary>
+    /// Dạng giống hiệu giá nhưng không đọc được thành số (chữ số Ả Rập-Ấn, số quá dài) phải ra rỗng,
+    /// không được ném ngoại lệ — trước đây trả 500 khi kỹ thuật viên gõ trên web.
+    /// </summary>
+    [Theory]
+    [InlineData("\u0661:\u0668")]
+    [InlineData("1:\u0668")]
+    [InlineData("1:999999999999999999999999999999999")]
+    [InlineData("999999999999999999999999999999999/2")]
+    public void Parse_TiterKhongDocDuocThanhSo_RaRong(string raw)
+    {
+        var value = ResultValue.Parse(raw);
+
+        value.IsEmpty.ShouldBeTrue();
+        value.Number.ShouldBeNull();
+        value.Raw.ShouldBe(raw);
+    }
 }

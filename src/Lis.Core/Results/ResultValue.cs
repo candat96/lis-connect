@@ -11,9 +11,10 @@ namespace Lis.Core.Results;
 public sealed record ResultValue(string Raw, decimal? Number, string? Comparator, bool IsEmpty)
 {
     /// <summary>
-    /// Mẫu so khớp hiệu giá dạng "a:b" hoặc "a/b".
+    /// Mẫu so khớp hiệu giá dạng "a:b" hoặc "a/b". Chỉ chữ số ASCII — <c>\d</c> của .NET khớp cả
+    /// chữ số Unicode khác (vd Ả Rập-Ấn) mà <see cref="decimal"/> không đọc được.
     /// </summary>
-    private static readonly Regex TiterPattern = new(@"^(\d+)\s*[:/]\s*(\d+)$", RegexOptions.Compiled);
+    private static readonly Regex TiterPattern = new(@"^([0-9]+)\s*[:/]\s*([0-9]+)$", RegexOptions.Compiled);
 
     /// <summary>
     /// Phân tích chuỗi kết quả thô. Chuỗi rỗng, null, hoặc không khớp dạng số/hiệu
@@ -35,8 +36,12 @@ public sealed record ResultValue(string Raw, decimal? Number, string? Comparator
         var titerMatch = TiterPattern.Match(body);
         if (titerMatch.Success)
         {
-            var numerator = decimal.Parse(titerMatch.Groups[1].Value, CultureInfo.InvariantCulture);
-            var denominator = decimal.Parse(titerMatch.Groups[2].Value, CultureInfo.InvariantCulture);
+            if (!decimal.TryParse(titerMatch.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var numerator)
+                || !decimal.TryParse(titerMatch.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var denominator))
+            {
+                return new ResultValue(original, null, null, true); // số quá dài, không vừa decimal
+            }
+
             if (denominator == 0)
             {
                 return new ResultValue(original, null, comparator, true);
