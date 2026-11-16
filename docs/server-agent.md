@@ -28,7 +28,7 @@ Cấu hình (`appsettings.json` hoặc biến môi trường, dùng `__` thay ch
 | `Master:ConnectionString` | CSDL `lis_master` (danh sách phòng khám, agent) |
 | `Tenants:ConnectionTemplate` | Mẫu chuỗi kết nối CSDL từng phòng khám, giữ `{db}` |
 | `Jwt:Secret` | Khoá ký phiên đăng nhập web, từ 24 ký tự (thiếu hoặc còn `CHANGE_ME` thì server không chạy) |
-| `Setup:Key` (hoặc `SETUP_KEY`) | Mã thiết lập phòng khám mới trên trang `/thiet-lap`; trống thì server tự sinh và ghi vào log |
+| `Setup:Key` (hoặc `SETUP_KEY`) | Mã thiết lập phòng khám mới trên trang `/thiet-lap`. Đã đặt thì phải từ 16 ký tự (ngắn hơn server không chạy); trống hoặc còn `CHANGE_ME` thì server tự sinh mỗi lần chạy và ghi vào log |
 | `Web:Root` | Thư mục web đã build; không đặt thì dùng `wwwroot` cạnh tệp chạy nếu có |
 | `Proxy:TrustForwardedHeaders` | `true` khi đứng sau reverse proxy tin cậy: dùng `X-Forwarded-For` / `X-Forwarded-Proto` (mặc định tắt) |
 | `LocalUtcOffsetMinutes` | Múi giờ phòng khám khi chia "ngày", mặc định 420 (UTC+7) |

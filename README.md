@@ -7,11 +7,11 @@
 Một server .NET (`src/Lis.Server`) phục vụ cả giao diện web (`web/`), API `/api` và API agent `/agent/v1`, nối PostgreSQL 18.
 
 ```bash
-cp .env.example .env              # đổi mọi giá trị CHANGE_ME (mật khẩu CSDL, Jwt__Secret, SETUP_KEY)
+cp .env.example .env              # đổi mọi giá trị CHANGE_ME (mật khẩu CSDL, Jwt__Secret); SETUP_KEY trống thì xem mã trong log
 docker compose up -d --build      # PostgreSQL 18 + server, cổng 5080
 ```
 
-Mở `http://localhost:5080/thiet-lap`, nhập mã thiết lập (`SETUP_KEY`) để tạo phòng khám và tài khoản Quản trị đầu tiên, rồi đăng nhập.
+Mở `http://localhost:5080/thiet-lap`, nhập mã thiết lập (`SETUP_KEY`, hoặc mã server in ra `docker compose logs server` nếu để trống) để tạo phòng khám và tài khoản Quản trị đầu tiên, rồi đăng nhập.
 Chạy không dùng Docker, cấu hình, reverse proxy / HTTPS, cài agent: xem hướng dẫn cài đặt. Phát triển: `dotnet run --project src/Lis.Server`
 (5080) và `cd web && npm run dev` (5186, proxy `/api` về 5080).
 
