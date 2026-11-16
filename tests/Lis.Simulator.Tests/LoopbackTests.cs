@@ -190,6 +190,40 @@ public class LoopbackTests
         result.Lines.ShouldBe(["SE"]);
     }
 
+    // ---------------- Hết thời hạn nhưng LIS đã trả lời ----------------
+    // Máy tải nặng: luồng bị treo quá thời hạn trước khi kịp đọc. Trả lời đã nằm sẵn trong đường
+    // nối thì phải đọc được — chỉ báo "không trả lời" khi đọc thật mà không có byte nào.
+
+    private static readonly SessionTimings Expired = new() { ClassAGap = TimeSpan.Zero, Reply = TimeSpan.Zero, QueryAnswer = TimeSpan.Zero };
+
+    [Fact]
+    public async Task Hl7_het_thoi_han_van_doc_ack_da_co()
+    {
+        var link = new DriverLoopbackLink(DriverRegistry.Create("hl7-mllp")!);
+        var result = await new MachineSession(link, _ => { }, Expired).SendHl7ResultAsync("2611100011", Cbc, false, TestContext.Current.CancellationToken);
+
+        result.Ok.ShouldBeTrue(result.Message);
+    }
+
+    [Fact]
+    public async Task Astm_hoi_chi_dinh_het_thoi_han_van_doc_tra_loi_da_co()
+    {
+        var link = new DriverLoopbackLink(DriverRegistry.Create("astm-e1394")!, _ => ["WBC"]);
+        var result = await new MachineSession(link, _ => { }, Expired).QueryAstmAsync("2611100012", TestContext.Current.CancellationToken);
+
+        result.Ok.ShouldBeTrue(result.Message);
+        result.Lines.ShouldContain(l => l.StartsWith("O|", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Au_hoi_chi_dinh_het_thoi_han_van_doc_tra_loi_da_co()
+    {
+        var link = new DriverLoopbackLink(DriverRegistry.Create("beckman-au")!, _ => ["01"]);
+        var result = await new MachineSession(link, _ => { }, Expired).QueryAuAsync(BeckmanAuOptions.Au480, "2611100", TestContext.Current.CancellationToken);
+
+        result.Ok.ShouldBeTrue(result.Message);
+    }
+
     // ---------------- Phát lại .listrace ----------------
 
     [Fact]

@@ -107,8 +107,7 @@ public sealed class MachineSession(IMachineLink link, Action<string> log, Sessio
         var deadline = DateTimeOffset.Now + _t.QueryAnswer;
         while (!receiver.Finished)
         {
-            var remaining = deadline - DateTimeOffset.Now;
-            var data = remaining > TimeSpan.Zero ? await ReadAsync(remaining, ct) : [];
+            var data = await ReadBeforeAsync(deadline, ct);
             if (data.Length == 0)
             {
                 return Fail("LIS không trả lời câu hỏi chỉ định trong thời hạn.");
@@ -165,8 +164,7 @@ public sealed class MachineSession(IMachineLink link, Action<string> log, Sessio
         var acked = 0;
         while (true)
         {
-            var remaining = deadline - DateTimeOffset.Now;
-            var data = remaining > TimeSpan.Zero ? await ReadAsync(remaining, ct) : [];
+            var data = await ReadBeforeAsync(deadline, ct);
             if (data.Length == 0)
             {
                 return Fail("LIS không trả lời câu hỏi chỉ định trong thời hạn (máy thật báo lỗi 6031).");
@@ -229,6 +227,17 @@ public sealed class MachineSession(IMachineLink link, Action<string> log, Sessio
         return data;
     }
 
+    /// <summary>
+    /// Đọc trong thời gian còn lại tới <paramref name="deadline"/>. Đã quá hạn vẫn đọc một lần với
+    /// thời hạn 0 để lấy byte đã nằm sẵn — máy tải nặng có thể treo luồng quá hạn trong khi LIS đã
+    /// trả lời; chỉ coi là "không trả lời" khi lần đọc đó rỗng.
+    /// </summary>
+    private Task<byte[]> ReadBeforeAsync(DateTimeOffset deadline, CancellationToken ct)
+    {
+        var remaining = deadline - DateTimeOffset.Now;
+        return ReadAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, ct);
+    }
+
     /// <summary>Đọc một lần và trả byte điều khiển đầu tiên thuộc ACK/NAK/ENQ/EOT; 0 nếu hết giờ.</summary>
     private async Task<byte> ReadControlAsync(TimeSpan timeout, CancellationToken ct)
     {
@@ -250,8 +259,7 @@ public sealed class MachineSession(IMachineLink link, Action<string> log, Sessio
         var deadline = DateTimeOffset.Now + timeout;
         while (!done(buffer))
         {
-            var remaining = deadline - DateTimeOffset.Now;
-            var data = remaining > TimeSpan.Zero ? await ReadAsync(remaining, ct) : [];
+            var data = await ReadBeforeAsync(deadline, ct);
             if (data.Length == 0)
             {
                 return (buffer, false);
