@@ -11,14 +11,16 @@ namespace Lis.Server.Tenancy;
 /// <summary>Các dịch vụ nghiệp vụ gắn với CSDL của một phòng khám.</summary>
 public sealed class TenantServices
 {
-    /// <param name="clinicClock">Đồng hồ có "giờ địa phương" là giờ phòng khám — dùng cho phần kết quả (chia ngày, tính tuổi).</param>
+    /// <param name="clock">Đồng hồ gốc — chỉ dùng cho <see cref="AuthService"/> (chỉ ghi / so sánh thời điểm UTC, không chia ngày).</param>
+    /// <param name="clinicClock">Đồng hồ có "giờ địa phương" là giờ phòng khám — dùng cho mọi dịch vụ chia ngày / tính tuổi
+    /// (kết quả nhập tay, máy gửi, gán tay từ Chưa ghép). Thời điểm UTC của nó trùng đồng hồ gốc nên mốc thời gian lưu vẫn đúng.</param>
     public TenantServices(string connectionString, TimeProvider clock, TimeProvider clinicClock)
     {
         ConnectionString = connectionString;
         Db = Db.Create(connectionString);
         Instruments = new InstrumentStore(Db);
-        Ingest = new IngestService(Db, clock);
-        Learning = new ChannelMapLearning(Db, Instruments, new UnmatchedService(Db, clock));
+        Ingest = new IngestService(Db, clinicClock);
+        Learning = new ChannelMapLearning(Db, Instruments, new UnmatchedService(Db, clinicClock));
         OrderQueries = new OrderQueryService(Db);
         Users = new UserStore(Db);
         Catalog = new CatalogStore(Db);

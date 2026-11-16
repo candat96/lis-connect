@@ -53,6 +53,12 @@ Sửa `.env`, đổi **mọi** giá trị `CHANGE_ME`:
 | `SETUP_KEY` | Mã thiết lập, nhập trên trang `/thiet-lap` ở bước 3.3. Để trống (hoặc còn `CHANGE_ME`) thì server tự sinh mỗi lần chạy và in ra log khi khởi động |
 | `LIS_PORT` | Cổng mở ra máy chủ (mặc định 5080) |
 
+**Múi giờ phòng khám.** Mọi logic "ngày địa phương" của server (lọc danh sách mẫu theo ngày, tính tuổi người bệnh để chọn
+khoảng tham chiếu, kể cả kết quả máy gửi qua agent) dùng cấu hình `LocalUtcOffsetMinutes` (độ lệch so với UTC tính bằng phút,
+mặc định **420** = UTC+7), **không** dùng múi giờ của máy chủ hay container. Phòng khám ở múi giờ khác thì đặt biến môi
+trường `LocalUtcOffsetMinutes` (hoặc khoá cùng tên trong `appsettings.json`). `docker-compose.yml` đặt thêm `TZ=Asia/Ho_Chi_Minh`
+cho container để giờ trong log khớp giờ phòng khám — chỉ để đọc log, không thay cho `LocalUtcOffsetMinutes`.
+
 ```bash
 docker compose up -d --build
 ```

@@ -17,11 +17,11 @@ var tenantTemplate = builder.Configuration["Tenants:ConnectionTemplate"]
     ?? throw new InvalidOperationException("Thiếu cấu hình Tenants:ConnectionTemplate");
 
 var master = new MasterStore(masterConnection);
-var tenants = new TenantRegistry(tenantTemplate, TimeProvider.System, ServerOptions.LocalUtcOffsetFrom(builder.Configuration));
+var localUtcOffset = ServerOptions.LocalUtcOffsetFrom(builder.Configuration);
 
 if (AdminCommands.IsCommand(args))
 {
-    return await AdminCommands.RunAsync(args, master, tenants);
+    return await AdminCommands.RunAsync(args, master, new TenantRegistry(tenantTemplate, TimeProvider.System, localUtcOffset));
 }
 
 var options = ServerOptions.From(builder.Configuration);
@@ -30,7 +30,8 @@ builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(sp => new SessionTokens(options.JwtSecret, sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(master);
-builder.Services.AddSingleton(tenants);
+// Đồng hồ lấy từ DI (test thay được); TenantRegistry bọc nó thành giờ phòng khám cho mọi dịch vụ chia ngày / tính tuổi.
+builder.Services.AddSingleton(sp => new TenantRegistry(tenantTemplate, sp.GetRequiredService<TimeProvider>(), localUtcOffset));
 builder.Services.AddSingleton<ClinicProvisioner>();
 builder.Services.AddSingleton(new SetupGuard(options.SetupKey));
 

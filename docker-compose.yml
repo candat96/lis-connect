@@ -28,6 +28,9 @@ services:
       Jwt__Secret: ${Jwt__Secret:?Đặt Jwt__Secret trong .env}
       SETUP_KEY: ${SETUP_KEY:-}
       Proxy__TrustForwardedHeaders: ${Proxy__TrustForwardedHeaders:-false}
+      # Giờ trong log. "Ngày địa phương" của nghiệp vụ lấy từ LocalUtcOffsetMinutes (mặc định 420 = UTC+7), không từ TZ.
+      TZ: Asia/Ho_Chi_Minh
+      LocalUtcOffsetMinutes: ${LocalUtcOffsetMinutes:-420}
     ports:
       - "${LIS_PORT:-5080}:5080"
 

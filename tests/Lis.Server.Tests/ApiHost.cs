@@ -24,17 +24,24 @@ public sealed class ApiHost : IAsyncDisposable
     private readonly TenantRegistry _tenants;
     private readonly List<HttpClient> _clients = [];
 
-    private ApiHost(ServerFixture fixture, string? setupKey, IReadOnlyDictionary<string, string>? settings)
+    private ApiHost(ServerFixture fixture, string? setupKey, IReadOnlyDictionary<string, string>? settings, TimeProvider? clock)
     {
         _fixture = fixture;
         _master = new MasterStore(fixture.MasterConnection);
-        _tenants = new TenantRegistry(fixture.TenantTemplate, TimeProvider.System);
+        _tenants = new TenantRegistry(fixture.TenantTemplate, clock ?? TimeProvider.System);
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseSetting("Master:ConnectionString", fixture.MasterConnection);
             builder.UseSetting("Tenants:ConnectionTemplate", fixture.TenantTemplate);
             builder.UseSetting("Jwt:Secret", TestSecret);
-            builder.ConfigureServices(services => services.AddTransient<IStartupFilter, TestRoutes>());
+            builder.ConfigureServices(services =>
+            {
+                services.AddTransient<IStartupFilter, TestRoutes>();
+                if (clock is not null)
+                {
+                    services.AddSingleton(clock);
+                }
+            });
             if (setupKey is not null)
             {
                 builder.UseSetting("Setup:Key", setupKey);
@@ -88,11 +95,12 @@ public sealed class ApiHost : IAsyncDisposable
     public string IssueToken(Clinic clinic) =>
         _factory.Services.GetRequiredService<SessionTokens>().Issue(Guid.NewGuid(), clinic.Id);
 
+    /// <param name="clock">Đồng hồ gốc của server thử (mặc định đồng hồ hệ thống); múi giờ phòng khám vẫn theo <c>LocalUtcOffsetMinutes</c>.</param>
     /// <param name="settings">Cấu hình thêm cho server thử (vd <c>LocalUtcOffsetMinutes</c>).</param>
-    public static async Task<ApiHost> StartAsync(ServerFixture fixture, string? setupKey = null, IReadOnlyDictionary<string, string>? settings = null)
+    public static async Task<ApiHost> StartAsync(ServerFixture fixture, string? setupKey = null, IReadOnlyDictionary<string, string>? settings = null, TimeProvider? clock = null)
     {
         await new MasterStore(fixture.MasterConnection).EnsureSchemaAsync();
-        return new ApiHost(fixture, setupKey, settings);
+        return new ApiHost(fixture, setupKey, settings, clock);
     }
 
     /// <summary>Tạo CSDL phòng khám + migrate + ghi vào master.</summary>
