@@ -8,25 +8,27 @@ import logo from '@/assets/logo.png';
 import { APP_NAME } from '@/app/appName';
 import { palette } from '@/app/theme/tokens';
 import { setupService, type SetupClinicInput } from '@/services';
+import { useSessionStore } from '@/stores/sessionStore';
 import { saveLastLogin } from '@/modules/dang-nhap/lastLogin';
 
 // Thứ tự ô nhập: Enter ở ô nào thì sang ô kế, ở ô cuối thì gửi.
-const FIELD_ORDER: (keyof SetupClinicInput)[] = ['setupKey', 'code', 'name', 'adminFullName', 'adminUsername', 'adminPassword'];
+type SetupForm = SetupClinicInput & { adminPasswordConfirm: string };
+const FIELD_ORDER: (keyof SetupForm)[] = ['setupKey', 'code', 'name', 'adminFullName', 'adminUsername', 'adminPassword', 'adminPasswordConfirm'];
 
 export default function SetupPage() {
   const navigate = useNavigate();
-  const [form] = Form.useForm<SetupClinicInput>();
+  const [form] = Form.useForm<SetupForm>();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const onEnter = (field: keyof SetupClinicInput) => (e: KeyboardEvent<HTMLInputElement>) => {
+  const onEnter = (field: keyof SetupForm) => (e: KeyboardEvent<HTMLInputElement>) => {
     const next = FIELD_ORDER[FIELD_ORDER.indexOf(field) + 1];
     if (!next) return; // ô cuối: để form tự gửi
     e.preventDefault();
     form.getFieldInstance(next)?.focus();
   };
 
-  const onFinish = async (v: SetupClinicInput) => {
+  const onFinish = async (v: SetupForm) => {
     setLoading(true);
     setError(null);
     const input: SetupClinicInput = {
@@ -40,6 +42,8 @@ export default function SetupPage() {
     try {
       const created = await setupService.createClinic(input);
       saveLastLogin(created.code, input.adminUsername);
+      // Đang đăng nhập phòng khám khác thì thoát phiên đó — trang đăng nhập sẽ mở với phòng khám vừa tạo.
+      useSessionStore.getState().clear();
       navigate('/dang-nhap', { replace: true });
     } catch (e) {
       setError((e as Error).message);
@@ -69,7 +73,7 @@ export default function SetupPage() {
 
             {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} role="alert" />}
 
-            <Form<SetupClinicInput>
+            <Form<SetupForm>
               form={form}
               layout="vertical"
               onFinish={onFinish}
@@ -110,7 +114,7 @@ export default function SetupPage() {
                 <Col xs={24} md={12}>
                   <h3 className="setup-group">Tài khoản Quản trị</h3>
                   <Form.Item name="adminFullName" label="Họ tên" rules={[{ required: true, whitespace: true, message: 'Nhập họ tên' }]}>
-                    <Input variant="filled" autoComplete="name" maxLength={200} onPressEnter={onEnter('adminFullName')} />
+                    <Input variant="filled" autoComplete="name" maxLength={100} onPressEnter={onEnter('adminFullName')} />
                   </Form.Item>
                   <Form.Item name="adminUsername" label="Tên đăng nhập" rules={[{ required: true, whitespace: true, message: 'Nhập tên đăng nhập' }]}>
                     <Input variant="filled" prefix={<UserOutlined />} autoCapitalize="none" autoComplete="username" maxLength={64} onPressEnter={onEnter('adminUsername')} />
@@ -121,6 +125,20 @@ export default function SetupPage() {
                     rules={[
                       { required: true, message: 'Nhập mật khẩu' },
                       { min: 8, message: 'Mật khẩu tối thiểu 8 ký tự' },
+                    ]}
+                  >
+                    <Input.Password variant="filled" prefix={<LockOutlined />} autoComplete="new-password" onPressEnter={onEnter('adminPassword')} />
+                  </Form.Item>
+                  <Form.Item
+                    name="adminPasswordConfirm"
+                    label="Nhập lại mật khẩu"
+                    dependencies={['adminPassword']}
+                    rules={[
+                      { required: true, message: 'Nhập lại mật khẩu' },
+                      ({ getFieldValue }) => ({
+                        validator: (_, value) =>
+                          !value || value === getFieldValue('adminPassword') ? Promise.resolve() : Promise.reject(new Error('Hai lần nhập mật khẩu không khớp')),
+                      }),
                     ]}
                   >
                     <Input.Password variant="filled" prefix={<LockOutlined />} autoComplete="new-password" />

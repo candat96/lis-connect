@@ -37,7 +37,8 @@ const fillAll = () => {
   fill('Tên phòng khám', 'Phòng khám Thử');
   fill('Họ tên', 'Quản trị Mẫu');
   fill('Tên đăng nhập', 'admin');
-  fill('Mật khẩu', 'matkhau-thu-1');
+  fill('^Mật khẩu', 'matkhau-thu-1');
+  fill('Nhập lại mật khẩu', 'matkhau-thu-1');
 };
 
 const jsonResponse = (status: number, body: unknown) =>
@@ -81,11 +82,22 @@ describe('SetupPage', () => {
     renderPage();
     fillAll();
     fill('Mã phòng khám', 'phòng khám');
-    fill('Mật khẩu', '1234567');
+    fill('^Mật khẩu', '1234567');
     fireEvent.click(screen.getByRole('button', { name: /Tạo phòng khám/ }));
 
     expect(await screen.findByText('Chỉ gồm chữ không dấu, số, gạch ngang (2–32 ký tự)')).toBeInTheDocument();
     expect(await screen.findByText('Mật khẩu tối thiểu 8 ký tự')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('không gửi khi hai lần nhập mật khẩu không khớp', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    renderPage();
+    fillAll();
+    fill('Nhập lại mật khẩu', 'matkhau-thu-2');
+    fireEvent.click(screen.getByRole('button', { name: /Tạo phòng khám/ }));
+
+    expect(await screen.findByText('Hai lần nhập mật khẩu không khớp')).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

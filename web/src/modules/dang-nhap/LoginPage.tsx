@@ -139,11 +139,6 @@ export default function LoginPage() {
                 Đăng nhập
               </Button>
             </Form>
-            {setup.data?.hasClinic && (
-              <p className="login-card__foot">
-                <Link to="/thiet-lap">Thêm phòng khám mới</Link>
-              </p>
-            )}
           </section>
         </ConfigProvider>
       </main>
