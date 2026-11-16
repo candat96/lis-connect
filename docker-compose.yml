@@ -1,0 +1,35 @@
+# PostgreSQL 18 + server LIS Connect (web + API + agent API).
+# Cấu hình đọc từ tệp .env (sao chép từ .env.example rồi đổi các giá trị CHANGE_ME).
+#   docker compose up -d --build
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lis_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Đặt POSTGRES_PASSWORD trong .env}
+    volumes:
+      - lis-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lis_user -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  server:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      Master__ConnectionString: ${Master__ConnectionString:?Đặt Master__ConnectionString trong .env}
+      Tenants__ConnectionTemplate: ${Tenants__ConnectionTemplate:?Đặt Tenants__ConnectionTemplate trong .env}
+      Jwt__Secret: ${Jwt__Secret:?Đặt Jwt__Secret trong .env}
+      SETUP_KEY: ${SETUP_KEY:-}
+      Proxy__TrustForwardedHeaders: ${Proxy__TrustForwardedHeaders:-false}
+    ports:
+      - "${LIS_PORT:-5080}:5080"
+
+volumes:
+  lis-pgdata:

@@ -3,8 +3,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
-// Dev: /api đi qua proxy tới server NestJS để web và API chung origin (như nginx ở môi trường thật).
-const BACKEND = process.env.LIS_BACKEND_URL ?? 'http://localhost:8084';
+// Dev: /api đi qua proxy tới server .NET (cổng mặc định 5080) để web và API chung origin (như nginx ở môi trường thật).
+const BACKEND = process.env.LIS_BACKEND_URL ?? 'http://localhost:5080';
 
 export default defineConfig({
   plugins: [react()],

@@ -40,6 +40,12 @@ internal static class ApiErrors
             }
 
             await next(http);
+
+            // Framework trả thân rỗng cho đường dẫn lạ / sai phương thức / sai kiểu nội dung: đổi thành JSON như mọi lỗi /api.
+            if (!http.Response.HasStarted && EmptyFrameworkMessage(http.Response) is { } message)
+            {
+                await WriteAsync(http, http.Response.StatusCode, message);
+            }
         }
         catch (ApiException ex) when (!http.Response.HasStarted)
         {
@@ -60,6 +66,17 @@ internal static class ApiErrors
             await WriteAsync(http, StatusCodes.Status500InternalServerError, "Máy chủ gặp lỗi — thử lại sau");
         }
     }
+
+    private static string? EmptyFrameworkMessage(HttpResponse response) =>
+        response.ContentLength is null && response.ContentType is null
+            ? response.StatusCode switch
+            {
+                StatusCodes.Status404NotFound => "Không tìm thấy đường dẫn này",
+                StatusCodes.Status405MethodNotAllowed => "Phương thức không được hỗ trợ cho đường dẫn này",
+                StatusCodes.Status415UnsupportedMediaType => "Kiểu nội dung không được hỗ trợ — gửi dữ liệu dạng JSON",
+                _ => null,
+            }
+            : null;
 
     private static Task WriteAsync(HttpContext http, int status, string message)
     {

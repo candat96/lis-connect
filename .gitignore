@@ -14,3 +14,6 @@ artifacts/
 
 # Build output
 dist/
+
+# Cấu hình thật
+.env

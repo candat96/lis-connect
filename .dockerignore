@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/node_modules/
+web/dist/
+.git/
+.superpowers/
+TestResults/
+artifacts/
+docs/
+tests/
+tools/
+*.md

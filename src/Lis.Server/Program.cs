@@ -36,6 +36,9 @@ builder.Services.AddSingleton(new SetupGuard(options.SetupKey));
 
 var app = builder.Build();
 
+// Sau reverse proxy: chỉ khi bật Proxy:TrustForwardedHeaders mới tin X-Forwarded-For / X-Forwarded-Proto.
+app.UseTrustedForwardedHeaders(builder.Configuration);
+
 await master.EnsureSchemaAsync();
 
 // Nâng schema CSDL của mọi phòng khám lên bản mới nhất trước khi nhận request; phòng khám lỗi bị cô lập (503), phòng khác chạy bình thường.
@@ -52,6 +55,9 @@ api.MapCatalogApi();
 api.MapInstrumentsApi();
 api.MapAgentsApi();
 api.MapSamplesApi();
+
+// Giao diện web: sau các route (route khớp được ưu tiên), chỉ chạy khi có thư mục web.
+app.UseWebApp(options.WebRoot);
 
 await app.RunAsync();
 return 0;

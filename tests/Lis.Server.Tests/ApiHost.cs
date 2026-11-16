@@ -61,6 +61,10 @@ public sealed class ApiHost : IAsyncDisposable
             app.UseEndpoints(endpoints =>
                 ApiSession.NewApiGroup(endpoints).MapGroup("/test").RequireSession()
                     .MapPost("/echo", (EchoBody body) => Results.Ok(new { body.Name })));
+            // Địa chỉ và giao thức server thấy được (kiểm cấu hình proxy).
+            app.UseEndpoints(endpoints =>
+                endpoints.MapGet("/api/test/ip", (HttpContext http) =>
+                    Results.Ok(new { ip = http.Connection.RemoteIpAddress?.ToString(), scheme = http.Request.Scheme })));
         };
     }
 
