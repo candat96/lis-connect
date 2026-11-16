@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Lis.Data;
+using Lis.Data.Auth;
 using Lis.Data.Ingest;
 using Lis.Data.Instruments;
 
@@ -16,6 +17,8 @@ public sealed class TenantServices
         Ingest = new IngestService(Db, clock);
         Learning = new ChannelMapLearning(Db, Instruments, new UnmatchedService(Db, clock));
         OrderQueries = new OrderQueryService(Db);
+        Users = new UserStore(Db);
+        Auth = new AuthService(Db, new PasswordHasher(), clock);
     }
 
     public string ConnectionString { get; }
@@ -29,6 +32,10 @@ public sealed class TenantServices
     public ChannelMapLearning Learning { get; }
 
     public OrderQueryService OrderQueries { get; }
+
+    public UserStore Users { get; }
+
+    public AuthService Auth { get; }
 }
 
 /// <summary>

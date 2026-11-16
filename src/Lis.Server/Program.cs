@@ -1,6 +1,7 @@
 using Lis.Data;
 using Lis.Server;
 using Lis.Server.AgentApi;
+using Lis.Server.Api;
 using Lis.Server.Tenancy;
 
 // Lệnh quản trị (chạy rồi thoát):
@@ -24,6 +25,11 @@ if (AdminCommands.IsCommand(args))
     return await AdminCommands.RunAsync(args, master, tenants);
 }
 
+var options = ServerOptions.From(builder.Configuration);
+
+builder.Services.AddSingleton(options);
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton(sp => new SessionTokens(options.JwtSecret, sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(master);
 builder.Services.AddSingleton(tenants);
 
@@ -43,6 +49,7 @@ foreach (var clinic in await master.ClinicsAsync())
 
 app.MapGet("/healthz", () => Results.Ok(new { ok = true }));
 app.MapAgentApi();
+app.MapApiGroup().MapAuthApi();
 
 await app.RunAsync();
 return 0;

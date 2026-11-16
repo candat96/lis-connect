@@ -119,6 +119,15 @@ public sealed class UserStore(Db db)
         return rows.Select(row => row.ToUserInfo()).ToList();
     }
 
+    /// <summary>Một tài khoản theo id (kể cả đã ngừng hoạt động); không có → null.</summary>
+    public async Task<UserInfo?> FindAsync(Guid id)
+    {
+        await using var connection = await db.OpenAsync();
+        var row = await connection.QuerySingleOrDefaultAsync<UserRow>(
+            "SELECT id, username, full_name, title, roles, active FROM app_user WHERE id = @id", new { id });
+        return row?.ToUserInfo();
+    }
+
     private static void RequireValidPassword(string password)
     {
         if (password.Length < 8)

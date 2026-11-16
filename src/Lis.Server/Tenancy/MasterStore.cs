@@ -91,6 +91,13 @@ public sealed class MasterStore(string connectionString)
             "SELECT id, code, name, db_name AS DbName FROM clinic WHERE code = @code", new { code = code.Trim().ToLowerInvariant() });
     }
 
+    public async Task<Clinic?> FindClinicByIdAsync(Guid id)
+    {
+        await using var connection = await OpenAsync();
+        return await connection.QuerySingleOrDefaultAsync<Clinic>(
+            "SELECT id, code, name, db_name AS DbName FROM clinic WHERE id = @id", new { id });
+    }
+
     /// <summary>Tạo agent và trả về khoá — CHỈ hiện một lần, server chỉ lưu bản băm.</summary>
     public async Task<(AgentInfo Agent, string Key)> AddAgentAsync(Guid clinicId, string name, string workstationCode)
     {
