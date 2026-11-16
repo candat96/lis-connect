@@ -2,7 +2,7 @@ namespace Lis.Server;
 
 /// <summary>
 /// Cấu hình chỉ cần khi chạy server web (lệnh quản trị dòng lệnh không đọc). <see cref="LocalUtcOffsetMinutes"/>:
-/// múi giờ phòng khám để chia "ngày" (mặc định 420 = UTC+7). <see cref="SetupKey"/>: khoá khởi tạo phòng khám mới.
+/// múi giờ phòng khám để chia "ngày" (mặc định 420 = UTC+7). <see cref="SetupKey"/>: khoá khởi tạo phòng khám mới (<c>Setup:Key</c> hoặc biến môi trường <c>SETUP_KEY</c>; trống → server tự sinh).
 /// <see cref="WebRoot"/>: thư mục chứa giao diện web đã build.
 /// </summary>
 public sealed record ServerOptions(string JwtSecret, int LocalUtcOffsetMinutes, string? SetupKey, string? WebRoot)
@@ -24,9 +24,11 @@ public sealed record ServerOptions(string JwtSecret, int LocalUtcOffsetMinutes, 
         return new ServerOptions(
             secret,
             LocalUtcOffsetFrom(configuration),
-            string.IsNullOrWhiteSpace(configuration["Setup:Key"]) ? null : configuration["Setup:Key"],
+            NonBlank(configuration["Setup:Key"]) ?? NonBlank(configuration["SETUP_KEY"]),
             string.IsNullOrWhiteSpace(configuration["Web:Root"]) ? null : configuration["Web:Root"]);
     }
+
+    private static string? NonBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
     /// <summary>Múi giờ phòng khám (phút lệch so với UTC, <c>LocalUtcOffsetMinutes</c>); không đặt hoặc sai → 420 (UTC+7).</summary>
     public static int LocalUtcOffsetFrom(IConfiguration configuration) =>

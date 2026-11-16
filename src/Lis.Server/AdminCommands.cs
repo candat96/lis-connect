@@ -1,8 +1,5 @@
 using Lis.Core.Auth;
-using Lis.Data;
-using Lis.Data.Auth;
 using Lis.Server.Tenancy;
-using Npgsql;
 
 namespace Lis.Server;
 
@@ -56,33 +53,17 @@ public static class AdminCommands
             return 2;
         }
 
-        var probe = new Clinic(Guid.Empty, code, name, dbName);
-        var connectionString = tenants.ConnectionStringFor(probe);
-
-        var admin = new NpgsqlConnectionStringBuilder(connectionString) { Database = "postgres" };
-        await using (var connection = new NpgsqlConnection(admin.ConnectionString))
+        try
         {
-            await connection.OpenAsync();
-            await using var exists = new NpgsqlCommand("SELECT 1 FROM pg_database WHERE datname = @name", connection);
-            exists.Parameters.AddWithValue("name", dbName);
-            if (await exists.ExecuteScalarAsync() is null)
-            {
-                await using var create = new NpgsqlCommand($"CREATE DATABASE \"{dbName}\"", connection);
-                await create.ExecuteNonQueryAsync();
-                Console.WriteLine($"Đã tạo CSDL {dbName}.");
-            }
+            var clinic = await new ClinicProvisioner(master, tenants).AddAsync(code, name, dbName, Console.WriteLine);
+            Console.WriteLine($"Đã thêm phòng khám {clinic.Code} ({clinic.Name}) → CSDL {clinic.DbName}.");
+            return 0;
         }
-
-        var migration = Migrator.Upgrade(connectionString);
-        if (!migration.Ok)
+        catch (ProvisioningException ex)
         {
-            Console.Error.WriteLine($"Migrate CSDL {dbName} thất bại: {migration.Error}");
+            Console.Error.WriteLine(ex.Message);
             return 1;
         }
-
-        var clinic = await master.AddClinicAsync(code, name, dbName);
-        Console.WriteLine($"Đã thêm phòng khám {clinic.Code} ({clinic.Name}) → CSDL {clinic.DbName}.");
-        return 0;
     }
 
     public static async Task<int> AddAgentAsync(string clinicCode, string name, string workstation, MasterStore master)
@@ -121,7 +102,7 @@ public static class AdminCommands
             return 2;
         }
 
-        var user = await new UserStore(tenants.For(clinic).Db).CreateAsync(username.Trim(), fullName.Trim(), title: null, password, [role]);
+        var user = await new ClinicProvisioner(master, tenants).AddUserAsync(clinic, username, fullName, password, role);
         Console.WriteLine($"Đã tạo tài khoản {user.Username} ({user.FullName}, vai trò {role}) cho phòng khám {clinic.Code}.");
         return 0;
     }

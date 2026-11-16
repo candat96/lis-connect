@@ -20,6 +20,8 @@ public sealed class ApiException(int status, string message) : Exception(message
 
     public static ApiException Conflict(string message) => new(StatusCodes.Status409Conflict, message);
 
+    public static ApiException ServiceUnavailable(string message) => new(StatusCodes.Status503ServiceUnavailable, message);
+
     public static ApiException TooManyRequests(string message) => new(StatusCodes.Status429TooManyRequests, message);
 }
 

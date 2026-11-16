@@ -33,7 +33,7 @@ public static partial class AuthEndpoints
         auth.MapGroup("").RequireSession().MapGet("/me", (HttpContext http) => Me(http.Ctx()));
     }
 
-    private static async Task<IResult> LoginAsync(LoginRequest body, MasterStore master, TenantRegistry tenants, SessionTokens tokens)
+    private static async Task<IResult> LoginAsync(LoginRequest body, HttpContext http, MasterStore master, TenantRegistry tenants, SessionTokens tokens)
     {
         if (string.IsNullOrEmpty(body.ClinicCode)) throw ApiException.BadRequest("Chưa nhập mã phòng khám");
         if (string.IsNullOrEmpty(body.Username)) throw ApiException.BadRequest("Chưa nhập tên đăng nhập");
@@ -48,6 +48,8 @@ public static partial class AuthEndpoints
             new PasswordHasher().Verify(body.Password, DummyHash);
             throw ApiException.Unauthorized(Invalid);
         }
+
+        ClinicUpgradeFailure.ThrowIfFailed(http.RequestServices, clinic);
 
         var result = await tenants.For(clinic).Auth.LoginAsync(body.Username.Trim(), body.Password);
         if (!result.Ok)

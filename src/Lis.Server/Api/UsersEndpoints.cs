@@ -46,14 +46,7 @@ public static partial class UsersEndpoints
 
     private static async Task<IResult> CreateAsync(RequestContext ctx, CreateUserRequest body)
     {
-        var username = body.Username ?? throw ApiException.BadRequest(InvalidBody);
-        if (username.Length == 0) throw ApiException.BadRequest("Nhập tên đăng nhập");
-        if (username.Length > 64) throw ApiException.BadRequest("Tên đăng nhập tối đa 64 ký tự");
-        if (!UsernamePattern().IsMatch(username))
-        {
-            throw ApiException.BadRequest("Tên đăng nhập chỉ gồm chữ không dấu, số, dấu chấm, gạch ngang, gạch dưới");
-        }
-
+        var username = CheckUsername(body.Username);
         var fullName = CheckFullName(body.FullName);
         CheckTitle(body.Title);
         var roles = CheckRoles(body.Roles);
@@ -117,7 +110,30 @@ public static partial class UsersEndpoints
         return Results.NoContent();
     }
 
-    private static string CheckFullName(string? fullName)
+    /// <summary>Kiểm tên đăng nhập — dùng chung với tài khoản Quản trị đầu tiên tạo khi thiết lập phòng khám.</summary>
+    internal static string CheckUsername(string? username)
+    {
+        if (username is null) throw ApiException.BadRequest(InvalidBody);
+        if (username.Length == 0) throw ApiException.BadRequest("Nhập tên đăng nhập");
+        if (username.Length > 64) throw ApiException.BadRequest("Tên đăng nhập tối đa 64 ký tự");
+        if (!UsernamePattern().IsMatch(username))
+        {
+            throw ApiException.BadRequest("Tên đăng nhập chỉ gồm chữ không dấu, số, dấu chấm, gạch ngang, gạch dưới");
+        }
+
+        return username;
+    }
+
+    /// <summary>Kiểm mật khẩu mới (thân gửi lên) — dùng chung với tài khoản Quản trị đầu tiên.</summary>
+    internal static string CheckNewPassword(string? password)
+    {
+        var value = password ?? throw ApiException.BadRequest(InvalidBody);
+        if (value.Length > 256) throw ApiException.BadRequest("Mật khẩu tối đa 256 ký tự");
+        CheckPassword(value);
+        return value;
+    }
+
+    internal static string CheckFullName(string? fullName)
     {
         if (fullName is null) throw ApiException.BadRequest(InvalidBody);
         if (fullName.Length == 0) throw ApiException.BadRequest("Nhập họ tên");

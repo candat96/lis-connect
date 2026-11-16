@@ -4,6 +4,7 @@ using System.Text.Json;
 using Dapper;
 using Lis.Core.Ingest;
 using Lis.Data.Instruments;
+using Lis.Server.Api;
 using Lis.Server.Tenancy;
 
 namespace Lis.Server.AgentApi;
@@ -51,6 +52,12 @@ public static class AgentEndpoints
             if (identity is null)
             {
                 return Results.Problem("Khoá agent không hợp lệ", statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            if (ClinicUpgradeFailure.IsFailed(context.HttpContext.RequestServices, identity.Clinic))
+            {
+                // Không để agent ghi kết quả vào CSDL chưa nâng cấp xong.
+                return Results.Problem(ClinicUpgradeFailure.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
             context.HttpContext.Items[IdentityItem] = identity;

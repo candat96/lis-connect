@@ -1,4 +1,3 @@
-using Lis.Data;
 using Lis.Server;
 using Lis.Server.AgentApi;
 using Lis.Server.Api;
@@ -32,24 +31,21 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(sp => new SessionTokens(options.JwtSecret, sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(master);
 builder.Services.AddSingleton(tenants);
+builder.Services.AddSingleton<ClinicProvisioner>();
+builder.Services.AddSingleton(new SetupGuard(options.SetupKey));
 
 var app = builder.Build();
 
 await master.EnsureSchemaAsync();
 
-// Nâng schema CSDL của mọi phòng khám lên bản mới nhất trước khi nhận request.
-foreach (var clinic in await master.ClinicsAsync())
-{
-    var result = Migrator.Upgrade(tenants.ConnectionStringFor(clinic));
-    if (!result.Ok)
-    {
-        app.Logger.LogError("Nâng cấp CSDL phòng khám {Clinic} thất bại: {Error}", clinic.Code, result.Error);
-    }
-}
+// Nâng schema CSDL của mọi phòng khám lên bản mới nhất trước khi nhận request; phòng khám lỗi bị cô lập (503), phòng khác chạy bình thường.
+await app.Services.GetRequiredService<ClinicProvisioner>().UpgradeAllAsync();
+app.Services.GetRequiredService<SetupGuard>().LogIfGenerated(app.Logger);
 
 app.MapGet("/healthz", () => Results.Ok(new { ok = true }));
 app.MapAgentApi();
 var api = app.MapApiGroup();
+api.MapSetupApi();
 api.MapAuthApi();
 api.MapUsersApi();
 api.MapCatalogApi();

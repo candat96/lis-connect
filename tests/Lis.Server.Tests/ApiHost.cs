@@ -66,6 +66,24 @@ public sealed class ApiHost : IAsyncDisposable
 
     public HttpClient Anonymous { get; }
 
+    /// <summary>Bộ tạo phòng khám / nâng cấp CSDL của server thử.</summary>
+    public ClinicProvisioner Provisioner => _factory.Services.GetRequiredService<ClinicProvisioner>();
+
+    /// <summary>Mã thiết lập + độ trễ khi nhập sai của server thử — test đặt <see cref="SetupGuard.Delay"/> để khỏi ngủ thật.</summary>
+    public SetupGuard SetupGuard => _factory.Services.GetRequiredService<SetupGuard>();
+
+    /// <summary>Ghi phòng khám vào master với CSDL chưa tạo (không migrate được) — mô phỏng nâng cấp lỗi lúc khởi động.</summary>
+    public Task<Clinic> RegisterUnmigratableClinicAsync(string code, string name) =>
+        _master.AddClinicAsync(code, name, $"lis_{code.Replace('-', '_')}_khong_ton_tai");
+
+    /// <summary>Thêm agent và trả khoá (chỉ có lúc tạo).</summary>
+    public async Task<string> AddAgentKeyAsync(Clinic clinic, string name, string workstationCode) =>
+        (await _master.AddAgentAsync(clinic.Id, name, workstationCode)).Key;
+
+    /// <summary>Token phiên hợp lệ cho một tài khoản bất kỳ của phòng khám (không cần CSDL phòng khám).</summary>
+    public string IssueToken(Clinic clinic) =>
+        _factory.Services.GetRequiredService<SessionTokens>().Issue(Guid.NewGuid(), clinic.Id);
+
     /// <param name="settings">Cấu hình thêm cho server thử (vd <c>LocalUtcOffsetMinutes</c>).</param>
     public static async Task<ApiHost> StartAsync(ServerFixture fixture, string? setupKey = null, IReadOnlyDictionary<string, string>? settings = null)
     {

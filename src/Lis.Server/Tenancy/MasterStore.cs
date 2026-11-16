@@ -285,6 +285,41 @@ public sealed class MasterStore(string connectionString)
             "DELETE FROM agent_reading WHERE clinic_id = @clinicId AND reading_key = @readingKey AND outcome IS NULL", new { clinicId, readingKey });
     }
 
+    /// <summary>
+    /// Khoá <c>pg_advisory_lock</c> trên CSDL master, giữ đến khi huỷ kết quả trả về: mọi tiến trình dùng chung master
+    /// (nhiều request, nhiều bản server) xếp hàng qua cùng một khoá.
+    /// </summary>
+    public async Task<IAsyncDisposable> AcquireLockAsync(long key)
+    {
+        var connection = await OpenAsync();
+        try
+        {
+            await connection.ExecuteAsync("SELECT pg_advisory_lock(@key)", new { key });
+        }
+        catch
+        {
+            await connection.DisposeAsync();
+            throw;
+        }
+
+        return new AdvisoryLock(connection, key);
+    }
+
+    private sealed class AdvisoryLock(NpgsqlConnection connection, long key) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await connection.ExecuteAsync("SELECT pg_advisory_unlock(@key)", new { key });
+            }
+            finally
+            {
+                await connection.DisposeAsync();
+            }
+        }
+    }
+
     private async Task<NpgsqlConnection> OpenAsync()
     {
         var connection = new NpgsqlConnection(connectionString);

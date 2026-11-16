@@ -56,6 +56,8 @@ public static class ApiSession
         var clinic = await services.GetRequiredService<MasterStore>().FindClinicByIdAsync(session.ClinicId)
             ?? throw ApiException.Unauthorized("Phiên đăng nhập không hợp lệ");
 
+        ClinicUpgradeFailure.ThrowIfFailed(services, clinic);
+
         var tenant = services.GetRequiredService<TenantRegistry>().For(clinic);
         var user = await tenant.Users.FindAsync(session.UserId);
         if (user is not { Active: true })
@@ -115,5 +117,22 @@ public static class ApiSession
         }
 
         return await next(context);
+    }
+}
+
+/// <summary>Phòng khám nâng cấp CSDL lỗi lúc khởi động: mọi route của nó (đăng nhập, có phiên) trả 503, phòng khám khác không ảnh hưởng.</summary>
+internal static class ClinicUpgradeFailure
+{
+    public const string Message = "Cơ sở dữ liệu của phòng khám chưa nâng cấp được — báo quản trị hệ thống";
+
+    public static bool IsFailed(IServiceProvider services, Clinic clinic) =>
+        services.GetRequiredService<ClinicProvisioner>().FailedUpgrades.ContainsKey(clinic.Id);
+
+    public static void ThrowIfFailed(IServiceProvider services, Clinic clinic)
+    {
+        if (IsFailed(services, clinic))
+        {
+            throw ApiException.ServiceUnavailable(Message);
+        }
     }
 }
