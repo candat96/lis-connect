@@ -125,4 +125,52 @@ public class InstrumentStoreTests(PostgresFixture fixture)
 
         (await env.Instruments.ChannelsAsync(instrumentId)).ShouldBeEmpty();
     }
+    [Fact]
+    public async Task Failures_AreTypedSoCallersNeedNotMatchMessages()
+    {
+        var env = await CreateEnvAsync();
+        var instrumentId = await env.Instruments.SaveAsync(new InstrumentInfo(Guid.Empty, "Máy thử XN-1000", null, "astm", null, null, null, true));
+        var wbcId = await SaveServiceAsync(env.Catalog, "WBC", "Bạch cầu", env.EdtaId);
+        var panelId = await env.Catalog.SaveServiceAsync(new ServiceInfo(Guid.Empty, "GOI", "Gói thử", null, env.EdtaId, null, "so", null, 0, true, false, true, null, []));
+        await env.Instruments.SaveChannelAsync(new ChannelMap(Guid.Empty, instrumentId, "WBC#", wbcId, null, null, false, false));
+
+        (await Should.ThrowAsync<InstrumentException>(() => env.Instruments.SaveChannelAsync(
+            new ChannelMap(Guid.Empty, instrumentId, "WBC#", wbcId, null, null, false, false)))).Failure.ShouldBe(InstrumentFailure.DuplicateChannel);
+        (await Should.ThrowAsync<InstrumentException>(() => env.Instruments.SaveChannelAsync(
+            new ChannelMap(Guid.Empty, instrumentId, "X", panelId, null, null, false, false)))).Failure.ShouldBe(InstrumentFailure.PanelService);
+        (await Should.ThrowAsync<InstrumentException>(() => env.Instruments.SaveChannelAsync(
+            new ChannelMap(Guid.Empty, instrumentId, "X", Guid.NewGuid(), null, null, false, false)))).Failure.ShouldBe(InstrumentFailure.ServiceNotFound);
+        (await Should.ThrowAsync<InstrumentException>(() => env.Instruments.SaveAsync(
+            new InstrumentInfo(Guid.NewGuid(), "Máy ma Thử", null, null, null, null, null, true)))).Failure.ShouldBe(InstrumentFailure.NotFound);
+    }
+
+    [Fact]
+    public async Task DeleteInstrument_RemovesChannelsAndDeclared_ButKeepsInstrumentsInUse()
+    {
+        var connectionString = await fixture.NewDatabaseAsync();
+        var db = Db.Create(connectionString);
+        var catalog = new CatalogStore(db);
+        var store = new InstrumentStore(db);
+        var edtaId = (await catalog.SpecimenTypesAsync()).First(s => s.Code == "EDTA").Id;
+        var wbcId = await SaveServiceAsync(catalog, "WBC", "Bạch cầu", edtaId);
+        var free = await store.SaveAsync(new InstrumentInfo(Guid.Empty, "Máy trống Thử", null, null, null, null, null, true));
+        var used = await store.SaveAsync(new InstrumentInfo(Guid.Empty, "Máy dùng Thử", null, null, null, null, null, true));
+        await store.SaveChannelAsync(new ChannelMap(Guid.Empty, free, "WBC#", wbcId, null, null, false, false));
+        await store.SetDeclaredAsync(free, wbcId, true);
+        await using (var connection = await db.OpenAsync(TestContext.Current.CancellationToken))
+        {
+            await Dapper.SqlMapper.ExecuteAsync(connection,
+                "INSERT INTO unmatched_result (instrument_id, barcode, channel_code, value, reason) VALUES (@used, 'B1', 'X', '1', 'kenh-chua-map')", new { used });
+        }
+
+        (await store.DeleteAsync(free)).ShouldBe(InstrumentDeleteResult.Deleted);
+        (await store.DeleteAsync(free)).ShouldBe(InstrumentDeleteResult.NotFound);
+        (await store.DeleteAsync(used)).ShouldBe(InstrumentDeleteResult.InUse);
+
+        (await store.ListAsync()).Select(i => i.Id).ShouldBe([used]);
+        (await store.ChannelsAsync(free)).ShouldBeEmpty();
+        (await store.DeclaredServicesAsync(free)).ShouldBeEmpty();
+        var unmapped = (await store.UnmappedChannelsAsync(used)).Single();
+        (unmapped.ChannelCode, unmapped.Count, unmapped.LastValue, unmapped.LastUnit).ShouldBe(("X", 1, "1", null));
+    }
 }

@@ -35,6 +35,42 @@ public sealed record DeclaredService(Guid ServiceId, string Code, string Name, s
 /// <summary>Một dòng map kênh kèm mã/tên chỉ số để hiển thị.</summary>
 public sealed record ChannelMapItem(ChannelMap Map, string ServiceCode, string ServiceName);
 
+/// <summary>Lý do một thao tác sửa máy / map kênh bị từ chối (server web dịch sang mã HTTP).</summary>
+public enum InstrumentFailure
+{
+    /// <summary>Không có máy với id đó.</summary>
+    NotFound,
+
+    /// <summary>Mã kênh đã map cho chỉ số khác trên cùng máy.</summary>
+    DuplicateChannel,
+
+    /// <summary>Không có chỉ số với id đó.</summary>
+    ServiceNotFound,
+
+    /// <summary>Kênh máy chỉ map tới chỉ số lá, không map tới dịch vụ cha (panel).</summary>
+    PanelService,
+}
+
+/// <summary>
+/// Lỗi nghiệp vụ khi sửa máy / map kênh; <see cref="Exception.Message"/> là câu tiếng Việt hiển thị cho người dùng.
+/// Là <see cref="InvalidOperationException"/> như trước nên bên gọi cũ bắt kiểu đó vẫn chạy.
+/// </summary>
+public sealed class InstrumentException(InstrumentFailure failure, string message) : InvalidOperationException(message)
+{
+    public InstrumentFailure Failure { get; } = failure;
+}
+
+/// <summary>Kết quả xoá một máy.</summary>
+public enum InstrumentDeleteResult
+{
+    Deleted,
+
+    NotFound,
+
+    /// <summary>Máy đã có kết quả / log tham chiếu tới — không xoá được, chỉ ngừng dùng.</summary>
+    InUse,
+}
+
 /// <summary>Danh mục máy và map kênh mà màn "Máy &amp; map" cần. Cài đặt thật là <see cref="InstrumentStore"/>; kiểm thử ViewModel dùng bản giả.</summary>
 public interface IInstrumentStore
 {
@@ -96,7 +132,7 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
     public async Task<IReadOnlyList<UnmappedChannel>> UnmappedChannelsAsync(Guid instrumentId)
     {
         await using var connection = await db.OpenAsync();
-        var rows = await connection.QueryAsync<UnmappedChannel>(
+        var rows = await connection.QueryAsync<UnmappedRow>(
             """
             SELECT DISTINCT ON (u.channel_code)
                 u.channel_code AS ChannelCode,
@@ -112,7 +148,8 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
             ORDER BY u.channel_code, u.received_at DESC
             """,
             new { instrumentId });
-        return rows.OrderByDescending(r => r.LastAt).ToList();
+        return rows.OrderByDescending(r => r.LastAt)
+            .Select(r => new UnmappedChannel(r.ChannelCode, r.Count, r.LastValue, r.LastUnit, r.LastAt)).ToList();
     }
 
     public async Task<IReadOnlyList<InstrumentInfo>> ListAsync()
@@ -181,7 +218,7 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
 
         if (updated == 0)
         {
-            throw new InvalidOperationException("Không tìm thấy máy");
+            throw new InstrumentException(InstrumentFailure.NotFound, "Không tìm thấy máy");
         }
 
         return instrument.Id;
@@ -260,10 +297,10 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
 
         var isPanel = await connection.ExecuteScalarAsync<bool?>(
             "SELECT is_panel FROM service WHERE id = @serviceId", new { channel.ServiceId }, transaction)
-            ?? throw new InvalidOperationException("Không tìm thấy chỉ số");
+            ?? throw new InstrumentException(InstrumentFailure.ServiceNotFound, "Không tìm thấy chỉ số");
         if (isPanel)
         {
-            throw new InvalidOperationException("Kênh máy chỉ map tới chỉ số lá, không map tới dịch vụ cha (panel)");
+            throw new InstrumentException(InstrumentFailure.PanelService, "Kênh máy chỉ map tới chỉ số lá, không map tới dịch vụ cha (panel)");
         }
 
         var parameters = new
@@ -300,6 +337,25 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
         return channel.Id;
     }
 
+    /// <summary>Xoá máy cùng map kênh và danh sách chỉ số khai báo của nó trong một giao dịch.</summary>
+    public async Task<InstrumentDeleteResult> DeleteAsync(Guid instrumentId)
+    {
+        try
+        {
+            return await db.InTransactionAsync(async (connection, transaction) =>
+            {
+                await connection.ExecuteAsync("DELETE FROM instrument_service WHERE instrument_id = @instrumentId", new { instrumentId }, transaction);
+                await connection.ExecuteAsync("DELETE FROM instrument_channel WHERE instrument_id = @instrumentId", new { instrumentId }, transaction);
+                var deleted = await connection.ExecuteAsync("DELETE FROM instrument WHERE id = @instrumentId", new { instrumentId }, transaction);
+                return deleted == 0 ? InstrumentDeleteResult.NotFound : InstrumentDeleteResult.Deleted;
+            });
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+        {
+            return InstrumentDeleteResult.InUse;
+        }
+    }
+
     public async Task DeleteChannelAsync(Guid channelId)
     {
         await using var connection = await db.OpenAsync();
@@ -326,8 +382,8 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
         JOIN service sv ON sv.id = ic.service_id
         """;
 
-    private static InvalidOperationException DuplicateChannel(string channelCode, string serviceName) =>
-        new($"Mã kênh {channelCode} đã map cho chỉ số {serviceName}");
+    private static InstrumentException DuplicateChannel(string channelCode, string serviceName) =>
+        new(InstrumentFailure.DuplicateChannel, $"Mã kênh {channelCode} đã map cho chỉ số {serviceName}");
 
     private static string? NullIfBlank(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
 
@@ -362,6 +418,16 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
         public bool Active { get; init; }
 
         public InstrumentInfo ToInfo() => new(Id, Name, Model, ProtocolFamily, DriverConfig, Connection, WorkstationCode, Active);
+    }
+
+    /// <summary>Dapper không gán timestamptz vào tham số <see cref="DateTimeOffset"/> của hàm tạo record — đi qua thuộc tính.</summary>
+    private sealed record UnmappedRow
+    {
+        public string ChannelCode { get; init; } = "";
+        public int Count { get; init; }
+        public string LastValue { get; init; } = "";
+        public string? LastUnit { get; init; }
+        public DateTimeOffset LastAt { get; init; }
     }
 
     private sealed record ChannelRow

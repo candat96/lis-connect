@@ -11,6 +11,9 @@ public sealed record Clinic(Guid Id, string Code, string Name, string DbName);
 /// <summary>Một agent (máy tính cạnh máy xét nghiệm) của một phòng khám. <see cref="WorkstationCode"/> khớp <c>instrument.workstation_code</c>.</summary>
 public sealed record AgentInfo(Guid Id, Guid ClinicId, string Name, string WorkstationCode, DateTimeOffset? LastSeenAt);
 
+/// <summary>Agent kèm trạng thái các máy nó báo về lần cuối (JSON mảng <c>InstrumentStatusReport</c>; null khi chưa báo).</summary>
+public sealed record AgentWithStatus(AgentInfo Agent, string? LastStatusJson);
+
 /// <summary>Agent đã xác thực kèm phòng khám của nó.</summary>
 public sealed record AgentIdentity(AgentInfo Agent, Clinic Clinic);
 
@@ -96,6 +99,20 @@ public sealed class MasterStore(string connectionString)
         await using var connection = await OpenAsync();
         return await connection.QuerySingleOrDefaultAsync<Clinic>(
             "SELECT id, code, name, db_name AS DbName FROM clinic WHERE id = @id", new { id });
+    }
+
+    /// <summary>Mọi agent của một phòng khám (theo tên) kèm trạng thái máy báo về lần cuối.</summary>
+    public async Task<IReadOnlyList<AgentWithStatus>> AgentsOfAsync(Guid clinicId)
+    {
+        await using var connection = await OpenAsync();
+        var rows = await connection.QueryAsync<AgentRow>(
+            """
+            SELECT id, clinic_id AS ClinicId, name, workstation_code AS WorkstationCode, last_seen_at AS LastSeenAt,
+                   last_status::text AS LastStatus
+            FROM agent WHERE clinic_id = @clinicId ORDER BY name
+            """,
+            new { clinicId });
+        return rows.Select(r => new AgentWithStatus(new AgentInfo(r.Id, r.ClinicId, r.Name, r.WorkstationCode, r.LastSeenAt), r.LastStatus)).ToList();
     }
 
     /// <summary>Tạo agent và trả về khoá — CHỈ hiện một lần, server chỉ lưu bản băm.</summary>
@@ -204,6 +221,7 @@ public sealed class MasterStore(string connectionString)
         public string WorkstationCode { get; init; } = "";
         public string KeyHash { get; init; } = "";
         public DateTimeOffset? LastSeenAt { get; init; }
+        public string? LastStatus { get; init; }
         public string ClinicCode { get; init; } = "";
         public string ClinicName { get; init; } = "";
         public string DbName { get; init; } = "";

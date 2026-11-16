@@ -146,7 +146,7 @@ public static partial class UsersEndpoints
     }
 
     /// <summary>Dạng <c>toISOString()</c> của JS: UTC, đủ mili giây.</summary>
-    private static string Iso(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+    internal static string Iso(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
 
     [GeneratedRegex(@"^[A-Za-z0-9._-]+\z")]
     private static partial Regex UsernamePattern();

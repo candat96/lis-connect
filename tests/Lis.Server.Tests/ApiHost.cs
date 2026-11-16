@@ -77,6 +77,16 @@ public sealed class ApiHost : IAsyncDisposable
     public async Task AddUserAsync(Clinic clinic, string username, string password, params string[] roles) =>
         await new UserStore(_tenants.For(clinic).Db).CreateAsync(username, $"{username} Thử", null, password, roles);
 
+    /// <summary>Thêm agent cho phòng khám (mã máy trạm = <paramref name="workstationCode"/>).</summary>
+    public async Task<AgentInfo> AddAgentAsync(Clinic clinic, string name, string workstationCode) =>
+        (await _master.AddAgentAsync(clinic.Id, name, workstationCode)).Agent;
+
+    /// <summary>Agent báo "còn sống" kèm trạng thái các máy (JSON mảng) — như <c>POST /agent/v1/status</c>.</summary>
+    public Task TouchAgentAsync(AgentInfo agent, string? statusJson) => _master.TouchAgentAsync(agent.Id, statusJson);
+
+    /// <summary>Dịch vụ nghiệp vụ của phòng khám — để kiểm tra những gì đã ghi.</summary>
+    public TenantServices TenantOf(Clinic clinic) => _tenants.For(clinic);
+
     /// <summary>Client đã gắn Bearer của phiên vừa đăng nhập.</summary>
     public async Task<HttpClient> LoginAsync(string clinicCode, string username, string password)
     {
