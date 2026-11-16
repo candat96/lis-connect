@@ -29,6 +29,9 @@ public sealed record SessionTimings
 /// </summary>
 public sealed class MachineSession(IMachineLink link, Action<string> log, SessionTimings? timings = null)
 {
+    /// <summary>Đã quá hạn vẫn chờ chừng này cho lần đọc cuối (xem <see cref="ReadBeforeAsync"/>).</summary>
+    private static readonly TimeSpan LateReadGrace = TimeSpan.FromMilliseconds(50);
+
     private readonly SessionTimings _t = timings ?? new SessionTimings();
     private int _controlId;
 
@@ -228,14 +231,15 @@ public sealed class MachineSession(IMachineLink link, Action<string> log, Sessio
     }
 
     /// <summary>
-    /// Đọc trong thời gian còn lại tới <paramref name="deadline"/>. Đã quá hạn vẫn đọc một lần với
-    /// thời hạn 0 để lấy byte đã nằm sẵn — máy tải nặng có thể treo luồng quá hạn trong khi LIS đã
-    /// trả lời; chỉ coi là "không trả lời" khi lần đọc đó rỗng.
+    /// Đọc trong thời gian còn lại tới <paramref name="deadline"/>. Đã quá hạn vẫn đọc thêm một lần
+    /// ngắn (<see cref="LateReadGrace"/>) để lấy byte đã tới — máy tải nặng có thể treo luồng quá hạn
+    /// trong khi LIS đã trả lời, và trên TCP/COM lệnh đọc đang chờ cần chút thời gian để hoàn tất;
+    /// chỉ coi là "không trả lời" khi lần đọc đó rỗng.
     /// </summary>
     private Task<byte[]> ReadBeforeAsync(DateTimeOffset deadline, CancellationToken ct)
     {
         var remaining = deadline - DateTimeOffset.Now;
-        return ReadAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, ct);
+        return ReadAsync(remaining > LateReadGrace ? remaining : LateReadGrace, ct);
     }
 
     /// <summary>Đọc một lần và trả byte điều khiển đầu tiên thuộc ACK/NAK/ENQ/EOT; 0 nếu hết giờ.</summary>

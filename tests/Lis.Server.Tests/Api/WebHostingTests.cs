@@ -256,8 +256,12 @@ public sealed class WebHostingTests(ServerFixture fixture) : IClassFixture<Serve
     public async Task Tep_chay_voi_healthcheck_thoat_1_khi_khong_co_server_lang_nghe()
     {
         var dll = typeof(Program).Assembly.Location;
-        var start = new System.Diagnostics.ProcessStartInfo("dotnet", $"\"{dll}\" --healthcheck") { RedirectStandardError = true, RedirectStandardOutput = true };
-        start.Environment["ASPNETCORE_URLS"] = "http://0.0.0.0:1";
+        // --urls (dòng lệnh) thắng Urls trong appsettings.json — biến ASPNETCORE_URLS thì không, nên trước đây test này thực ra gọi
+        // cổng 5080 và đỏ khi máy đang chạy server dev ở đó.
+        var start = new System.Diagnostics.ProcessStartInfo("dotnet", $"\"{dll}\" --healthcheck --urls http://0.0.0.0:1")
+        {
+            RedirectStandardError = true, RedirectStandardOutput = true,
+        };
         using var process = System.Diagnostics.Process.Start(start)!;
 
         await process.WaitForExitAsync(Ct);

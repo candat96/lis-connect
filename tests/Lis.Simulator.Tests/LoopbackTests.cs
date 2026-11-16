@@ -224,6 +224,16 @@ public class LoopbackTests
         result.Ok.ShouldBeTrue(result.Message);
     }
 
+    [Fact]
+    public async Task StreamLink_thoi_han_0_van_tra_byte_da_co_san()
+    {
+        var link = new Lis.Simulator.Links.StreamLink(new MemoryStream([0x06, 0x05]));
+
+        var data = await link.ReadAsync(TimeSpan.Zero, TestContext.Current.CancellationToken);
+
+        data.ShouldBe(new byte[] { 0x06, 0x05 });
+    }
+
     // ---------------- Phát lại .listrace ----------------
 
     [Fact]

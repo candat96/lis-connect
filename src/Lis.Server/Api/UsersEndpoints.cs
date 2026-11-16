@@ -162,8 +162,6 @@ public static partial class UsersEndpoints
         if (password.Length < 8) throw ApiException.BadRequest(PasswordTooShort);
     }
 
-    /// <summary>Dạng <c>toISOString()</c> của JS: UTC, đủ mili giây.</summary>
-
     [GeneratedRegex(@"^[A-Za-z0-9._-]+\z")]
     private static partial Regex UsernamePattern();
 }
