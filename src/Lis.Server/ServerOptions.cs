@@ -8,6 +8,7 @@ namespace Lis.Server;
 public sealed record ServerOptions(string JwtSecret, int LocalUtcOffsetMinutes, string? SetupKey, string? WebRoot)
 {
     public const string PlaceholderSecret = "CHANGE_ME";
+    public const int DefaultLocalUtcOffsetMinutes = 420;
     public const int MinSecretLength = 24;
 
     /// <summary>Đọc cấu hình; <c>Jwt:Secret</c> thiếu, còn là "CHANGE_ME" hoặc ngắn hơn 24 ký tự → <see cref="InvalidOperationException"/>.</summary>
@@ -20,11 +21,14 @@ public sealed record ServerOptions(string JwtSecret, int LocalUtcOffsetMinutes, 
                 $"Cấu hình Jwt:Secret chưa đặt (hoặc còn là {PlaceholderSecret}, hoặc ngắn hơn {MinSecretLength} ký tự) — đặt một chuỗi bí mật ngẫu nhiên dài trước khi chạy server web");
         }
 
-        var offset = int.TryParse(configuration["LocalUtcOffsetMinutes"], out var minutes) ? minutes : 420;
         return new ServerOptions(
             secret,
-            offset,
+            LocalUtcOffsetFrom(configuration),
             string.IsNullOrWhiteSpace(configuration["Setup:Key"]) ? null : configuration["Setup:Key"],
             string.IsNullOrWhiteSpace(configuration["Web:Root"]) ? null : configuration["Web:Root"]);
     }
+
+    /// <summary>Múi giờ phòng khám (phút lệch so với UTC, <c>LocalUtcOffsetMinutes</c>); không đặt hoặc sai → 420 (UTC+7).</summary>
+    public static int LocalUtcOffsetFrom(IConfiguration configuration) =>
+        int.TryParse(configuration["LocalUtcOffsetMinutes"], out var minutes) ? minutes : DefaultLocalUtcOffsetMinutes;
 }

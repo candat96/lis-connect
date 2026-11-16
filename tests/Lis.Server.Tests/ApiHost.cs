@@ -24,7 +24,7 @@ public sealed class ApiHost : IAsyncDisposable
     private readonly TenantRegistry _tenants;
     private readonly List<HttpClient> _clients = [];
 
-    private ApiHost(ServerFixture fixture, string? setupKey)
+    private ApiHost(ServerFixture fixture, string? setupKey, IReadOnlyDictionary<string, string>? settings)
     {
         _fixture = fixture;
         _master = new MasterStore(fixture.MasterConnection);
@@ -38,6 +38,11 @@ public sealed class ApiHost : IAsyncDisposable
             if (setupKey is not null)
             {
                 builder.UseSetting("Setup:Key", setupKey);
+            }
+
+            foreach (var (key, value) in settings ?? new Dictionary<string, string>())
+            {
+                builder.UseSetting(key, value);
             }
         });
         Anonymous = Track(_factory.CreateClient());
@@ -61,10 +66,11 @@ public sealed class ApiHost : IAsyncDisposable
 
     public HttpClient Anonymous { get; }
 
-    public static async Task<ApiHost> StartAsync(ServerFixture fixture, string? setupKey = null)
+    /// <param name="settings">Cấu hình thêm cho server thử (vd <c>LocalUtcOffsetMinutes</c>).</param>
+    public static async Task<ApiHost> StartAsync(ServerFixture fixture, string? setupKey = null, IReadOnlyDictionary<string, string>? settings = null)
     {
         await new MasterStore(fixture.MasterConnection).EnsureSchemaAsync();
-        return new ApiHost(fixture, setupKey);
+        return new ApiHost(fixture, setupKey, settings);
     }
 
     /// <summary>Tạo CSDL phòng khám + migrate + ghi vào master.</summary>

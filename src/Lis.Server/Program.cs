@@ -18,7 +18,7 @@ var tenantTemplate = builder.Configuration["Tenants:ConnectionTemplate"]
     ?? throw new InvalidOperationException("Thiếu cấu hình Tenants:ConnectionTemplate");
 
 var master = new MasterStore(masterConnection);
-var tenants = new TenantRegistry(tenantTemplate, TimeProvider.System);
+var tenants = new TenantRegistry(tenantTemplate, TimeProvider.System, ServerOptions.LocalUtcOffsetFrom(builder.Configuration));
 
 if (AdminCommands.IsCommand(args))
 {
@@ -55,6 +55,7 @@ api.MapUsersApi();
 api.MapCatalogApi();
 api.MapInstrumentsApi();
 api.MapAgentsApi();
+api.MapSamplesApi();
 
 await app.RunAsync();
 return 0;

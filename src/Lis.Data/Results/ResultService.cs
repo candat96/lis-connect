@@ -49,7 +49,10 @@ public sealed record OrderHeader(
     string? Diagnosis,
     DateTimeOffset OrderedAt);
 
-/// <summary>Một dòng trong danh sách mẫu của màn Kết quả. <see cref="Total"/>/<see cref="WithValue"/> đếm chỉ số lá (không tính dòng panel).</summary>
+/// <summary>
+/// Một dòng trong danh sách mẫu của màn Kết quả. <see cref="Total"/>/<see cref="WithValue"/> đếm chỉ số lá (không tính dòng panel).
+/// <see cref="PatientCode"/>: mã người bệnh (web hiển thị; app máy trạm không dùng).
+/// </summary>
 public sealed record SampleListItem(
     Guid SampleId,
     string Barcode,
@@ -60,7 +63,15 @@ public sealed record SampleListItem(
     int WithValue,
     bool Approved,
     bool HasAbnormal,
-    bool HasPending);
+    bool HasPending,
+    string PatientCode = "");
+
+/// <summary>Cách nhập một chỉ số: kiểu giá trị (<c>so</c> / <c>dinh-tinh</c> / <c>chu</c>) và chữ gợi ý cho chỉ số định tính.</summary>
+public sealed record ServiceEntryHint(string ValueType, IReadOnlyList<string> Choices);
+
+/// <summary>Một dòng lịch sử kết quả. <see cref="ActorName"/> null khi máy / hệ thống ghi (vd tự duyệt, máy gửi).</summary>
+public sealed record ResultHistoryEntry(
+    DateTimeOffset At, string Action, string? OldValue, string? NewValue, string? Reason, string? ActorName);
 
 /// <summary>
 /// Nghiệp vụ kết quả mà màn Kết quả cần. Cài đặt thật là <see cref="ResultService"/>; kiểm thử
@@ -118,6 +129,12 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
 
     public Task<IReadOnlyList<Guid>> GetOrderSampleIdsAsync(Guid sampleId) => _query.GetOrderSampleIdsAsync(sampleId);
 
+    /// <summary>Kiểu giá trị và chữ gợi ý của từng chỉ số trên mẫu (theo id dịch vụ) — màn Kết quả của web.</summary>
+    public Task<IReadOnlyDictionary<Guid, ServiceEntryHint>> GetEntryHintsAsync(Guid sampleId) => _query.GetEntryHintsAsync(sampleId);
+
+    /// <summary>Lịch sử thao tác trên kết quả của một dòng chỉ định, mới nhất trước — màn Kết quả của web.</summary>
+    public Task<IReadOnlyList<ResultHistoryEntry>> GetItemHistoryAsync(Guid orderItemId) => _query.GetItemHistoryAsync(orderItemId);
+
     public async Task SetManualAsync(Guid orderItemId, string value, Guid actorId, string? reason)
     {
         await db.InTransactionAsync(async (connection, transaction) =>
@@ -128,12 +145,12 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             // thống (mẫu → chỉ định → kết quả) và có thể gây deadlock với đường máy gửi.
             var sampleId = await connection.ExecuteScalarAsync<Guid?>(
                 "SELECT sample_id FROM order_item WHERE id = @orderItemId", new { orderItemId }, transaction)
-                ?? throw new InvalidOperationException("Không tìm thấy dòng chỉ định");
+                ?? throw new ResultException(ResultFailure.NotFound, "Không tìm thấy dòng chỉ định");
 
             var approvedAt = await ResultWriter.LockSampleAsync(connection, transaction, sampleId);
             if (approvedAt is not null)
             {
-                throw new InvalidOperationException("Mẫu đã duyệt — hủy duyệt trước khi sửa");
+                throw new ResultException(ResultFailure.Conflict, "Mẫu đã duyệt — hủy duyệt trước khi sửa");
             }
 
             var item = await connection.QuerySingleOrDefaultAsync<ItemContext>(
@@ -143,12 +160,12 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                 FOR UPDATE OF oi, s
                 """,
                 new { orderItemId }, transaction)
-                ?? throw new InvalidOperationException("Không tìm thấy dòng chỉ định");
+                ?? throw new ResultException(ResultFailure.NotFound, "Không tìm thấy dòng chỉ định");
 
             var service = await ResultWriter.LoadServiceAsync(connection, transaction, item.ServiceId);
             if (service.IsPanel)
             {
-                throw new InvalidOperationException("Dịch vụ cha (panel) không có giá trị kết quả");
+                throw new ResultException(ResultFailure.NotApplicable, "Dịch vụ cha (panel) không có giá trị kết quả");
             }
 
             // Nhập tay chỉ số số mà gõ chuỗi không đọc được thành số ("abc", "12..5", kể cả ký
@@ -158,7 +175,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             var trimmedValue = value.Trim();
             if (service.ValueType == "so" && trimmedValue.Length > 0 && ResultValue.Parse(trimmedValue).IsEmpty)
             {
-                throw new ArgumentException($"Giá trị không hợp lệ: '{trimmedValue}'");
+                throw new ResultInputException($"Giá trị không hợp lệ: '{trimmedValue}'");
             }
 
             // Đọc lại kết quả hiện có *sau khi* đã giữ khóa mẫu: bản LEFT JOIN ở trên có thể cũ
@@ -172,7 +189,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             var hasOldValue = !string.IsNullOrEmpty(oldValue);
             if (hasOldValue && string.IsNullOrWhiteSpace(reason))
             {
-                throw new ArgumentException("Nhập lý do sửa kết quả");
+                throw new ResultInputException("Nhập lý do sửa kết quả");
             }
 
             var computed = await _writer.ComputeAsync(service, item.Patient, item.OrderedLocalDate(clock), instrumentId: null, value);
@@ -204,7 +221,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
 
             if (withValue == 0)
             {
-                throw new InvalidOperationException("Chưa có kết quả để duyệt");
+                throw new ResultException(ResultFailure.Conflict, "Chưa có kết quả để duyệt");
             }
 
             await ApproveLockedSampleAsync(connection, transaction, sampleId, actorId, clock.GetUtcNow());
@@ -216,7 +233,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new ArgumentException("Nhập lý do hủy duyệt");
+            throw new ResultInputException("Nhập lý do hủy duyệt");
         }
 
         await db.InTransactionAsync(async (connection, transaction) =>
@@ -239,7 +256,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             var item = await LockResultAsync(connection, transaction, resultId);
             if (item.PendingValue is null)
             {
-                throw new InvalidOperationException("Không có bản thay thế để chấp nhận");
+                throw new ResultException(ResultFailure.Conflict, "Không có bản thay thế để chấp nhận");
             }
 
             var service = await ResultWriter.LoadServiceAsync(connection, transaction, item.ServiceId);
@@ -302,7 +319,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             var item = await LockResultAsync(connection, transaction, resultId);
             if (item.PendingValue is null)
             {
-                throw new InvalidOperationException("Không có bản thay thế để bỏ");
+                throw new ResultException(ResultFailure.Conflict, "Không có bản thay thế để bỏ");
             }
 
             await connection.ExecuteAsync(
@@ -429,7 +446,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
         var sampleId = await connection.ExecuteScalarAsync<Guid?>(
             "SELECT oi.sample_id FROM result r JOIN order_item oi ON oi.id = r.order_item_id WHERE r.id = @resultId",
             new { resultId }, transaction)
-            ?? throw new InvalidOperationException("Không tìm thấy kết quả");
+            ?? throw new ResultException(ResultFailure.NotFound, "Không tìm thấy kết quả");
 
         await ResultWriter.LockSampleAsync(connection, transaction, sampleId);
 
@@ -440,7 +457,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             FOR UPDATE OF oi, s, r
             """,
             new { resultId }, transaction)
-            ?? throw new InvalidOperationException("Không tìm thấy kết quả");
+            ?? throw new ResultException(ResultFailure.NotFound, "Không tìm thấy kết quả");
     }
 
     private sealed record ExistingResultRow

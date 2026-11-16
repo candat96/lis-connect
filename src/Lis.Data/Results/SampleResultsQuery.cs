@@ -73,7 +73,7 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
                 LEFT JOIN result r ON r.order_item_id = oi.id
                 GROUP BY oi.sample_id
             )
-            SELECT s.id AS sample_id, s.barcode, p.full_name AS patient_name, o.created_at AS ordered_at,
+            SELECT s.id AS sample_id, s.barcode, p.full_name AS patient_name, p.code AS patient_code, o.created_at AS ordered_at,
                    st.name AS specimen_name,
                    coalesce(l.total, 0) AS total, coalesce(l.with_value, 0) AS with_value,
                    s.approved_at IS NOT NULL AS approved,
@@ -115,7 +115,7 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
             WHERE s.id = @sampleId
             """,
             new { sampleId })
-            ?? throw new InvalidOperationException("Không tìm thấy mẫu");
+            ?? throw new ResultException(ResultFailure.NotFound, "Không tìm thấy mẫu");
 
         var items = (await connection.QueryAsync<ItemRow>(
             """
@@ -154,7 +154,8 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
                 new { missing }))
                 .GroupBy(r => r.ServiceId)
                 .ToDictionary(g => g.Key, g => g.Select(r => r.ToRange()).ToList());
-            var today = DateOnly.FromDateTime(DateTime.Now);
+            // Hôm nay theo múi giờ của đồng hồ (app máy trạm: giờ máy như trước; server web: giờ phòng khám).
+            var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(clock.GetUtcNow(), clock.LocalTimeZone).DateTime);
             items = items.Select(i =>
             {
                 if (i.IsPanel || i.RefText is not null || i.RefLow is not null || i.RefHigh is not null
@@ -195,7 +196,7 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
             WHERE s.id = @sampleId
             """,
             new { sampleId })
-            ?? throw new InvalidOperationException("Không tìm thấy mẫu");
+            ?? throw new ResultException(ResultFailure.NotFound, "Không tìm thấy mẫu");
 
         return row.ToHeader();
     }
@@ -217,6 +218,56 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
         return ids.ToList();
     }
 
+    /// <summary>
+    /// Cách nhập từng chỉ số trên mẫu, theo id dịch vụ: kiểu giá trị (<c>so</c> / <c>dinh-tinh</c> / <c>chu</c>) và,
+    /// với chỉ số định tính, các chữ hiển thị trong luật quy đổi của danh mục (không trùng, theo thứ tự chữ) để gợi ý.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, ServiceEntryHint>> GetEntryHintsAsync(Guid sampleId)
+    {
+        await using var connection = await db.OpenAsync();
+        var services = (await connection.QueryAsync<(Guid Id, string ValueType)>(
+            """
+            SELECT DISTINCT sv.id, sv.value_type
+            FROM order_item oi
+            JOIN service sv ON sv.id = oi.service_id
+            WHERE oi.sample_id = @sampleId
+            """,
+            new { sampleId })).ToList();
+
+        var qualitativeIds = services.Where(s => s.ValueType == "dinh-tinh").Select(s => s.Id).ToArray();
+        var choices = qualitativeIds.Length == 0
+            ? []
+            : (await connection.QueryAsync<(Guid ServiceId, string DisplayValue)>(
+                "SELECT DISTINCT service_id, display_value FROM qualitative_rule WHERE service_id = ANY(@qualitativeIds) ORDER BY display_value",
+                new { qualitativeIds })).ToList();
+
+        return services.ToDictionary(
+            s => s.Id,
+            s => new ServiceEntryHint(s.ValueType, choices.Where(c => c.ServiceId == s.Id).Select(c => c.DisplayValue).ToList()));
+    }
+
+    /// <summary>
+    /// Lịch sử thao tác trên kết quả của một dòng chỉ định (nhận, sửa, duyệt, hủy duyệt, thay thế, bỏ thay thế), mới
+    /// nhất trước; các dòng cùng thời điểm (cùng một giao dịch) thì dòng ghi sau đứng trước. Dòng chỉ định chưa có kết
+    /// quả, hoặc không tồn tại → danh sách rỗng.
+    /// </summary>
+    public async Task<IReadOnlyList<ResultHistoryEntry>> GetItemHistoryAsync(Guid orderItemId)
+    {
+        await using var connection = await db.OpenAsync();
+        var rows = await connection.QueryAsync<HistoryRow>(
+            """
+            SELECT h.at, h.action, h.old_value, h.new_value, h.reason, u.full_name AS actor_name
+            FROM result_history h
+            JOIN result r ON r.id = h.result_id
+            LEFT JOIN app_user u ON u.id = h.actor_id
+            WHERE r.order_item_id = @orderItemId
+            ORDER BY h.at DESC, h.id DESC
+            """,
+            new { orderItemId });
+
+        return rows.Select(row => new ResultHistoryEntry(row.At, row.Action, row.OldValue, row.NewValue, row.Reason, row.ActorName)).ToList();
+    }
+
     /// <summary>Khoảng tham chiếu để hiển thị: <c>ref_text</c> nếu có, không thì "thấp – cao" theo số lẻ của chỉ số.</summary>
     public static string? FormatRefText(string? refText, decimal? low, decimal? high, int? decimals)
     {
@@ -236,6 +287,16 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
         string Format(decimal value) => decimals is { } d
             ? value.ToString("F" + d, CultureInfo.InvariantCulture)
             : value.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+
+    private sealed record HistoryRow
+    {
+        public DateTimeOffset At { get; init; }
+        public string Action { get; init; } = "";
+        public string? OldValue { get; init; }
+        public string? NewValue { get; init; }
+        public string? Reason { get; init; }
+        public string? ActorName { get; init; }
     }
 
     private sealed record OrderHeaderRow
@@ -263,8 +324,10 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
         public bool HasAbnormal { get; init; }
         public bool HasPending { get; init; }
 
+        public string PatientCode { get; init; } = "";
+
         public SampleListItem ToItem() => new(
-            SampleId, Barcode, PatientName, OrderedAt, SpecimenName, Total, WithValue, Approved, HasAbnormal, HasPending);
+            SampleId, Barcode, PatientName, OrderedAt, SpecimenName, Total, WithValue, Approved, HasAbnormal, HasPending, PatientCode);
     }
 
     private sealed record SampleRow

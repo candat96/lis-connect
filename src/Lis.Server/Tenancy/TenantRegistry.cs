@@ -4,13 +4,15 @@ using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Ingest;
 using Lis.Data.Instruments;
+using Lis.Data.Results;
 
 namespace Lis.Server.Tenancy;
 
 /// <summary>Các dịch vụ nghiệp vụ gắn với CSDL của một phòng khám.</summary>
 public sealed class TenantServices
 {
-    public TenantServices(string connectionString, TimeProvider clock)
+    /// <param name="clinicClock">Đồng hồ có "giờ địa phương" là giờ phòng khám — dùng cho phần kết quả (chia ngày, tính tuổi).</param>
+    public TenantServices(string connectionString, TimeProvider clock, TimeProvider clinicClock)
     {
         ConnectionString = connectionString;
         Db = Db.Create(connectionString);
@@ -21,6 +23,7 @@ public sealed class TenantServices
         Users = new UserStore(Db);
         Catalog = new CatalogStore(Db);
         Auth = new AuthService(Db, new PasswordHasher(), clock);
+        Results = new ResultService(Db, clinicClock);
     }
 
     public string ConnectionString { get; }
@@ -40,18 +43,25 @@ public sealed class TenantServices
     public CatalogStore Catalog { get; }
 
     public AuthService Auth { get; }
+
+    /// <summary>Kết quả: đọc danh sách / chi tiết mẫu, nhập, sửa, duyệt, hủy duyệt, chấp nhận / bỏ bản máy gửi lại.</summary>
+    public ResultService Results { get; }
 }
 
 /// <summary>
 /// Từ phòng khám ra CSDL của nó: chuỗi kết nối = mẫu trong cấu hình (<c>Tenants:ConnectionTemplate</c>,
 /// có <c>{db}</c>) + <see cref="Clinic.DbName"/>. Mỗi phòng khám giữ một bộ dịch vụ (một pool kết nối).
+/// <paramref name="localUtcOffsetMinutes"/>: múi giờ phòng khám (<see cref="ServerOptions.LocalUtcOffsetMinutes"/>) mà phần
+/// kết quả dùng để chia "ngày" và tính tuổi người bệnh, không phụ thuộc múi giờ của máy chủ.
 /// </summary>
-public sealed class TenantRegistry(string connectionTemplate, TimeProvider clock)
+public sealed class TenantRegistry(
+    string connectionTemplate, TimeProvider clock, int localUtcOffsetMinutes = ServerOptions.DefaultLocalUtcOffsetMinutes)
 {
     private readonly ConcurrentDictionary<string, TenantServices> _tenants = new(StringComparer.Ordinal);
+    private readonly ClinicTimeProvider _clinicClock = new(clock, localUtcOffsetMinutes);
 
     public string ConnectionStringFor(Clinic clinic) => connectionTemplate.Replace("{db}", clinic.DbName, StringComparison.Ordinal);
 
     public TenantServices For(Clinic clinic) =>
-        _tenants.GetOrAdd(clinic.DbName, _ => new TenantServices(ConnectionStringFor(clinic), clock));
+        _tenants.GetOrAdd(clinic.DbName, _ => new TenantServices(ConnectionStringFor(clinic), clock, _clinicClock));
 }

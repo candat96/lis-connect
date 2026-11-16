@@ -284,7 +284,7 @@ internal sealed class ResultWriter(Db db)
         return await connection.QuerySingleOrDefaultAsync<ServiceRow>(
             "SELECT id, unit, value_type, decimals, is_panel FROM service WHERE id = @serviceId",
             new { serviceId }, transaction)
-            ?? throw new InvalidOperationException("Không tìm thấy dịch vụ");
+            ?? throw new ResultException(ResultFailure.NotFound, "Không tìm thấy dịch vụ");
     }
 
     /// <summary>Khóa dòng mẫu trong giao dịch và trả về <c>approved_at</c> hiện tại. Quy tắc thứ tự khóa: mẫu trước, kết quả sau.</summary>
@@ -292,7 +292,7 @@ internal sealed class ResultWriter(Db db)
     {
         var row = await connection.QuerySingleOrDefaultAsync<SampleLockRow>(
             "SELECT id, approved_at FROM sample WHERE id = @sampleId FOR UPDATE", new { sampleId }, transaction)
-            ?? throw new InvalidOperationException("Không tìm thấy mẫu");
+            ?? throw new ResultException(ResultFailure.NotFound, "Không tìm thấy mẫu");
         return row.ApprovedAt;
     }
 
