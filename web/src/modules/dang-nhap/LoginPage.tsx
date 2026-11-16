@@ -1,14 +1,16 @@
 // Đăng nhập theo thiết kế của clinic-web: ảnh nền + sóng xanh ngọc, giới thiệu bên trái, thẻ đăng nhập bên phải.
 import { BankOutlined, LockOutlined, UserOutlined } from '@ant-design/icons';
 import { Alert, Button, ConfigProvider, Form, Input } from 'antd';
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import bgPhoto from '@/assets/login/bg.jpg';
 import logo from '@/assets/logo.png';
 import { APP_NAME } from '@/app/appName';
 import { palette } from '@/app/theme/tokens';
-import { authService } from '@/services';
+import { authService, setupService } from '@/services';
 import { useSessionStore } from '@/stores/sessionStore';
+import { readLastLogin, saveLastLogin } from './lastLogin';
 
 interface LoginForm {
   clinicCode: string;
@@ -16,22 +18,6 @@ interface LoginForm {
   password: string;
 }
 
-const LAST_KEY = 'lis-last-login';
-const readLast = (): Partial<LoginForm> => {
-  try {
-    return JSON.parse(localStorage.getItem(LAST_KEY) ?? '{}') as Partial<LoginForm>;
-  } catch {
-    return {};
-  }
-};
-// Chỉ nhớ mã phòng khám và tên đăng nhập — không bao giờ nhớ mật khẩu.
-const saveLast = (v: LoginForm) => {
-  try {
-    localStorage.setItem(LAST_KEY, JSON.stringify({ clinicCode: v.clinicCode, username: v.username }));
-  } catch {
-    /* bỏ qua */
-  }
-};
 const safeNext = (n: unknown) => (typeof n === 'string' && n.startsWith('/') && !n.startsWith('//') && !n.startsWith('/dang-nhap') ? n : '/ket-qua');
 
 /** Đường sóng của thiết kế: một hình, hai lớp lệch góc. */
@@ -60,7 +46,9 @@ export default function LoginPage() {
   const { token, setSession } = useSessionStore();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [last] = useState(readLast);
+  const [last] = useState(readLastLogin);
+  // Máy chủ mới dựng, chưa có phòng khám nào: chỉ đường sang trang thiết lập.
+  const setup = useQuery({ queryKey: ['setup-status'], queryFn: setupService.status, retry: false, staleTime: 0 });
   const next = safeNext((location.state as { next?: unknown } | null)?.next);
 
   if (token) return <Navigate to={next} replace />;
@@ -69,7 +57,7 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     const values = { clinicCode: v.clinicCode.trim(), username: v.username.trim(), password: v.password };
-    saveLast(values);
+    saveLastLogin(values.clinicCode, values.username);
     try {
       const session = await authService.login(values.clinicCode, values.username, values.password);
       setSession(session.token, session.user, session.clinic);
@@ -114,6 +102,15 @@ export default function LoginPage() {
               <p>Dùng tài khoản do quản trị phòng khám cấp.</p>
             </div>
 
+            {setup.data?.hasClinic === false && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="Máy chủ chưa có phòng khám nào"
+                description={<Link to="/thiet-lap">Thiết lập phòng khám đầu tiên</Link>}
+              />
+            )}
             {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} role="alert" />}
 
             <Form<LoginForm>
@@ -142,6 +139,11 @@ export default function LoginPage() {
                 Đăng nhập
               </Button>
             </Form>
+            {setup.data?.hasClinic && (
+              <p className="login-card__foot">
+                <Link to="/thiet-lap">Thêm phòng khám mới</Link>
+              </p>
+            )}
           </section>
         </ConfigProvider>
       </main>

@@ -29,6 +29,21 @@ export const authService = {
     api<Session>('/auth/login', { method: 'POST', body: { clinicCode, username, password } }),
 };
 
+// ---- Thiết lập phòng khám (không cần đăng nhập, cần mã thiết lập của máy chủ) ----
+export interface SetupClinicInput {
+  setupKey: string;
+  code: string;
+  name: string;
+  adminUsername: string;
+  adminFullName: string;
+  adminPassword: string;
+}
+
+export const setupService = {
+  status: () => api<{ hasClinic: boolean }>('/setup/status'),
+  createClinic: (input: SetupClinicInput) => api<{ code: string }>('/setup/clinic', { method: 'POST', body: input }),
+};
+
 // ---- Kết quả ----
 export type SampleStatus = 'cho-ket-qua' | 'cho-duyet' | 'da-duyet';
 export type ResultFlag = 'None' | 'Low' | 'High' | 'CriticalLow' | 'CriticalHigh' | 'Abnormal';
