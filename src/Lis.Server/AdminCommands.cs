@@ -1,4 +1,5 @@
 using Lis.Core.Auth;
+using Lis.Server.Api;
 using Lis.Server.Tenancy;
 
 namespace Lis.Server;
@@ -47,19 +48,13 @@ public static class AdminCommands
     /// <summary>Thêm phòng khám: tạo CSDL nếu chưa có, migrate, ghi vào master. CSDL có sẵn dữ liệu (chuyển từ bản cài tại chỗ) dùng lại được.</summary>
     public static async Task<int> AddClinicAsync(string code, string name, string dbName, MasterStore master, TenantRegistry tenants)
     {
-        if (!dbName.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
-        {
-            Console.Error.WriteLine("Tên CSDL chỉ gồm chữ không dấu, số, gạch dưới");
-            return 2;
-        }
-
         try
         {
             var clinic = await new ClinicProvisioner(master, tenants).AddAsync(code, name, dbName, Console.WriteLine);
             Console.WriteLine($"Đã thêm phòng khám {clinic.Code} ({clinic.Name}) → CSDL {clinic.DbName}.");
             return 0;
         }
-        catch (ProvisioningException ex)
+        catch (Exception ex) when (ex is ProvisioningException or ApiException)
         {
             Console.Error.WriteLine(ex.Message);
             return 1;

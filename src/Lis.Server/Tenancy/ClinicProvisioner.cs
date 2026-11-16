@@ -28,6 +28,8 @@ public sealed class ClinicProvisioner(MasterStore master, TenantRegistry tenants
     /// Tạo phòng khám từ web: CSDL <c>lis_</c> + mã (gạch ngang → gạch dưới), migrate, tài khoản Quản trị đầu tiên, rồi mới ghi
     /// vào master. Thất bại giữa chừng thì không ghi master (và xoá CSDL vừa tạo), nên thử lại cùng mã được.
     /// Trùng mã → <see cref="ApiException"/> 409. Mã, tên, tài khoản đã được tầng web kiểm.
+    /// Từ chối (409) khi CSDL đó đã tồn tại: web không tự dùng lại CSDL có sẵn — chuyển dữ liệu từ bản cài khác là việc
+    /// cố ý của người vận hành, làm bằng <c>clinic add</c>. Từ chối cả khi tên CSDL trùng CSDL master.
     /// </summary>
     public async Task<Clinic> CreateAsync(string code, string name, string adminUsername, string adminFullName, string adminPassword)
     {
@@ -37,7 +39,7 @@ public sealed class ClinicProvisioner(MasterStore master, TenantRegistry tenants
             return await ProvisionAsync(
                 code, name, dbName,
                 async tenant => await tenant.Users.CreateAsync(adminUsername.Trim(), adminFullName.Trim(), title: null, adminPassword, [Roles.QuanTri]),
-                log: null);
+                log: null, adoptExisting: false);
         }
         catch (ApiException)
         {
@@ -54,10 +56,16 @@ public sealed class ClinicProvisioner(MasterStore master, TenantRegistry tenants
 
     /// <summary>
     /// Thêm phòng khám với CSDL đặt tên sẵn (lệnh <c>clinic add</c>): tạo CSDL nếu chưa có, migrate, ghi master.
-    /// CSDL có sẵn dữ liệu (chuyển từ bản cài tại chỗ) dùng lại được. Migrate lỗi → <see cref="ProvisioningException"/>.
+    /// CSDL có sẵn dữ liệu (chuyển từ bản cài tại chỗ) dùng lại được, trừ CSDL master. Tên CSDL chỉ gồm chữ không dấu, số, gạch dưới
+    /// (1–63 ký tự, không bắt đầu bằng số) vì được ghép thẳng vào <c>CREATE / DROP DATABASE</c>. Tên sai, trùng master hoặc migrate lỗi
+    /// → <see cref="ProvisioningException"/>.
     /// </summary>
     public Task<Clinic> AddAsync(string code, string name, string dbName, Action<string> log) =>
-        ProvisionAsync(code, name, dbName, seed: null, log);
+        ProvisionAsync(code, name, dbName, seed: null, log, adoptExisting: true);
+
+    /// <summary>Tên CSDL hợp lệ: chữ ASCII, số, gạch dưới; 1–63 ký tự (giới hạn của PostgreSQL); không bắt đầu bằng số.</summary>
+    public static bool IsValidDatabaseName(string? dbName) =>
+        dbName is { Length: >= 1 and <= 63 } && !char.IsAsciiDigit(dbName[0]) && dbName.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
 
     /// <summary>Tạo một tài khoản cho phòng khám đã có (lệnh <c>user add</c>).</summary>
     public Task<UserInfo> AddUserAsync(Clinic clinic, string username, string fullName, string password, string role) =>
@@ -90,8 +98,19 @@ public sealed class ClinicProvisioner(MasterStore master, TenantRegistry tenants
         }
     }
 
-    private async Task<Clinic> ProvisionAsync(string code, string name, string dbName, Func<TenantServices, Task>? seed, Action<string>? log)
+    private async Task<Clinic> ProvisionAsync(
+        string code, string name, string dbName, Func<TenantServices, Task>? seed, Action<string>? log, bool adoptExisting)
     {
+        if (!IsValidDatabaseName(dbName))
+        {
+            throw new ProvisioningException("Tên CSDL chỉ gồm chữ không dấu, số, gạch dưới (tối đa 63 ký tự, không bắt đầu bằng số)");
+        }
+
+        if (string.Equals(dbName, master.DatabaseName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw ApiException.Conflict($"Tên CSDL {dbName} trùng CSDL master của hệ thống — chọn mã / tên CSDL khác");
+        }
+
         await using var _ = await master.AcquireLockAsync(CreateLockKey);
 
         if (await master.FindClinicAsync(code) is not null)
@@ -113,6 +132,13 @@ public sealed class ClinicProvisioner(MasterStore master, TenantRegistry tenants
             if (created)
             {
                 log?.Invoke($"Đã tạo CSDL {dbName}.");
+            }
+            else if (!adoptExisting)
+            {
+                // Không tạo gì, không ghi master, không đụng vào CSDL có sẵn.
+                throw ApiException.Conflict(
+                    $"CSDL {dbName} đã tồn tại trên máy chủ nên không tạo phòng khám từ web. " +
+                    $"Nếu muốn dùng lại CSDL này, chạy lệnh dòng lệnh: LisServer clinic add --code {code} --name \"<tên phòng khám>\" --db {dbName}");
             }
 
             var migration = Migrator.Upgrade(connectionString);

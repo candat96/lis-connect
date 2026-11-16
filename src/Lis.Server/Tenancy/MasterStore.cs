@@ -41,6 +41,10 @@ public sealed class MasterStore(string connectionString)
 {
     private const string KeyPrefix = "lisa";
 
+    /// <summary>Tên CSDL master đọc từ chuỗi kết nối — không phòng khám nào được dùng tên này làm CSDL của mình.</summary>
+    public string DatabaseName { get; } = new NpgsqlConnectionStringBuilder(connectionString).Database
+        ?? throw new InvalidOperationException("Chuỗi kết nối master thiếu tên CSDL (Database=)");
+
     public async Task EnsureSchemaAsync()
     {
         // CSDL master chưa có thì tạo (lần chạy đầu trên máy chủ mới).
