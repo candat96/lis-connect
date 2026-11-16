@@ -52,6 +52,7 @@ app.MapAgentApi();
 var api = app.MapApiGroup();
 api.MapAuthApi();
 api.MapUsersApi();
+api.MapCatalogApi();
 
 await app.RunAsync();
 return 0;

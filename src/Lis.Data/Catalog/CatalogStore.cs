@@ -41,7 +41,7 @@ public interface IServiceLookup
 /// con, khoảng tham chiếu và quy đổi định tính. Xem bảng <c>service</c>, <c>service_child</c>,
 /// <c>reference_range</c>, <c>qualitative_rule</c> trong <c>0001_khoi_tao.sql</c>.
 /// </summary>
-public sealed class CatalogStore(Db db) : IServiceLookup
+public sealed partial class CatalogStore(Db db) : IServiceLookup
 {
     public async Task<IReadOnlyList<ServiceInfo>> SearchLeavesAsync(string text, int limit = 30)
     {
@@ -174,11 +174,7 @@ public sealed class CatalogStore(Db db) : IServiceLookup
 
         if (childIds.Count > 0)
         {
-            var panelAmongChildren = await connection.ExecuteScalarAsync<long>(
-                "SELECT count(*) FROM service WHERE id = ANY(@childIds) AND is_panel = true",
-                new { childIds = childIds.ToArray() }, transaction);
-
-            if (panelAmongChildren > 0)
+            if ((await PanelNamesAmongAsync(connection, transaction, childIds)).Count > 0)
             {
                 throw new InvalidOperationException("Chỉ số con không được là một dịch vụ cha (panel)");
             }
@@ -201,9 +197,8 @@ public sealed class CatalogStore(Db db) : IServiceLookup
     {
         await using var connection = await db.OpenAsync();
         var rows = await connection.QueryAsync<RangeRow>(
-            """
-            SELECT id, service_id, sex, age_from_days, age_to_days, instrument_id,
-                   low, high, critical_low, critical_high, text_range
+            $"""
+            SELECT {RangeColumns}
             FROM reference_range
             WHERE service_id = @serviceId
             ORDER BY sex NULLS FIRST, age_from_days NULLS FIRST
@@ -211,6 +206,19 @@ public sealed class CatalogStore(Db db) : IServiceLookup
             new { serviceId });
         return rows.Select(row => row.ToReferenceRange()).ToList();
     }
+
+    /// <summary>Khoảng tham chiếu của mọi chỉ số (một truy vấn) — để tóm tắt cả danh mục mà không phải hỏi từng chỉ số.</summary>
+    public async Task<IReadOnlyList<ReferenceRange>> AllRangesAsync()
+    {
+        await using var connection = await db.OpenAsync();
+        var rows = await connection.QueryAsync<RangeRow>($"SELECT {RangeColumns} FROM reference_range");
+        return rows.Select(row => row.ToReferenceRange()).ToList();
+    }
+
+    private const string RangeColumns = """
+        id, service_id, sex, age_from_days, age_to_days, instrument_id,
+        low, high, critical_low, critical_high, text_range
+        """;
 
     /// <summary>Thay toàn bộ khoảng tham chiếu của một chỉ số bằng danh sách truyền vào.</summary>
     public async Task SaveRangesAsync(Guid serviceId, IReadOnlyList<ReferenceRange> ranges) =>
@@ -265,33 +273,37 @@ public sealed class CatalogStore(Db db) : IServiceLookup
     }
 
     /// <summary>Thay toàn bộ quy tắc quy đổi định tính của một chỉ số bằng danh sách truyền vào.</summary>
-    public async Task SaveQualitativeRulesAsync(Guid serviceId, IReadOnlyList<QualitativeRule> rules)
-    {
-        await db.InTransactionAsync(async (conn, tx) =>
+    public async Task SaveQualitativeRulesAsync(Guid serviceId, IReadOnlyList<QualitativeRule> rules) =>
+        await db.InTransactionAsync(async (connection, transaction) =>
         {
-            await conn.ExecuteAsync("DELETE FROM qualitative_rule WHERE service_id = @serviceId", new { serviceId }, tx);
-
-            foreach (var rule in rules)
-            {
-                await conn.ExecuteAsync(
-                    """
-                    INSERT INTO qualitative_rule (instrument_id, service_id, raw_value, display_value, flag)
-                    VALUES (@instrumentId, @serviceId, @rawValue, @displayValue, @flag)
-                    """,
-                    new
-                    {
-                        instrumentId = rule.InstrumentId,
-                        serviceId,
-                        rawValue = rule.RawValue,
-                        displayValue = rule.DisplayValue,
-                        // result.flag/qualitative_rule.flag lưu tên hằng của enum ResultFlag (vd "Abnormal"), không lưu số.
-                        flag = rule.Flag?.ToString(),
-                    },
-                    tx);
-            }
-
+            await SaveQualitativeRulesInTransactionAsync(connection, transaction, serviceId, rules);
             return true;
         });
+
+    /// <summary>Như <see cref="SaveQualitativeRulesAsync"/> nhưng dùng kết nối/giao dịch của bên gọi — xem <see cref="SaveServiceInTransactionAsync"/>.</summary>
+    internal static async Task SaveQualitativeRulesInTransactionAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, Guid serviceId, IReadOnlyList<QualitativeRule> rules)
+    {
+        await connection.ExecuteAsync("DELETE FROM qualitative_rule WHERE service_id = @serviceId", new { serviceId }, transaction);
+
+        foreach (var rule in rules)
+        {
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO qualitative_rule (instrument_id, service_id, raw_value, display_value, flag)
+                VALUES (@instrumentId, @serviceId, @rawValue, @displayValue, @flag)
+                """,
+                new
+                {
+                    instrumentId = rule.InstrumentId,
+                    serviceId,
+                    rawValue = rule.RawValue,
+                    displayValue = rule.DisplayValue,
+                    // result.flag/qualitative_rule.flag lưu tên hằng của enum ResultFlag (vd "Abnormal"), không lưu số.
+                    flag = rule.Flag?.ToString(),
+                },
+                transaction);
+        }
     }
 
     /// <summary>Danh sách loại mẫu bệnh phẩm, theo thứ tự hiển thị.</summary>
@@ -311,6 +323,13 @@ public sealed class CatalogStore(Db db) : IServiceLookup
             "SELECT id, name FROM instrument WHERE active = true ORDER BY name");
         return rows.Select(row => (row.Id, row.Name)).ToList();
     }
+
+    /// <summary>Tên các dịch vụ cha (panel) trong <paramref name="ids"/> — chỉ số con không được là panel.</summary>
+    private static async Task<IReadOnlyList<string>> PanelNamesAmongAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, IReadOnlyList<Guid> ids) =>
+        (await connection.QueryAsync<string>(
+            "SELECT name FROM service WHERE id = ANY(@ids) AND is_panel = true",
+            new { ids = ids.ToArray() }, transaction)).ToList();
 
     private static async Task<IReadOnlyDictionary<Guid, List<Guid>>> LoadChildrenByParentAsync(
         NpgsqlConnection connection, IReadOnlyCollection<Guid> parentIds)
