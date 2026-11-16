@@ -5,6 +5,7 @@
 # rồi diff. Thân lỗi bỏ trường `error` (NestJS thêm tên mã HTTP, .NET không; web chỉ đọc `message`).
 # Đường dẫn không tồn tại không so (NestJS trả "Cannot GET", .NET trả câu tiếng Việt — đã chủ ý).
 # Trả 0 khi mọi route giống nhau, 1 nếu có khác biệt (in ra diff). Cần: curl, jq.
+# Ghi chú: thư mục server/ (NestJS) đã bị xoá khỏi repo; muốn chạy lại phải checkout commit trước đó để dựng server NestJS.
 set -uo pipefail
 
 if [ "$#" -ne 5 ]; then

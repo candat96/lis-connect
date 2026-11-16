@@ -5,7 +5,7 @@ using Xunit;
 namespace Lis.Core.Tests.Results;
 
 /// <summary>
-/// Các ca của <c>server/src/common/result-value.spec.ts</c> (bản NestJS chép lại quy tắc của Lis.Core) chạy trên chính
+/// Các ca của <c>result-value.spec.ts</c> (bản NestJS chép lại quy tắc của Lis.Core; server NestJS đã bỏ, xem lịch sử git trước commit xoá <c>server/</c>) chạy trên chính
 /// logic Lis.Core — để khi server .NET thay NestJS, đọc / làm tròn / tính cờ / quy đổi định tính vẫn cho cùng kết quả.
 /// Ca chuẩn hóa số khi chỉ số không khai số lẻ (<c>normalizeNumber</c>) nằm ở đường ghi của Lis.Data và được kiểm
 /// qua <c>PUT /api/results/items/{id}</c> trong <c>SamplesEndpointsTests</c>.

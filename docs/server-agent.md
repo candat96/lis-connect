@@ -1,12 +1,11 @@
 # Server online + agent cạnh máy xét nghiệm
 
-Bước 1 của việc chuyển LIS Connect sang mô hình online. App Windows hiện tại vẫn chạy được song song
-(cùng CSDL) cho tới khi giao diện web xong.
+Mô hình online của LIS Connect. App Windows cũ vẫn chạy được song song (cùng CSDL) cho tới khi web có đủ chức năng.
 
 ```
 Máy xét nghiệm ──COM/TCP──> Lis.Agent (dịch vụ Windows) ──HTTPS──> Lis.Server ──> PostgreSQL
                                                                       │             ├─ lis_master (phòng khám, agent)
-                                                         Web (sắp làm)┘             ├─ CSDL phòng khám A
+                                                              Web ────┘             ├─ CSDL phòng khám A
                                                                                     └─ CSDL phòng khám B
 ```
 
@@ -18,26 +17,35 @@ Máy xét nghiệm ──COM/TCP──> Lis.Agent (dịch vụ Windows) ──HT
 
 ## Server
 
-Cấu hình (`appsettings.json` hoặc biến môi trường `Master__ConnectionString`, `Tenants__ConnectionTemplate`, `Urls`):
+Một server .NET (`src/Lis.Server`) làm tất cả: phục vụ giao diện web, `/api` cho web, `/agent/v1` cho agent. Chạy bằng Docker
+Compose hoặc trực tiếp — cài đặt từng bước ở [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md).
 
-```json
-{
-  "Urls": "http://0.0.0.0:5080",
-  "Master":  { "ConnectionString": "Host=...;Database=lis_master;Username=...;Password=..." },
-  "Tenants": { "ConnectionTemplate": "Host=...;Database={db};Username=...;Password=..." }
-}
-```
+Cấu hình (`appsettings.json` hoặc biến môi trường, dùng `__` thay cho `:`):
 
-Cần PostgreSQL 18. Đặt server sau reverse proxy có HTTPS (nginx/caddy) khi chạy trên VPS.
+| Khoá | Ý nghĩa |
+|---|---|
+| `Urls` | Địa chỉ nghe, mặc định `http://0.0.0.0:5080` |
+| `Master:ConnectionString` | CSDL `lis_master` (danh sách phòng khám, agent) |
+| `Tenants:ConnectionTemplate` | Mẫu chuỗi kết nối CSDL từng phòng khám, giữ `{db}` |
+| `Jwt:Secret` | Khoá ký phiên đăng nhập web, từ 24 ký tự (thiếu hoặc còn `CHANGE_ME` thì server không chạy) |
+| `Setup:Key` (hoặc `SETUP_KEY`) | Mã thiết lập phòng khám mới trên trang `/thiet-lap`; trống thì server tự sinh và ghi vào log |
+| `Web:Root` | Thư mục web đã build; không đặt thì dùng `wwwroot` cạnh tệp chạy nếu có |
+| `Proxy:TrustForwardedHeaders` | `true` khi đứng sau reverse proxy tin cậy: dùng `X-Forwarded-For` / `X-Forwarded-Proto` (mặc định tắt) |
+| `LocalUtcOffsetMinutes` | Múi giờ phòng khám khi chia "ngày", mặc định 420 (UTC+7) |
+
+Cần PostgreSQL 18. Đặt server sau reverse proxy có HTTPS (nginx/caddy) khi chạy trên VPS. Phòng khám đầu tiên tạo trên web
+(`/thiet-lap`); các lệnh dưới là đường cứu hộ khi không dùng được web:
 
 ```
 LisServer clinic add --code pkstl --name "Phòng khám STL" --db lis_pkstl   # tạo + migrate CSDL (CSDL có sẵn thì dùng lại)
 LisServer clinic list
+LisServer user add --clinic pkstl --username admin --name "Quản trị" --password "..."   # tài khoản Quản trị đầu tiên
 LisServer agent add --clinic pkstl --name "Máy phòng XN" --workstation XN-01  # in khoá agent, chỉ hiện một lần
 LisServer                                                                    # chạy server
 ```
 
-`--workstation` phải trùng "mã máy trạm" đã gán cho máy xét nghiệm (`instrument.workstation_code`).
+`--workstation` phải trùng "mã máy trạm" đã gán cho máy xét nghiệm (`instrument.workstation_code`). Agent thường tạo ngay trên
+web (mục **Agent**) thay vì lệnh `agent add`.
 
 ## Agent
 
@@ -71,9 +79,9 @@ cuối lấy được — dùng khi bật máy mà chưa có mạng).
 ## Cài đặt trên web
 
 Máy xét nghiệm (giao thức, cổng COM/TCP, agent phụ trách), map kênh, và agent (tạo, lấy khoá, cấp khoá mới) đều làm trên web
-(`../web`, API ở `../server`). Agent chỉ cần `Server:Url` + `Server:AgentKey`; cấu hình máy nó tự lấy về mỗi 30 giây.
-Khi triển khai, đặt reverse proxy để một tên miền phục vụ cả ba: `/` → web, `/api` → server NestJS, `/agent/v1` → Lis.Server.
+(`../web`, do chính server LIS phục vụ). Agent chỉ cần `Server:Url` + `Server:AgentKey`; cấu hình máy nó tự lấy về mỗi 30 giây.
+Chỉ cần một tên miền / địa chỉ cho cả web, `/api` và `/agent/v1` — cùng trỏ vào server LIS (reverse proxy xem mục 6 của hướng dẫn cài đặt).
 
 ## Chưa có
 
-In tem qua agent, nhận chỉ định từ HIS, chuyển API agent (`/agent/v1`) sang NestJS.
+In tem qua agent, nhận chỉ định từ HIS.

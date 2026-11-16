@@ -2,6 +2,19 @@
 
 > **Bản web (server + agent + web):** xem [docs/HUONG-DAN-CAI-DAT.md](docs/HUONG-DAN-CAI-DAT.md) — khởi tạo, cài đặt, kết nối máy.
 
+## Chạy nhanh bản web (Docker)
+
+Một server .NET (`src/Lis.Server`) phục vụ cả giao diện web (`web/`), API `/api` và API agent `/agent/v1`, nối PostgreSQL 18.
+
+```bash
+cp .env.example .env              # đổi mọi giá trị CHANGE_ME (mật khẩu CSDL, Jwt__Secret, SETUP_KEY)
+docker compose up -d --build      # PostgreSQL 18 + server, cổng 5080
+```
+
+Mở `http://localhost:5080/thiet-lap`, nhập mã thiết lập (`SETUP_KEY`) để tạo phòng khám và tài khoản Quản trị đầu tiên, rồi đăng nhập.
+Chạy không dùng Docker, cấu hình, reverse proxy / HTTPS, cài agent: xem hướng dẫn cài đặt. Phát triển: `dotnet run --project src/Lis.Server`
+(5080) và `cd web && npm run dev` (5186, proxy `/api` về 5080).
+
 Phần mềm quản lý xét nghiệm (LIS) cho khoa xét nghiệm, cài trên Windows, nối hai chiều với máy xét nghiệm và tích hợp được với HIS. Chi tiết mục đích, phạm vi và các quyết định thiết kế nằm ở bản thiết kế: [`docs/superpowers/specs/2026-11-03-lis-windows-design.md`](docs/superpowers/specs/2026-11-03-lis-windows-design.md).
 
 Kế hoạch triển khai (chia theo task) nằm ở: [`docs/superpowers/plans/2026-11-03-lis-01-nen-tang-va-lis-doc-lap.md`](docs/superpowers/plans/2026-11-03-lis-01-nen-tang-va-lis-doc-lap.md).
@@ -18,7 +31,10 @@ LisConnect.slnx
 │   ├── Lis.Core/      Lớp nghiệp vụ lõi, không phụ thuộc Data/Reports/App
 │   ├── Lis.Data/      Truy cập dữ liệu (phụ thuộc Lis.Core)
 │   ├── Lis.Reports/   Sinh và in phiếu kết quả (phụ thuộc Lis.Core)
-│   └── Lis.App/       Ứng dụng Avalonia (desktop, chạy cả Windows và macOS khi phát triển)
+│   ├── Lis.App/       Ứng dụng Avalonia (desktop, chạy cả Windows và macOS khi phát triển)
+│   ├── Lis.Server/    Server web: giao diện web + /api + /agent/v1 (phụ thuộc Lis.Core, Lis.Data)
+│   └── Lis.Agent/     Dịch vụ Windows cạnh máy xét nghiệm, gửi dữ liệu về server
+├── web/               Giao diện web (React + Vite)
 └── tests/
     ├── Lis.Core.Tests/
     ├── Lis.Data.Tests/     (cần Docker — Testcontainers)

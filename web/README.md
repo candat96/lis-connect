@@ -5,7 +5,7 @@ React + Vite + TypeScript + Ant Design, cùng bộ thư viện và cùng theme v
 
 ```bash
 npm install
-npm run dev        # http://localhost:5186 — /api proxy tới server ở http://localhost:8084 (đổi bằng LIS_BACKEND_URL)
+npm run dev        # http://localhost:5186 — /api proxy tới server .NET ở http://localhost:5080 (đổi bằng LIS_BACKEND_URL)
 npm run typecheck && npm run build
 ```
 
