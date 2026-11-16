@@ -9,6 +9,18 @@ namespace Lis.Data.Auth;
 /// </summary>
 public sealed record UserInfo(Guid Id, string Username, string FullName, string? Title, IReadOnlyList<string> Roles, bool Active);
 
+/// <summary>Tài khoản kèm trạng thái khoá tạm và lần đăng nhập cuối (cho màn quản lý nhân sự).</summary>
+public sealed record UserDetail(UserInfo User, DateTimeOffset? LockedUntil, DateTimeOffset? LastLoginAt);
+
+/// <summary>Kết quả <see cref="UserStore.UpdateAccountAsync"/>.</summary>
+public enum UserUpdateResult
+{
+    Updated,
+    NotFound,
+    /// <summary>Sẽ không còn tài khoản Quản trị nào đang hoạt động.</summary>
+    LastAdmin,
+}
+
 /// <summary>
 /// Truy cập dữ liệu tài khoản (bảng app_user): tạo, sửa, liệt kê.
 /// Không xử lý đăng nhập — xem <see cref="AuthService"/>.
@@ -119,6 +131,76 @@ public sealed class UserStore(Db db)
         return rows.Select(row => row.ToUserInfo()).ToList();
     }
 
+    /// <summary>Mọi tài khoản kèm <c>locked_until</c> và <c>last_login_at</c>, theo tên đăng nhập.</summary>
+    public async Task<IReadOnlyList<UserDetail>> ListDetailsAsync()
+    {
+        await using var connection = await db.OpenAsync();
+        var rows = await connection.QueryAsync<DetailRow>(
+            "SELECT id, username, full_name, title, roles, active, locked_until, last_login_at FROM app_user ORDER BY username");
+        return rows.Select(row => new UserDetail(row.ToUserInfo(), row.LockedUntil, row.LastLoginAt)).ToList();
+    }
+
+    /// <summary>
+    /// Như <see cref="UpdateAsync"/> nhưng báo kết quả thay vì ném lỗi khi hết quản trị, báo <see cref="UserUpdateResult.NotFound"/>
+    /// khi không có tài khoản, và đặt lại mật khẩu thì mở luôn khoá tạm (xoá số lần sai, thời điểm khoá).
+    /// Mật khẩu mới phải được kiểm hợp lệ trước (ném <see cref="ArgumentException"/> nếu dưới 8 ký tự).
+    /// </summary>
+    public async Task<UserUpdateResult> UpdateAccountAsync(
+        Guid id, string fullName, string? title, IReadOnlyList<string> roles, bool active, string? newPassword)
+    {
+        var rolesArray = roles.ToArray();
+        string? passwordHash = null;
+        if (newPassword is not null)
+        {
+            RequireValidPassword(newPassword);
+            passwordHash = hasher.Hash(newPassword);
+        }
+
+        return await db.InTransactionAsync(async (connection, transaction) =>
+        {
+            var activeAdminIds = (await connection.QueryAsync<Guid>(
+                "SELECT id FROM app_user WHERE active = true AND @quanTri = ANY(roles) FOR UPDATE",
+                new { quanTri = Roles.QuanTri }, transaction)).ToHashSet();
+
+            var wasActiveAdmin = activeAdminIds.Contains(id);
+            var staysActiveAdmin = active && roles.Contains(Roles.QuanTri);
+            if (wasActiveAdmin && !staysActiveAdmin && activeAdminIds.Count <= 1)
+            {
+                return UserUpdateResult.LastAdmin;
+            }
+
+            var affected = passwordHash is null
+                ? await connection.ExecuteAsync(
+                    "UPDATE app_user SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active WHERE id = @id",
+                    new { id, fullName, title, rolesArray, active }, transaction)
+                : await connection.ExecuteAsync(
+                    """
+                    UPDATE app_user
+                    SET full_name = @fullName, title = @title, roles = @rolesArray, active = @active,
+                        password_hash = @passwordHash, failed_count = 0, locked_until = NULL
+                    WHERE id = @id
+                    """,
+                    new { id, fullName, title, rolesArray, active, passwordHash }, transaction);
+            return affected == 0 ? UserUpdateResult.NotFound : UserUpdateResult.Updated;
+        });
+    }
+
+    /// <summary>Tự đổi mật khẩu: false nếu mật khẩu hiện tại sai (hoặc không có tài khoản). Mật khẩu mới phải được kiểm trước.</summary>
+    public async Task<bool> ChangePasswordAsync(Guid id, string currentPassword, string newPassword)
+    {
+        RequireValidPassword(newPassword);
+
+        await using var connection = await db.OpenAsync();
+        var stored = await connection.ExecuteScalarAsync<string?>("SELECT password_hash FROM app_user WHERE id = @id", new { id });
+        if (stored is null || !hasher.Verify(currentPassword, stored))
+        {
+            return false;
+        }
+
+        await connection.ExecuteAsync("UPDATE app_user SET password_hash = @hash WHERE id = @id", new { id, hash = hasher.Hash(newPassword) });
+        return true;
+    }
+
     /// <summary>Một tài khoản theo id (kể cả đã ngừng hoạt động); không có → null.</summary>
     public async Task<UserInfo?> FindAsync(Guid id)
     {
@@ -136,7 +218,7 @@ public sealed class UserStore(Db db)
         }
     }
 
-    private sealed record UserRow
+    private record UserRow
     {
         public Guid Id { get; init; }
         public string Username { get; init; } = "";
@@ -146,5 +228,11 @@ public sealed class UserStore(Db db)
         public bool Active { get; init; }
 
         public UserInfo ToUserInfo() => new(Id, Username, FullName, Title, Roles, Active);
+    }
+
+    private sealed record DetailRow : UserRow
+    {
+        public DateTimeOffset? LockedUntil { get; init; }
+        public DateTimeOffset? LastLoginAt { get; init; }
     }
 }

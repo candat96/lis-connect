@@ -159,4 +159,54 @@ public class UserStoreTests(PostgresFixture fixture)
             .Count(u => u.Active && u.Roles.Contains(Roles.QuanTri));
         stillActiveAdmins.ShouldBe(1);
     }
+
+    [Fact]
+    public async Task UpdateAccount_LastActiveAdmin_ReturnsLastAdminAndChangesNothing()
+    {
+        var store = await CreateStoreAsync();
+        var admin = await store.CreateAsync("admin-cuoi", "Quản Trị Mẫu", null, ValidPassword, [Roles.QuanTri]);
+
+        var result = await store.UpdateAccountAsync(admin.Id, "Tên Mới", null, [Roles.QuanTri], false, null);
+
+        result.ShouldBe(UserUpdateResult.LastAdmin);
+        (await store.FindAsync(admin.Id))!.FullName.ShouldBe("Quản Trị Mẫu");
+    }
+
+    [Fact]
+    public async Task UpdateAccount_UnknownId_ReturnsNotFound()
+    {
+        var store = await CreateStoreAsync();
+
+        (await store.UpdateAccountAsync(Guid.NewGuid(), "Mẫu", null, [Roles.TiepNhan], true, null)).ShouldBe(UserUpdateResult.NotFound);
+    }
+
+    [Fact]
+    public async Task UpdateAccount_NewPassword_UnlocksAccount()
+    {
+        var connectionString = await fixture.NewDatabaseAsync();
+        var db = Db.Create(connectionString);
+        var store = new UserStore(db);
+        var user = await store.CreateAsync("bi-khoa", "Người Thử", null, ValidPassword, [Roles.TiepNhan]);
+        await using (var connection = await db.OpenAsync(TestContext.Current.CancellationToken))
+        {
+            await Dapper.SqlMapper.ExecuteAsync(connection,
+                "UPDATE app_user SET failed_count = 5, locked_until = now() + interval '15 minutes' WHERE id = @id", new { id = user.Id });
+        }
+
+        (await store.ListDetailsAsync()).Single().LockedUntil.ShouldNotBeNull();
+        (await store.UpdateAccountAsync(user.Id, "Người Thử", null, [Roles.TiepNhan], true, "MatKhauMoi99")).ShouldBe(UserUpdateResult.Updated);
+
+        (await store.ListDetailsAsync()).Single().LockedUntil.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ChangePassword_WrongCurrent_ReturnsFalse_RightCurrent_ReturnsTrue()
+    {
+        var store = await CreateStoreAsync();
+        var user = await store.CreateAsync("doi-mk", "Người Thử", null, ValidPassword, [Roles.TiepNhan]);
+
+        (await store.ChangePasswordAsync(user.Id, "sai-mat-khau", "MatKhauMoi99")).ShouldBeFalse();
+        (await store.ChangePasswordAsync(user.Id, ValidPassword, "MatKhauMoi99")).ShouldBeTrue();
+        (await store.ChangePasswordAsync(user.Id, "MatKhauMoi99", "MatKhauMoi100")).ShouldBeTrue();
+    }
 }

@@ -49,7 +49,9 @@ foreach (var clinic in await master.ClinicsAsync())
 
 app.MapGet("/healthz", () => Results.Ok(new { ok = true }));
 app.MapAgentApi();
-app.MapApiGroup().MapAuthApi();
+var api = app.MapApiGroup();
+api.MapAuthApi();
+api.MapUsersApi();
 
 await app.RunAsync();
 return 0;
