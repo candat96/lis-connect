@@ -102,6 +102,69 @@ public sealed class WebHostingTests(ServerFixture fixture) : IClassFixture<Serve
     }
 
     [Fact]
+    public async Task Trang_agent_cua_web_nhan_index_html_con_api_agent_v1_thi_khong()
+    {
+        var root = MakeWebRoot();
+        try
+        {
+            await using var host = await StartWithWebAsync(root);
+
+            foreach (var path in new[] { "/agent", "/log-agent" })
+            {
+                var response = await host.Anonymous.GetAsync(path, Ct);
+                response.StatusCode.ShouldBe(HttpStatusCode.OK, path);
+                (await response.Content.ReadAsStringAsync(Ct)).ShouldBe(Index, path);
+            }
+
+            var api = await host.Anonymous.GetAsync("/agent/v1/khong-co", Ct);
+            api.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+            (await api.Content.ReadAsStringAsync(Ct)).ShouldNotContain("Trang thử");
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    /// <summary>Danh sách route cấp cao của web (web/src/App.tsx) — thêm route mới ở web thì thêm vào đây để bắt va chạm với server.</summary>
+    [Fact]
+    public async Task Moi_route_cap_cao_cua_web_nhan_index_html()
+    {
+        var root = MakeWebRoot();
+        try
+        {
+            await using var host = await StartWithWebAsync(root);
+            foreach (var path in new[] { "/dang-nhap", "/thiet-lap", "/ket-qua", "/danh-muc", "/may", "/agent", "/log-agent", "/nhan-su" })
+            {
+                var response = await host.Anonymous.GetAsync(path, Ct);
+                response.StatusCode.ShouldBe(HttpStatusCode.OK, path);
+                (await response.Content.ReadAsStringAsync(Ct)).ShouldBe(Index, path);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task Tep_khong_con_trong_assets_tra_404_khong_tra_html()
+    {
+        var root = MakeWebRoot();
+        try
+        {
+            await using var host = await StartWithWebAsync(root);
+            var response = await host.Anonymous.GetAsync("/assets/app-cu-da-xoa.js", Ct);
+            response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+            (await response.Content.ReadAsStringAsync(Ct)).ShouldNotContain("Trang thử");
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public async Task Khong_cau_hinh_Web_Root_thi_server_van_chay_va_khong_phuc_vu_web()
     {
         await using var host = await ApiHost.StartAsync(fixture);

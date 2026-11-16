@@ -38,6 +38,18 @@ public sealed class SetupEndpointsTests(ServerFixture fixture) : IClassFixture<S
         return await command.ExecuteScalarAsync(Ct) is not null;
     }
 
+    [Theory]
+    [InlineData("CHANGE_ME")]
+    [InlineData("")]
+    public async Task Ma_mau_CHANGE_ME_hoac_trong_coi_nhu_chua_cau_hinh_va_server_tu_sinh_ma(string configured)
+    {
+        await using var host = await ApiHost.StartAsync(fixture, configured);
+
+        host.SetupGuard.Generated.ShouldBeTrue();
+        host.SetupGuard.Key.ShouldNotBe("CHANGE_ME");
+        (await Create(host.Anonymous, Body("pk-thu-mau", key: "CHANGE_ME"))).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
     [Fact]
     public async Task Tao_phong_kham_roi_dang_nhap_bang_tai_khoan_vua_tao()
     {

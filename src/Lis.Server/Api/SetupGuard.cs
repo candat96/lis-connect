@@ -13,6 +13,7 @@ public sealed class SetupGuard
     private const string Alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private const int GeneratedLength = 24;
     private const int MaxDelaySeconds = 10;
+    public const string Placeholder = "CHANGE_ME";
     public const int DefaultMaxTrackedAddresses = 10_000;
 
     // Số lần thử liên tiếp (chưa đúng) theo địa chỉ, xếp theo lần dùng gần nhất (đầu = mới nhất) để chỉ đuổi địa chỉ lâu không dùng.
@@ -22,12 +23,13 @@ public sealed class SetupGuard
     private readonly int _maxTrackedAddresses;
     private readonly byte[] _keyHash;
 
-    /// <param name="configuredKey">Mã cấu hình; trống / chỉ khoảng trắng → sinh ngẫu nhiên.</param>
+    /// <param name="configuredKey">Mã cấu hình; trống / chỉ khoảng trắng / "CHANGE_ME" → sinh ngẫu nhiên.</param>
     /// <param name="maxTrackedAddresses">Số địa chỉ tối đa theo dõi; đầy thì đuổi địa chỉ lâu không dùng nhất.</param>
     public SetupGuard(string? configuredKey, int maxTrackedAddresses = DefaultMaxTrackedAddresses)
     {
         _maxTrackedAddresses = maxTrackedAddresses;
-        Generated = string.IsNullOrWhiteSpace(configuredKey);
+        // Giá trị mẫu "CHANGE_ME" coi như chưa cấu hình, kẻo người cài quên sửa tệp .env mà để lộ việc tạo phòng khám.
+        Generated = string.IsNullOrWhiteSpace(configuredKey) || configuredKey == Placeholder;
         Key = Generated ? RandomNumberGenerator.GetString(Alphabet, GeneratedLength) : configuredKey!;
         _keyHash = SHA256.HashData(Encoding.UTF8.GetBytes(Key));
     }

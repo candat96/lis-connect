@@ -27,7 +27,7 @@ CSDL riêng, tài khoản riêng, agent riêng. Dữ liệu các phòng khám kh
 
 Trên **máy chủ** (Windows hoặc Linux), chọn một trong hai cách:
 
-- **Docker** (khuyên dùng): Docker + Docker Compose. Image có sẵn PostgreSQL 18 và server kèm giao diện web.
+- **Docker** (khuyên dùng): Docker + Docker Compose. Compose chạy hai dịch vụ: PostgreSQL 18 (image `postgres:18`) và server (image dựng từ `Dockerfile`, đã kèm giao diện web).
 - **Chạy trực tiếp:** PostgreSQL **18** trở lên (bắt buộc 18: CSDL dùng hàm `uuidv7()`), .NET SDK 10 và Node.js 20 trở lên để build.
 
 Trên **máy tính đặt agent** (Windows 10/11): không cần cài gì thêm nếu publish agent dạng self-contained.
@@ -50,7 +50,7 @@ Sửa `.env`, đổi **mọi** giá trị `CHANGE_ME`:
 | `Master__ConnectionString` | Chuỗi kết nối CSDL `lis_master` (giữ `Host=postgres`) |
 | `Tenants__ConnectionTemplate` | Mẫu chuỗi kết nối CSDL từng phòng khám (giữ nguyên `{db}`) |
 | `Jwt__Secret` | Khoá ký phiên đăng nhập, chuỗi ngẫu nhiên từ 24 ký tự: `openssl rand -base64 32`. Đổi thì mọi người đang đăng nhập phải đăng nhập lại |
-| `SETUP_KEY` | Mã thiết lập, nhập trên trang `/thiet-lap` ở bước 3.3. Để trống thì server tự sinh mỗi lần chạy và ghi vào log |
+| `SETUP_KEY` | Mã thiết lập, nhập trên trang `/thiet-lap` ở bước 3.3. Để trống (hoặc còn `CHANGE_ME`) thì server tự sinh mỗi lần chạy và in ra log khi khởi động |
 | `LIS_PORT` | Cổng mở ra máy chủ (mặc định 5080) |
 
 ```bash
@@ -305,7 +305,7 @@ Dữ liệu agent trên máy tính: `C:\ProgramData\LIS Agent` (`rawlog` — log
 ## 8. Chạy lại trên máy phát triển
 
 ```bash
-docker start lis-db                                            # CSDL
+docker run -d --name lis-db -p 5432:5432 -e POSTGRES_USER=lis_user -e POSTGRES_PASSWORD=<mật khẩu CSDL> -v lis-data:/var/lib/postgresql postgres:18   # CSDL (lần đầu; lần sau: docker start lis-db)
 dotnet run --project src/Lis.Server                            # cần Master__ConnectionString, Tenants__ConnectionTemplate, Jwt__Secret (>= 24 ký tự); cổng 5080
 cd web && npm run dev                                          # http://localhost:5186, proxy /api tới 5080
 ```

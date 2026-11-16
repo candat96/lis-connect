@@ -7,7 +7,9 @@ namespace Lis.Server;
 /// <summary>Phục vụ giao diện web đã build (tệp tĩnh + fallback <c>index.html</c> cho route phía trình duyệt) và header của reverse proxy.</summary>
 public static class WebHosting
 {
-    private static readonly string[] ServerPrefixes = ["/api", "/agent", "/healthz"];
+    // /agent/v1 là API của agent; "/agent" một mình là trang Agent của web nên vẫn nhận index.html.
+    // /assets: tệp băm tên không còn thì 404 (không trả HTML cho yêu cầu JavaScript của trang cũ).
+    private static readonly string[] ServerPrefixes = ["/api", "/agent/v1", "/healthz", "/assets"];
 
     /// <summary>
     /// <c>Proxy:TrustForwardedHeaders=true</c> → dùng <c>X-Forwarded-For</c> / <c>X-Forwarded-Proto</c> (địa chỉ gốc cho
@@ -59,7 +61,7 @@ public static class WebHosting
             },
         });
 
-        // Route phía trình duyệt (vd /ket-qua/abc): chỉ GET/HEAD, chỉ khi chưa có route nào khớp, và không đụng tới /api, /agent, /healthz.
+        // Route phía trình duyệt (vd /ket-qua/abc): chỉ GET/HEAD, chỉ khi chưa có route nào khớp, và không đụng tới /api, /agent/v1, /healthz, /assets.
         app.Use(async (http, next) =>
         {
             var index = files.GetFileInfo("index.html");

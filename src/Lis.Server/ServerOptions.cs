@@ -24,9 +24,12 @@ public sealed record ServerOptions(string JwtSecret, int LocalUtcOffsetMinutes, 
         return new ServerOptions(
             secret,
             LocalUtcOffsetFrom(configuration),
-            NonBlank(configuration["Setup:Key"]) ?? NonBlank(configuration["SETUP_KEY"]),
+            SetupKeyOrNull(configuration["Setup:Key"]) ?? SetupKeyOrNull(configuration["SETUP_KEY"]),
             string.IsNullOrWhiteSpace(configuration["Web:Root"]) ? null : configuration["Web:Root"]);
     }
+
+    // "CHANGE_ME" (giá trị mẫu trong .env.example) coi như chưa đặt.
+    private static string? SetupKeyOrNull(string? value) => value == Api.SetupGuard.Placeholder ? null : NonBlank(value);
 
     private static string? NonBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
