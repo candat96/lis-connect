@@ -36,10 +36,10 @@ public static class AgentsEndpoints
     {
         var agents = api.MapGroup("/agents").RequireSession();
         agents.MapGet("", (HttpContext http, MasterStore master, TimeProvider clock) => ListAsync(http.Ctx(), master, clock));
-        agents.MapPost("", (HttpContext http, MasterStore master, AgentBody body) => CreateAsync(http.Ctx(), master, body));
-        agents.MapPatch("/{id}", (HttpContext http, MasterStore master, string id, AgentBody body) => UpdateAsync(http.Ctx(), master, id, body));
+        agents.MapPost("", (HttpContext http, MasterStore master, TimeProvider clock, AgentBody body) => CreateAsync(http.Ctx(), master, clock, body));
+        agents.MapPatch("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, string id, AgentBody body) => UpdateAsync(http.Ctx(), master, clock, id, body));
         agents.MapPost("/{id}/key", (HttpContext http, MasterStore master, string id) => RegenerateKeyAsync(http.Ctx(), master, id));
-        agents.MapDelete("/{id}", (HttpContext http, MasterStore master, string id) => DeleteAsync(http.Ctx(), master, id));
+        agents.MapDelete("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, string id) => DeleteAsync(http.Ctx(), master, clock, id));
 
         // Ép về Delegate: lambda chỉ nhận HttpContext sẽ bị hiểu là RequestDelegate và bỏ mất kết quả trả về.
         api.MapGroup("/agent-logs").RequireSession().MapGet("", (Delegate)((HttpContext http) => LogsAsync(http.Ctx(), http.Request.Query)));
@@ -48,7 +48,7 @@ public static class AgentsEndpoints
     private static async Task<IResult> ListAsync(RequestContext ctx, MasterStore master, TimeProvider clock)
     {
         ctx.RequireLabStaff();
-        var agents = await master.AgentsOfAsync(ctx.Clinic.Id);
+        var agents = await master.AgentsOfAsync(ctx.Clinic.Id, clock.GetUtcNow());
         var instruments = await ctx.Tenant.Instruments.ListAsync();
         var now = clock.GetUtcNow();
 
@@ -65,11 +65,11 @@ public static class AgentsEndpoints
     }
 
     /// <summary>Tạo agent. Khoá chỉ trả về MỘT lần ở đây — dán vào appsettings.json của agent.</summary>
-    private static async Task<IResult> CreateAsync(RequestContext ctx, MasterStore master, AgentBody body)
+    private static async Task<IResult> CreateAsync(RequestContext ctx, MasterStore master, TimeProvider clock, AgentBody body)
     {
         var (name, workstationCode) = Check(body);
         ctx.RequireAdmin();
-        await EnsureWorkstationFreeAsync(master, ctx, workstationCode, null);
+        await EnsureWorkstationFreeAsync(master, clock, ctx, workstationCode, null);
         try
         {
             var (agent, key) = await master.AddAgentAsync(ctx.Clinic.Id, name, workstationCode);
@@ -81,13 +81,13 @@ public static class AgentsEndpoints
         }
     }
 
-    private static async Task<IResult> UpdateAsync(RequestContext ctx, MasterStore master, string id, AgentBody body)
+    private static async Task<IResult> UpdateAsync(RequestContext ctx, MasterStore master, TimeProvider clock, string id, AgentBody body)
     {
         var agentId = ApiFormat.ParseId(id);
         var (name, workstationCode) = Check(body);
         ctx.RequireAdmin();
-        await FindAsync(master, ctx, agentId);
-        await EnsureWorkstationFreeAsync(master, ctx, workstationCode, agentId);
+        await FindAsync(master, clock, ctx, agentId);
+        await EnsureWorkstationFreeAsync(master, clock, ctx, workstationCode, agentId);
         string previous;
         try
         {
@@ -124,11 +124,11 @@ public static class AgentsEndpoints
         }
     }
 
-    private static async Task<IResult> DeleteAsync(RequestContext ctx, MasterStore master, string id)
+    private static async Task<IResult> DeleteAsync(RequestContext ctx, MasterStore master, TimeProvider clock, string id)
     {
         var agentId = ApiFormat.ParseId(id);
         ctx.RequireAdmin();
-        var agent = await FindAsync(master, ctx, agentId);
+        var agent = await FindAsync(master, clock, ctx, agentId);
         await using (var connection = await ctx.Tenant.Db.OpenAsync())
         {
             var assigned = await connection.ExecuteScalarAsync<int>(
@@ -146,12 +146,12 @@ public static class AgentsEndpoints
     // ---- dùng chung ----
 
     /// <summary>Agent phải thuộc phòng khám của phiên — không đụng được agent của phòng khám khác.</summary>
-    private static async Task<AgentInfo> FindAsync(MasterStore master, RequestContext ctx, Guid id) =>
-        (await master.AgentsOfAsync(ctx.Clinic.Id)).Select(a => a.Agent).FirstOrDefault(a => a.Id == id) ?? throw ApiException.NotFound(AgentNotFound);
+    private static async Task<AgentInfo> FindAsync(MasterStore master, TimeProvider clock, RequestContext ctx, Guid id) =>
+        (await master.AgentsOfAsync(ctx.Clinic.Id, clock.GetUtcNow())).Select(a => a.Agent).FirstOrDefault(a => a.Id == id) ?? throw ApiException.NotFound(AgentNotFound);
 
-    private static async Task EnsureWorkstationFreeAsync(MasterStore master, RequestContext ctx, string workstationCode, Guid? exceptId)
+    private static async Task EnsureWorkstationFreeAsync(MasterStore master, TimeProvider clock, RequestContext ctx, string workstationCode, Guid? exceptId)
     {
-        var taken = (await master.AgentsOfAsync(ctx.Clinic.Id)).Any(a =>
+        var taken = (await master.AgentsOfAsync(ctx.Clinic.Id, clock.GetUtcNow())).Any(a =>
             a.Agent.Id != exceptId && string.Equals(a.Agent.WorkstationCode, workstationCode, StringComparison.OrdinalIgnoreCase));
         if (taken) throw ApiException.Conflict($"Mã máy trạm {workstationCode} đã có agent khác dùng");
     }

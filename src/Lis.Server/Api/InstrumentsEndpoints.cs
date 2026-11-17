@@ -62,8 +62,8 @@ public static class InstrumentsEndpoints
     {
         var instruments = api.MapGroup("/instruments").RequireSession();
         instruments.MapGet("", (HttpContext http, MasterStore master, TimeProvider clock) => ListAsync(http.Ctx(), master, clock));
-        instruments.MapPost("", (HttpContext http, MasterStore master, InstrumentBody body) => CreateAsync(http.Ctx(), master, body));
-        instruments.MapPut("/{id}", (HttpContext http, MasterStore master, string id, InstrumentBody body) => UpdateAsync(http.Ctx(), master, id, body));
+        instruments.MapPost("", (HttpContext http, MasterStore master, TimeProvider clock, InstrumentBody body) => CreateAsync(http.Ctx(), master, clock, body));
+        instruments.MapPut("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, string id, InstrumentBody body) => UpdateAsync(http.Ctx(), master, clock, id, body));
         instruments.MapDelete("/{id}", (HttpContext http, string id) => DeleteAsync(http.Ctx(), id));
         instruments.MapGet("/{id}/channels", (HttpContext http, string id) => ChannelsAsync(http.Ctx(), id));
         instruments.MapPost("/{id}/channels", (HttpContext http, string id, InstrumentChannelBody body) => AddChannelAsync(http.Ctx(), id, body));
@@ -79,7 +79,7 @@ public static class InstrumentsEndpoints
     {
         var store = ctx.Tenant.Instruments;
         var instruments = await store.ListAsync();
-        var agents = await master.AgentsOfAsync(ctx.Clinic.Id);
+        var agents = await master.AgentsOfAsync(ctx.Clinic.Id, clock.GetUtcNow());
         var now = clock.GetUtcNow();
 
         var views = new List<InstrumentView>();
@@ -104,23 +104,23 @@ public static class InstrumentsEndpoints
         return Results.Ok(views);
     }
 
-    private static async Task<IResult> CreateAsync(RequestContext ctx, MasterStore master, InstrumentBody body)
+    private static async Task<IResult> CreateAsync(RequestContext ctx, MasterStore master, TimeProvider clock, InstrumentBody body)
     {
         var input = Check(body);
         ctx.RequireAdmin();
-        var info = await BuildAsync(ctx, master, Guid.Empty, null, input);
+        var info = await BuildAsync(ctx, master, clock, Guid.Empty, null, input);
         var id = await ctx.Tenant.Instruments.SaveAsync(info);
         return Results.Json(new { id }, statusCode: StatusCodes.Status201Created);
     }
 
     /// <summary>Sửa máy. Agent tự nhận cấu hình mới trong vòng 30 giây và mở lại kết nối nếu cấu hình đổi.</summary>
-    private static async Task<IResult> UpdateAsync(RequestContext ctx, MasterStore master, string id, InstrumentBody body)
+    private static async Task<IResult> UpdateAsync(RequestContext ctx, MasterStore master, TimeProvider clock, string id, InstrumentBody body)
     {
         var instrumentId = ApiFormat.ParseId(id);
         var input = Check(body);
         ctx.RequireAdmin();
         var existing = await FindAsync(ctx, instrumentId);
-        var info = await BuildAsync(ctx, master, instrumentId, existing.DriverConfigJson, input);
+        var info = await BuildAsync(ctx, master, clock, instrumentId, existing.DriverConfigJson, input);
         try
         {
             await ctx.Tenant.Instruments.SaveAsync(info);
@@ -317,13 +317,13 @@ public static class InstrumentsEndpoints
     }
 
     /// <summary>Kiểm cấu hình kết nối (<see cref="ConnectionSettings.Validate"/>) và mã máy trạm, rồi dựng bản ghi máy.</summary>
-    private static async Task<InstrumentInfo> BuildAsync(RequestContext ctx, MasterStore master, Guid id, string? driverConfigJson, InstrumentInput input)
+    private static async Task<InstrumentInfo> BuildAsync(RequestContext ctx, MasterStore master, TimeProvider clock, Guid id, string? driverConfigJson, InstrumentInput input)
     {
         if (input.Connection.Validate() is { } problem) throw ApiException.BadRequest(problem);
 
         var workstationCode = string.IsNullOrEmpty(input.WorkstationCode?.Trim()) ? null : input.WorkstationCode.Trim();
         if (workstationCode is not null
-            && !(await master.AgentsOfAsync(ctx.Clinic.Id)).Any(a => string.Equals(a.Agent.WorkstationCode, workstationCode, StringComparison.OrdinalIgnoreCase)))
+            && !(await master.AgentsOfAsync(ctx.Clinic.Id, clock.GetUtcNow())).Any(a => string.Equals(a.Agent.WorkstationCode, workstationCode, StringComparison.OrdinalIgnoreCase)))
         {
             throw ApiException.BadRequest($"Không có agent nào dùng mã máy trạm {workstationCode}");
         }

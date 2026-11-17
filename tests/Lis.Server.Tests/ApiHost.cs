@@ -21,12 +21,14 @@ public sealed class ApiHost : IAsyncDisposable
     private readonly WebApplicationFactory<Program> _factory;
     private readonly ServerFixture _fixture;
     private readonly MasterStore _master;
+    private readonly TimeProvider _clock;
     private readonly TenantRegistry _tenants;
     private readonly List<HttpClient> _clients = [];
 
     private ApiHost(ServerFixture fixture, string? setupKey, IReadOnlyDictionary<string, string>? settings, TimeProvider? clock)
     {
         _fixture = fixture;
+        _clock = clock ?? TimeProvider.System;
         _master = new MasterStore(fixture.MasterConnection);
         _tenants = new TenantRegistry(fixture.TenantTemplate, clock ?? TimeProvider.System);
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -116,6 +118,28 @@ public sealed class ApiHost : IAsyncDisposable
     /// <summary>Thêm agent cho phòng khám (mã máy trạm = <paramref name="workstationCode"/>).</summary>
     public async Task<AgentInfo> AddAgentAsync(Clinic clinic, string name, string workstationCode) =>
         (await _master.AddAgentAsync(clinic.Id, name, workstationCode)).Agent;
+
+    /// <summary>Master của server thử — để gọi thẳng <see cref="MasterStore"/> (tạo mã ghép nối, đọc agent).</summary>
+    public MasterStore Master => _master;
+
+    /// <summary>Đồng hồ gốc của server thử.</summary>
+    public TimeProvider Clock => _clock;
+
+    /// <summary>Tạo agent chưa có khoá kèm mã ghép nối đầu tiên, tính hạn theo đồng hồ của host.</summary>
+    public Task<(AgentInfo Agent, PairingTicket Pairing)> CreateAgentWithPairingAsync(Clinic clinic, string name) =>
+        _master.CreateAgentAsync(clinic.Id, name, null, _clock.GetUtcNow());
+
+    /// <summary>Client gọi thẳng server thử, gắn sẵn khoá agent (không gắn khi <paramref name="agentKey"/> null).</summary>
+    public HttpClient AgentClient(string? agentKey = null)
+    {
+        var client = Track(_factory.CreateClient());
+        if (agentKey is not null)
+        {
+            client.DefaultRequestHeaders.Add(Lis.Agent.ServerClient.KeyHeader, agentKey);
+        }
+
+        return client;
+    }
 
     /// <summary>Agent báo "còn sống" kèm trạng thái các máy (JSON mảng) — như <c>POST /agent/v1/status</c>.</summary>
     public Task TouchAgentAsync(AgentInfo agent, string? statusJson) => _master.TouchAgentAsync(agent.Id, statusJson);

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Dapper;
+using Lis.Core.Agents;
 using Npgsql;
 
 namespace Lis.Server.Tenancy;
@@ -12,7 +13,23 @@ public sealed record Clinic(Guid Id, string Code, string Name, string DbName);
 public sealed record AgentInfo(Guid Id, Guid ClinicId, string Name, string WorkstationCode, DateTimeOffset? LastSeenAt);
 
 /// <summary>Agent kèm trạng thái các máy nó báo về lần cuối (JSON mảng <c>InstrumentStatusReport</c>; null khi chưa báo).</summary>
-public sealed record AgentWithStatus(AgentInfo Agent, string? LastStatusJson);
+public sealed record AgentWithStatus(
+    AgentInfo Agent, string? LastStatusJson, DateTimeOffset? PairedAt = null, string? MachineName = null, string? AgentVersion = null,
+    DateTimeOffset? PairingExpiresAt = null);
+
+/// <summary>Mã ghép nối vừa tạo: <see cref="Secret"/> chỉ có lúc này (server chỉ lưu bản băm); hết hạn lúc <see cref="ExpiresAt"/>.</summary>
+public sealed record PairingTicket(string Secret, DateTimeOffset ExpiresAt);
+
+/// <summary>Vì sao một mã ghép nối không đổi được: không có mã này / đã dùng / quá hạn.</summary>
+public enum PairingFailure
+{
+    Unknown,
+    Used,
+    Expired,
+}
+
+/// <summary>Kết quả đổi mã: thành công thì có <see cref="Identity"/> + <see cref="AgentKey"/> (khoá mới, chỉ hiện một lần), ngược lại có <see cref="Failure"/>.</summary>
+public sealed record PairingRedemption(AgentIdentity? Identity, string? AgentKey, PairingFailure? Failure);
 
 /// <summary>Agent đã xác thực kèm phòng khám của nó.</summary>
 public sealed record AgentIdentity(AgentInfo Agent, Clinic Clinic);
@@ -40,6 +57,9 @@ public sealed class AgentException(AgentFailure failure, string message) : Inval
 public sealed class MasterStore(string connectionString)
 {
     private const string KeyPrefix = "lisa";
+
+    /// <summary>Mã ghép nối chỉ dùng được trong khoảng này kể từ lúc tạo.</summary>
+    public static readonly TimeSpan PairingLifetime = TimeSpan.FromMinutes(30);
 
     /// <summary>Tên CSDL master đọc từ chuỗi kết nối — không phòng khám nào được dùng tên này làm CSDL của mình.</summary>
     public string DatabaseName { get; } = new NpgsqlConnectionStringBuilder(connectionString).Database
@@ -97,18 +117,136 @@ public sealed class MasterStore(string connectionString)
     }
 
     /// <summary>Mọi agent của một phòng khám (theo tên) kèm trạng thái máy báo về lần cuối.</summary>
-    public async Task<IReadOnlyList<AgentWithStatus>> AgentsOfAsync(Guid clinicId)
+    public async Task<IReadOnlyList<AgentWithStatus>> AgentsOfAsync(Guid clinicId, DateTimeOffset now)
     {
         await using var connection = await OpenAsync();
         var rows = await connection.QueryAsync<AgentRow>(
             """
-            SELECT id, clinic_id AS ClinicId, name, workstation_code AS WorkstationCode, last_seen_at AS LastSeenAt,
-                   last_status::text AS LastStatus
-            FROM agent WHERE clinic_id = @clinicId ORDER BY name
+            SELECT a.id, a.clinic_id AS ClinicId, a.name, a.workstation_code AS WorkstationCode, a.last_seen_at AS LastSeenAt,
+                   a.last_status::text AS LastStatus, a.paired_at AS PairedAt, a.machine_name AS MachineName, a.agent_version AS AgentVersion,
+                   (SELECT max(p.expires_at) FROM agent_pairing p
+                    WHERE p.agent_id = a.id AND p.used_at IS NULL AND p.expires_at > @now) AS PairingExpiresAt
+            FROM agent a WHERE a.clinic_id = @clinicId ORDER BY a.name
             """,
-            new { clinicId });
-        return rows.Select(r => new AgentWithStatus(new AgentInfo(r.Id, r.ClinicId, r.Name, r.WorkstationCode, r.LastSeenAt), r.LastStatus)).ToList();
+            new { clinicId, now = now.ToUniversalTime() });
+        return rows.Select(r => new AgentWithStatus(
+            new AgentInfo(r.Id, r.ClinicId, r.Name, r.WorkstationCode, r.LastSeenAt), r.LastStatus,
+            r.PairedAt, r.MachineName, r.AgentVersion, r.PairingExpiresAt)).ToList();
     }
+
+    /// <summary>
+    /// Tạo agent chưa có khoá (mã máy trạm tự sinh = id không gạch) kèm mã ghép nối đầu tiên, trong một giao dịch.
+    /// </summary>
+    public async Task<(AgentInfo Agent, PairingTicket Pairing)> CreateAgentAsync(Guid clinicId, string name, Guid? createdBy, DateTimeOffset now)
+    {
+        var id = Guid.CreateVersion7();
+        var workstationCode = id.ToString("N");
+        await using var connection = await OpenAsync();
+        await using var tx = await connection.BeginTransactionAsync();
+        await connection.ExecuteAsync(
+            "INSERT INTO agent (id, clinic_id, name, workstation_code, key_hash) VALUES (@id, @clinicId, @name, @workstationCode, NULL)",
+            new { id, clinicId, name = name.Trim(), workstationCode }, tx);
+        var ticket = await InsertPairingAsync(connection, tx, id, createdBy, now);
+        await tx.CommitAsync();
+        return (new AgentInfo(id, clinicId, name.Trim(), workstationCode, null), ticket);
+    }
+
+    /// <summary>
+    /// Cấp mã ghép nối mới cho agent: mã chưa dùng trước đó bị xoá (mỗi agent tối đa một mã còn hiệu lực).
+    /// Khoá hiện tại của agent (nếu có) vẫn chạy cho tới khi mã mới được đổi. Agent không thuộc phòng khám → <see cref="AgentFailure.NotFound"/>.
+    /// </summary>
+    public async Task<PairingTicket> CreatePairingAsync(Guid clinicId, Guid agentId, Guid? createdBy, DateTimeOffset now)
+    {
+        await using var connection = await OpenAsync();
+        await using var tx = await connection.BeginTransactionAsync();
+        // Khoá dòng agent để hai yêu cầu cùng lúc không để lại hai mã còn hiệu lực.
+        var exists = await connection.ExecuteScalarAsync<int?>(
+            "SELECT 1 FROM agent WHERE id = @agentId AND clinic_id = @clinicId FOR UPDATE", new { agentId, clinicId }, tx);
+        if (exists is null)
+        {
+            throw NotFound();
+        }
+
+        var ticket = await InsertPairingAsync(connection, tx, agentId, createdBy, now);
+        await tx.CommitAsync();
+        return ticket;
+    }
+
+    private static async Task<PairingTicket> InsertPairingAsync(NpgsqlConnection connection, NpgsqlTransaction tx, Guid agentId, Guid? createdBy, DateTimeOffset now)
+    {
+        var secret = PairingCode.NewSecret();
+        var expiresAt = (now + PairingLifetime).ToUniversalTime();
+        await connection.ExecuteAsync("DELETE FROM agent_pairing WHERE agent_id = @agentId AND used_at IS NULL", new { agentId }, tx);
+        await connection.ExecuteAsync(
+            "INSERT INTO agent_pairing (id, agent_id, secret_hash, expires_at, created_by, created_at) VALUES (@id, @agentId, @hash, @expiresAt, @createdBy, @now)",
+            new { id = Guid.CreateVersion7(), agentId, hash = Hash(secret), expiresAt, createdBy, now = now.ToUniversalTime() }, tx);
+        return new PairingTicket(secret, expiresAt);
+    }
+
+    /// <summary>Phòng khám của mã ghép nối (dù đã dùng hay hết hạn); null nếu không có mã này. Không tiêu mã.</summary>
+    public async Task<Clinic?> FindPairingClinicAsync(string secret)
+    {
+        await using var connection = await OpenAsync();
+        return await connection.QuerySingleOrDefaultAsync<Clinic>(
+            """
+            SELECT c.id, c.code, c.name, c.db_name AS DbName
+            FROM agent_pairing p JOIN agent a ON a.id = p.agent_id JOIN clinic c ON c.id = a.clinic_id
+            WHERE p.secret_hash = @hash
+            """,
+            new { hash = Hash(secret) });
+    }
+
+    /// <summary>
+    /// Đổi mã ghép nối lấy khoá agent mới, trong một giao dịch. Việc đánh dấu "đã dùng" là một câu
+    /// <c>UPDATE … RETURNING</c> nguyên tử nên hai yêu cầu cùng mã cùng lúc chỉ một bên thắng.
+    /// Khoá cũ của agent (nếu có) hết hiệu lực ngay khi đổi xong.
+    /// </summary>
+    public async Task<PairingRedemption> RedeemPairingAsync(string secret, string? machineName, string? agentVersion, DateTimeOffset now)
+    {
+        var hash = Hash(secret);
+        var utcNow = now.ToUniversalTime();
+        await using var connection = await OpenAsync();
+        await using var tx = await connection.BeginTransactionAsync();
+
+        var agentId = await connection.ExecuteScalarAsync<Guid?>(
+            "UPDATE agent_pairing SET used_at = @utcNow WHERE secret_hash = @hash AND used_at IS NULL AND expires_at > @utcNow RETURNING agent_id",
+            new { hash, utcNow }, tx);
+        if (agentId is null)
+        {
+            // Đã dùng thì báo "đã dùng" kể cả khi cũng đã quá hạn.
+            var used = await connection.ExecuteScalarAsync<bool?>(
+                "SELECT used_at IS NOT NULL FROM agent_pairing WHERE secret_hash = @hash", new { hash }, tx);
+            await tx.RollbackAsync();
+            var failure = used is null ? PairingFailure.Unknown : used.Value ? PairingFailure.Used : PairingFailure.Expired;
+            return new PairingRedemption(null, null, failure);
+        }
+
+        var (key, keyHash) = NewKey(agentId.Value);
+        var row = await connection.QuerySingleOrDefaultAsync<AgentRow>(
+            """
+            WITH upd AS (
+                UPDATE agent SET key_hash = @keyHash, paired_at = @utcNow, machine_name = @machineName, agent_version = @agentVersion
+                WHERE id = @agentId
+                RETURNING id, clinic_id, name, workstation_code, last_seen_at
+            )
+            SELECT u.id, u.clinic_id AS ClinicId, u.name, u.workstation_code AS WorkstationCode, u.last_seen_at AS LastSeenAt,
+                   c.code AS ClinicCode, c.name AS ClinicName, c.db_name AS DbName
+            FROM upd u JOIN clinic c ON c.id = u.clinic_id
+            """,
+            new { agentId, keyHash, utcNow, machineName, agentVersion }, tx);
+        if (row is null)
+        {
+            await tx.RollbackAsync();
+            return new PairingRedemption(null, null, PairingFailure.Unknown);
+        }
+
+        await tx.CommitAsync();
+        return new PairingRedemption(ToIdentity(row), key, null);
+    }
+
+    private static AgentIdentity ToIdentity(AgentRow row) => new(
+        new AgentInfo(row.Id, row.ClinicId, row.Name, row.WorkstationCode, row.LastSeenAt),
+        new Clinic(row.ClinicId, row.ClinicCode, row.ClinicName, row.DbName));
 
     /// <summary>
     /// Tạo agent và trả về khoá — CHỈ hiện một lần, server chỉ lưu bản băm.
@@ -122,7 +260,7 @@ public sealed class MasterStore(string connectionString)
         try
         {
             await connection.ExecuteAsync(
-                "INSERT INTO agent (id, clinic_id, name, workstation_code, key_hash) VALUES (@id, @clinicId, @name, @workstationCode, @hash)",
+                "INSERT INTO agent (id, clinic_id, name, workstation_code, key_hash, paired_at) VALUES (@id, @clinicId, @name, @workstationCode, @hash, now())",
                 new { id, clinicId, name = name.Trim(), workstationCode = workstationCode.Trim(), hash });
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -205,22 +343,27 @@ public sealed class MasterStore(string connectionString)
             WHERE a.id = @agentId
             """,
             new { agentId });
-        if (row is null || !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(row.KeyHash), Encoding.ASCII.GetBytes(Hash(parts[2]))))
+        // Agent mới tạo chưa đổi mã ghép nối thì chưa có khoá — không khoá nào được chấp nhận.
+        if (row?.KeyHash is not { } storedHash
+            || !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(storedHash), Encoding.ASCII.GetBytes(Hash(parts[2]))))
         {
             return null;
         }
 
-        return new AgentIdentity(
-            new AgentInfo(row.Id, row.ClinicId, row.Name, row.WorkstationCode, row.LastSeenAt),
-            new Clinic(row.ClinicId, row.ClinicCode, row.ClinicName, row.DbName));
+        return ToIdentity(row);
     }
 
-    public async Task TouchAgentAsync(Guid agentId, string? statusJson)
+    /// <summary>Agent báo "còn sống"; cột nào truyền null thì giữ giá trị cũ.</summary>
+    public async Task TouchAgentAsync(Guid agentId, string? statusJson, string? machineName = null, string? agentVersion = null)
     {
         await using var connection = await OpenAsync();
         await connection.ExecuteAsync(
-            "UPDATE agent SET last_seen_at = now(), last_status = coalesce(@statusJson::jsonb, last_status) WHERE id = @agentId",
-            new { agentId, statusJson });
+            """
+            UPDATE agent SET last_seen_at = now(), last_status = coalesce(@statusJson::jsonb, last_status),
+                             machine_name = coalesce(@machineName, machine_name), agent_version = coalesce(@agentVersion, agent_version)
+            WHERE id = @agentId
+            """,
+            new { agentId, statusJson, machineName, agentVersion });
     }
 
     /// <summary>
@@ -314,7 +457,11 @@ public sealed class MasterStore(string connectionString)
         public Guid ClinicId { get; init; }
         public string Name { get; init; } = "";
         public string WorkstationCode { get; init; } = "";
-        public string KeyHash { get; init; } = "";
+        public string? KeyHash { get; init; }
+        public DateTimeOffset? PairedAt { get; init; }
+        public string? MachineName { get; init; }
+        public string? AgentVersion { get; init; }
+        public DateTimeOffset? PairingExpiresAt { get; init; }
         public DateTimeOffset? LastSeenAt { get; init; }
         public string? LastStatus { get; init; }
         public string ClinicCode { get; init; } = "";

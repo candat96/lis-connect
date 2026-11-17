@@ -23,7 +23,13 @@ public sealed record OrderQueryResponse(IReadOnlyList<string> ChannelCodes);
 public sealed record InstrumentStatusReport(
     Guid InstrumentId, string State, string Text, DateTimeOffset? LastResultAt, int SamplesReceived, int PendingToRetry);
 
-public sealed record StatusRequest(IReadOnlyList<InstrumentStatusReport> Instruments);
+public sealed record StatusRequest(IReadOnlyList<InstrumentStatusReport> Instruments, string? AgentVersion = null, string? MachineName = null);
+
+/// <summary>Agent đổi mã ghép nối (hiện trên web, dán vào ô nhập hoặc nằm trong tên tệp cài) lấy khoá.</summary>
+public sealed record PairRequest(string? PairingSecret, string? MachineName, string? AgentVersion);
+
+/// <summary>Khoá agent trả về MỘT lần duy nhất, kèm thông tin để agent lưu cấu hình.</summary>
+public sealed record PairResponse(Guid AgentId, string AgentKey, Guid ClinicId, string ClinicCode, string ClinicName, string AgentName);
 
 /// <summary>Một dòng log agent đẩy lên: byte đi/về với máy (hex), sự kiện kết nối, hoặc cảnh báo của agent (không có máy).</summary>
 public sealed record AgentLogLine(Guid? InstrumentId, DateTimeOffset At, string Direction, string? Session, string? Hex, string? Note);
@@ -43,6 +49,9 @@ public static class AgentEndpoints
 
     public static void MapAgentApi(this WebApplication app)
     {
+        // Chưa có khoá — nằm ngoài nhóm có bộ lọc khoá bên dưới.
+        app.MapPost("/agent/v1/pair", PairAsync);
+
         var group = app.MapGroup("/agent/v1");
 
         group.AddEndpointFilter(async (context, next) =>
@@ -189,16 +198,57 @@ public static class AgentEndpoints
 
         group.MapPost("/status", async (StatusRequest request, HttpContext http, MasterStore master) =>
         {
-            await master.TouchAgentAsync(Identity(http).Agent.Id, JsonSerializer.Serialize(request.Instruments, Json));
+            await master.TouchAgentAsync(
+                Identity(http).Agent.Id, JsonSerializer.Serialize(request.Instruments, Json),
+                Clean(request.MachineName, MaxMachineName), Clean(request.AgentVersion, MaxAgentVersion));
             return Results.NoContent();
         });
     }
 
+    private const int MaxMachineName = 100;
+    private const int MaxAgentVersion = 50;
     private const int MaxLogBatch = 500;
     private const int MaxHexLength = 64 * 1024;
     private const int LogRetentionDays = 14;
     private static readonly HashSet<string> Directions = ["in", "out", "event", "agent"];
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTimeOffset> LastPurge = new();
+
+    private static async Task<IResult> PairAsync(PairRequest request, HttpContext http, MasterStore master, TimeProvider clock)
+    {
+        var secret = request.PairingSecret?.Trim();
+        if (secret is null || secret.Length != 32 || !secret.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
+        {
+            return Results.Problem("Mã ghép nối không hợp lệ", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // Phòng khám nâng cấp lỗi thì không tiêu mã — agent thử lại sau khi quản trị sửa xong.
+        if (await master.FindPairingClinicAsync(secret) is { } clinic && ClinicUpgradeFailure.IsFailed(http.RequestServices, clinic))
+        {
+            return Results.Problem(ClinicUpgradeFailure.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        var result = await master.RedeemPairingAsync(
+            secret, Clean(request.MachineName, MaxMachineName), Clean(request.AgentVersion, MaxAgentVersion), clock.GetUtcNow());
+        if (result.Failure is { } failure)
+        {
+            return failure switch
+            {
+                PairingFailure.Used => Results.Problem(
+                    "Mã ghép nối đã được dùng — bấm Ghép nối lại trên web để lấy mã mới", statusCode: StatusCodes.Status410Gone),
+                PairingFailure.Expired => Results.Problem(
+                    "Mã ghép nối đã hết hạn (chỉ dùng trong 30 phút) — bấm Ghép nối lại trên web để lấy mã mới", statusCode: StatusCodes.Status410Gone),
+                _ => Results.Problem(
+                    "Mã ghép nối không đúng — lấy mã mới ở mục Agent trên web", statusCode: StatusCodes.Status401Unauthorized),
+            };
+        }
+
+        var identity = result.Identity!;
+        return Results.Ok(new PairResponse(
+            identity.Agent.Id, result.AgentKey!, identity.Clinic.Id, identity.Clinic.Code, identity.Clinic.Name, identity.Agent.Name));
+    }
+
+    /// <summary>Bỏ khoảng trắng đầu/cuối, rỗng → null (giữ giá trị cũ), cắt tối đa <paramref name="max"/> ký tự.</summary>
+    private static string? Clean(string? text, int max) => string.IsNullOrWhiteSpace(text) ? null : Truncate(text.Trim(), max);
 
     private static string? Truncate(string? text, int max) => text is null || text.Length <= max ? text : text[..max];
 
