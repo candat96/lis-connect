@@ -4,7 +4,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Dapper;
+using Lis.Core.Agents;
 using Lis.Server.Tenancy;
+using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
 namespace Lis.Server.Tests.Api;
@@ -16,6 +18,8 @@ public sealed class AgentsEndpointsTests(ServerFixture fixture) : IClassFixture<
     private const string LabStaffOnly = "Tài khoản không có quyền xem mục này";
     private const string BadUuid = "Validation failed (uuid is expected)";
     private const string NotFound = "Không tìm thấy agent";
+    private const string Generic = "Dữ liệu gửi lên không hợp lệ";
+    private static readonly DateTimeOffset Start = new(2026, 11, 17, 3, 0, 0, TimeSpan.Zero);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -55,9 +59,10 @@ public sealed class AgentsEndpointsTests(ServerFixture fixture) : IClassFixture<
                 new { agent, instrument, at = at ?? DateTimeOffset.UtcNow, direction, hex, note });
     }
 
-    private async Task<Setup> StartAsync(string code)
+    /// <param name="clock">Đồng hồ của server thử (mặc định đồng hồ hệ thống) — test cần đo hạn mã thì truyền đồng hồ giả.</param>
+    private async Task<Setup> StartAsync(string code, IReadOnlyDictionary<string, string>? settings = null, TimeProvider? clock = null)
     {
-        var host = await ApiHost.StartAsync(fixture);
+        var host = await ApiHost.StartAsync(fixture, settings: settings, clock: clock);
         var clinic = await host.AddClinicAsync(code, "Phòng khám Thử");
         await host.AddUserAsync(clinic, "admin", Password, "quan-tri");
         await host.AddUserAsync(clinic, "ktv", Password, "ky-thuat-vien");
@@ -68,14 +73,25 @@ public sealed class AgentsEndpointsTests(ServerFixture fixture) : IClassFixture<
             await host.LoginAsync(code, "tn", Password), connection);
     }
 
-    private static object Body(string name = "Agent Thử", string workstationCode = "XN-01") => new { name, workstationCode };
+    private static object Body(string name = "Agent Thử") => new { name };
 
-    private static async Task<(Guid Id, string Key)> Create(HttpClient client, string name = "Agent Thử", string workstationCode = "XN-01")
+    /// <summary>Tạo agent (201): trả về id và mã ghép nối dùng một lần.</summary>
+    private static async Task<(Guid Id, string Code)> Create(HttpClient client, string name = "Agent Thử")
     {
-        var response = await client.PostAsJsonAsync("/api/agents", Body(name, workstationCode), Ct);
+        var response = await client.PostAsJsonAsync("/api/agents", Body(name), Ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
         var body = await JsonOf(response);
-        return (Guid.Parse(body.GetProperty("id").GetString()!), body.GetProperty("key").GetString()!);
+        return (Guid.Parse(body.GetProperty("id").GetString()!), body.GetProperty("pairing").GetProperty("code").GetString()!);
+    }
+
+    /// <summary>Đổi mã ghép nối lấy khoá qua <c>POST /agent/v1/pair</c>, đúng như agent cài đặt làm.</summary>
+    private static async Task<string> Pair(Setup s, string code, string machine = "MAY-THU", string version = "1.0.0")
+    {
+        PairingCode.TryFind(code, out var parsed).ShouldBeTrue();
+        var response = await s.Host.AgentClient().PostAsJsonAsync(
+            "/agent/v1/pair", new { pairingSecret = parsed!.Secret, machineName = machine, agentVersion = version }, Ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        return (await JsonOf(response)).GetProperty("agentKey").GetString()!;
     }
 
     private static async Task<JsonElement> List(HttpClient client)
@@ -115,7 +131,7 @@ public sealed class AgentsEndpointsTests(ServerFixture fixture) : IClassFixture<
         (await anonymous.GetAsync("/api/agents", Ct)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         (await anonymous.PostAsJsonAsync("/api/agents", Body(), Ct)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         (await anonymous.PatchAsJsonAsync($"/api/agents/{id}", Body(), Ct)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        (await anonymous.PostAsync($"/api/agents/{id}/key", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await anonymous.PostAsync($"/api/agents/{id}/pairing", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         (await anonymous.DeleteAsync($"/api/agents/{id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         (await anonymous.GetAsync("/api/agent-logs", Ct)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
@@ -128,35 +144,44 @@ public sealed class AgentsEndpointsTests(ServerFixture fixture) : IClassFixture<
 
         (await s.Tech.GetAsync("/api/agents", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await s.Tech.GetAsync("/api/agent-logs", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
-        await ShouldFail(await s.Tech.PostAsJsonAsync("/api/agents", Body("Agent khác Thử", "XN-02"), Ct), HttpStatusCode.Forbidden, AdminOnly);
-        await ShouldFail(await s.Tech.PatchAsJsonAsync($"/api/agents/{id}", Body("Tên khác Thử", "XN-09"), Ct), HttpStatusCode.Forbidden, AdminOnly);
-        await ShouldFail(await s.Tech.PostAsync($"/api/agents/{id}/key", null, Ct), HttpStatusCode.Forbidden, AdminOnly);
+        await ShouldFail(await s.Tech.PostAsJsonAsync("/api/agents", Body("Agent khác Thử"), Ct), HttpStatusCode.Forbidden, AdminOnly);
+        await ShouldFail(await s.Tech.PatchAsJsonAsync($"/api/agents/{id}", Body("Tên khác Thử"), Ct), HttpStatusCode.Forbidden, AdminOnly);
+        await ShouldFail(await s.Tech.PostAsync($"/api/agents/{id}/pairing", null, Ct), HttpStatusCode.Forbidden, AdminOnly);
         await ShouldFail(await s.Tech.DeleteAsync($"/api/agents/{id}", Ct), HttpStatusCode.Forbidden, AdminOnly);
         await ShouldFail(await s.Reception.GetAsync("/api/agents", Ct), HttpStatusCode.Forbidden, LabStaffOnly);
         await ShouldFail(await s.Reception.GetAsync("/api/agent-logs", Ct), HttpStatusCode.Forbidden, LabStaffOnly);
         // Kiểm đầu vào chạy trước kiểm quyền (pipe trước handler); kiểm quyền trước kiểm tra tồn tại.
-        await ShouldFail(await s.Tech.PostAsJsonAsync("/api/agents", Body("", "XN-02"), Ct), HttpStatusCode.BadRequest, "Nhập tên agent");
+        await ShouldFail(await s.Tech.PostAsJsonAsync("/api/agents", Body(""), Ct), HttpStatusCode.BadRequest, "Nhập tên agent");
         await ShouldFail(await s.Tech.DeleteAsync("/api/agents/khong-phai-uuid", Ct), HttpStatusCode.BadRequest, BadUuid);
-        await ShouldFail(await s.Tech.PostAsync($"/api/agents/{Guid.NewGuid()}/key", null, Ct), HttpStatusCode.Forbidden, AdminOnly);
+        await ShouldFail(await s.Tech.PostAsync($"/api/agents/{Guid.NewGuid()}/pairing", null, Ct), HttpStatusCode.Forbidden, AdminOnly);
         // Lọc log sai: quyền kiểm trước.
         await ShouldFail(await s.Reception.GetAsync("/api/agent-logs?agentId=sai", Ct), HttpStatusCode.Forbidden, LabStaffOnly);
         (await s.Admin.GetAsync($"/api/agents/{id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.MethodNotAllowed);
     }
 
     [Fact]
-    public async Task Khoa_tra_ve_tu_POST_goi_duoc_agent_v1_me_va_luu_dung_ten_ma()
+    public async Task Tao_agent_tra_ma_ghep_noi_doi_duoc_lay_khoa()
     {
-        await using var s = await StartAsync("pkgcreate");
+        await using var s = await StartAsync("pkgcreate", clock: new FakeTimeProvider(Start));
 
-        var (id, key) = await Create(s.Admin, "  Agent Thử  ", "XN-01");
+        var response = await s.Admin.PostAsJsonAsync("/api/agents", Body("  Agent Thử  "), Ct);
 
-        key.ShouldStartWith($"lisa_{id:N}_");
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var body = await JsonOf(response);
+        var id = Guid.Parse(body.GetProperty("id").GetString()!);
+        var pairing = body.GetProperty("pairing");
+        var code = pairing.GetProperty("code").GetString()!;
+        PairingCode.TryFind(code, out var parsed).ShouldBeTrue();
+        parsed!.ServerUrl.ShouldBe("http://localhost");
+        parsed.ClinicCode.ShouldBe("pkgcreate");
+        pairing.GetProperty("expiresAt").GetString().ShouldBe("2026-11-17T03:30:00.000Z");
+
+        var key = await Pair(s, code);
         var me = await Me(s, key);
         me.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var body = await JsonOf(me);
-        body.GetProperty("agentName").GetString().ShouldBe("Agent Thử");
-        body.GetProperty("workstationCode").GetString().ShouldBe("XN-01");
-        body.GetProperty("clinicCode").GetString().ShouldBe("pkgcreate");
+        var identity = await JsonOf(me);
+        identity.GetProperty("agentName").GetString().ShouldBe("Agent Thử");
+        identity.GetProperty("clinicCode").GetString().ShouldBe("pkgcreate");
         var listed = await One(s.Tech, id);
         listed.GetProperty("name").GetString().ShouldBe("Agent Thử");
         listed.GetProperty("online").GetBoolean().ShouldBeFalse();
@@ -165,28 +190,102 @@ public sealed class AgentsEndpointsTests(ServerFixture fixture) : IClassFixture<
     }
 
     [Fact]
-    public async Task Tao_agent_kiem_dau_vao_dung_cau_bao_loi_va_trung_ma_thi_409()
+    public async Task Tao_agent_kiem_dau_vao_dung_cau_bao_loi_va_khong_nhan_ma_may_tram()
     {
         await using var s = await StartAsync("pkgvalid");
-        await Create(s.Admin, "Agent Thử", "XN-01");
-        const string Generic = "Dữ liệu gửi lên không hợp lệ";
-        const string CodeRule = "Mã máy trạm chỉ gồm chữ không dấu, số, dấu chấm, gạch ngang, gạch dưới";
+        await Create(s.Admin, "Agent Thử");
 
-        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body("", "XN-02"), Ct), HttpStatusCode.BadRequest, "Nhập tên agent");
-        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body("   ", "XN-02"), Ct), HttpStatusCode.BadRequest, "Nhập tên agent");
-        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body(new string('a', 101), "XN-02"), Ct), HttpStatusCode.BadRequest, Generic);
-        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", new { name = "Agent Thử" }, Ct), HttpStatusCode.BadRequest, Generic);
-        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body("Agent Thử", ""), Ct), HttpStatusCode.BadRequest, "Nhập mã máy trạm");
-        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body("Agent Thử", new string('A', 65)), Ct), HttpStatusCode.BadRequest, Generic);
-        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body("Agent Thử", "XN 02"), Ct), HttpStatusCode.BadRequest, CodeRule);
-        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body("Agent Thử", "XN-02\n"), Ct), HttpStatusCode.BadRequest, CodeRule);
-        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body("Agent Thử", "Mẫu"), Ct), HttpStatusCode.BadRequest, CodeRule);
-        (await s.Admin.PostAsJsonAsync("/api/agents", new { name = "Agent Thử", workstationCode = "XN-02", la = 1 }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        // Mã dài đúng 64 ký tự và đủ loại ký tự cho phép thì được.
-        await Create(s.Admin, "Agent dài Thử", "a.B_c-" + new string('9', 58));
-
-        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body("Agent trùng Thử", "xn-01"), Ct), HttpStatusCode.Conflict, "Mã máy trạm xn-01 đã có agent khác dùng");
+        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body(""), Ct), HttpStatusCode.BadRequest, "Nhập tên agent");
+        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body("   "), Ct), HttpStatusCode.BadRequest, "Nhập tên agent");
+        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", Body(new string('a', 101)), Ct), HttpStatusCode.BadRequest, Generic);
+        await ShouldFail(await s.Admin.PostAsJsonAsync("/api/agents", new { }, Ct), HttpStatusCode.BadRequest, Generic);
+        // Mã máy trạm không còn do người dùng nhập: gửi lên là trường lạ → 400.
+        (await s.Admin.PostAsJsonAsync("/api/agents", new { name = "Agent Thử", workstationCode = "XN-02" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await s.Admin.PostAsJsonAsync("/api/agents", new { name = "Agent Thử", la = 1 }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        // Tên dài đúng 100 ký tự thì được.
+        await Create(s.Admin, new string('b', 100));
         (await List(s.Admin)).GetArrayLength().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Ghep_noi_lai_201_ma_moi_khoa_cu_chay_toi_khi_doi_ma_va_agent_phong_kham_khac_404()
+    {
+        await using var s = await StartAsync("pkgrepair");
+        var (id, code) = await Create(s.Admin);
+        var first = await Pair(s, code);
+
+        var response = await s.Admin.PostAsync($"/api/agents/{id}/pairing", null, Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var fresh = await JsonOf(response);
+        var newCode = fresh.GetProperty("code").GetString()!;
+        newCode.ShouldNotBe(code);
+        fresh.GetProperty("expiresAt").GetString().ShouldEndWith("Z");
+        PairingCode.TryFind(newCode, out var parsed).ShouldBeTrue();
+        parsed!.ClinicCode.ShouldBe("pkgrepair");
+        // Mã mới chưa đổi thì khoá cũ vẫn chạy.
+        (await Me(s, first)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var second = await Pair(s, newCode);
+        (await Me(s, first)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await Me(s, second)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await ShouldFail(await s.Admin.PostAsync("/api/agents/xyz/pairing", null, Ct), HttpStatusCode.BadRequest, BadUuid);
+        await ShouldFail(await s.Admin.PostAsync($"/api/agents/{Guid.NewGuid()}/pairing", null, Ct), HttpStatusCode.NotFound, NotFound);
+        var otherClinic = await s.Host.AddClinicAsync("pkgrepairx", "Phòng khám khác Thử");
+        var foreign = await s.Host.AddAgentAsync(otherClinic, "Agent ngoài Thử", "XN-77");
+        await ShouldFail(await s.Admin.PostAsync($"/api/agents/{foreign.Id}/pairing", null, Ct), HttpStatusCode.NotFound, NotFound);
+    }
+
+    [Fact]
+    public async Task Danh_sach_co_trang_thai_ghep_noi()
+    {
+        await using var s = await StartAsync("pkgstatus", clock: new FakeTimeProvider(Start));
+        var (id, code) = await Create(s.Admin, "Agent Thử");
+
+        var waiting = await One(s.Tech, id);
+        waiting.GetProperty("paired").GetBoolean().ShouldBeFalse();
+        waiting.GetProperty("pairedAt").ValueKind.ShouldBe(JsonValueKind.Null);
+        waiting.GetProperty("machineName").ValueKind.ShouldBe(JsonValueKind.Null);
+        waiting.GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+        waiting.GetProperty("pairingExpiresAt").GetString().ShouldBe("2026-11-17T03:30:00.000Z");
+        waiting.GetProperty("workstationCode").GetString().ShouldBe(id.ToString("N"));
+
+        await Pair(s, code, "MAY-XN-01", "1.2.3");
+
+        var paired = await One(s.Tech, id);
+        paired.GetProperty("paired").GetBoolean().ShouldBeTrue();
+        paired.GetProperty("pairedAt").GetString().ShouldBe("2026-11-17T03:00:00.000Z");
+        paired.GetProperty("machineName").GetString().ShouldBe("MAY-XN-01");
+        paired.GetProperty("version").GetString().ShouldBe("1.2.3");
+        paired.GetProperty("pairingExpiresAt").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task PublicUrl_dat_thi_ma_dung_dia_chi_do()
+    {
+        await using var s = await StartAsync("pkgpublic", settings: new Dictionary<string, string> { ["PublicUrl"] = "https://lis.thu.vn" });
+        var (_, code) = await Create(s.Admin);
+
+        PairingCode.TryFind(code, out var parsed).ShouldBeTrue();
+        parsed!.ServerUrl.ShouldBe("https://lis.thu.vn");
+    }
+
+    [Fact]
+    public void PublicUrl_sai_thi_server_khong_khoi_dong()
+    {
+        static void Make(string publicUrl)
+        {
+            var configuration = new Microsoft.Extensions.Configuration.ConfigurationManager();
+            configuration["Jwt:Secret"] = ApiHost.TestSecret;
+            configuration["PublicUrl"] = publicUrl;
+            ServerOptions.From(configuration);
+        }
+
+        Should.Throw<InvalidOperationException>(() => Make("lis.thu.vn"));
+        Should.Throw<InvalidOperationException>(() => Make("https://lis.thu.vn/?ma=1"));
+        Should.Throw<InvalidOperationException>(() => Make("ftp://lis.thu.vn"));
+        Should.NotThrow(() => Make("https://lis.thu.vn/"));
     }
 
     [Fact]
@@ -237,62 +336,51 @@ public sealed class AgentsEndpointsTests(ServerFixture fixture) : IClassFixture<
     }
 
     [Fact]
-    public async Task Sua_agent_204_may_di_theo_ma_moi_va_kiem_tra_dau_vao_trung_ma_khong_co()
+    public async Task Sua_agent_chi_doi_ten_204_va_giu_nguyen_ma_may_tram()
     {
         await using var s = await StartAsync("pkgpatch");
-        var (id, key) = await Create(s.Admin, "Agent Thử", "XN-01");
-        await Create(s.Admin, "Agent khác Thử", "XN-02");
-        var machine = await s.Instrument("Máy A Thử", "xn-01");
-        var other = await s.Instrument("Máy B Thử", "XN-02");
+        var (id, code) = await Create(s.Admin, "Agent Thử");
+        var key = await Pair(s, code);
+        var workstation = id.ToString("N");
+        var machine = await s.Instrument("Máy A Thử", workstation);
 
-        await ShouldFail(await s.Admin.PatchAsJsonAsync($"/api/agents/{id}", Body("Agent Thử", "XN-02"), Ct), HttpStatusCode.Conflict, "Mã máy trạm XN-02 đã có agent khác dùng");
-        await ShouldFail(await s.Admin.PatchAsJsonAsync($"/api/agents/{id}", Body("", "XN-03"), Ct), HttpStatusCode.BadRequest, "Nhập tên agent");
+        await ShouldFail(await s.Admin.PatchAsJsonAsync($"/api/agents/{id}", Body(""), Ct), HttpStatusCode.BadRequest, "Nhập tên agent");
+        (await s.Admin.PatchAsJsonAsync($"/api/agents/{id}", new { name = "Agent Thử", workstationCode = "XN-03" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         await ShouldFail(await s.Admin.PatchAsJsonAsync("/api/agents/xyz", Body(), Ct), HttpStatusCode.BadRequest, BadUuid);
-        await ShouldFail(await s.Admin.PatchAsJsonAsync($"/api/agents/{Guid.NewGuid()}", Body("Agent Thử", "XN-05"), Ct), HttpStatusCode.NotFound, NotFound);
-        (await s.Scalar<string>("SELECT workstation_code FROM instrument WHERE id = @machine", new { machine })).ShouldBe("xn-01");
+        await ShouldFail(await s.Admin.PatchAsJsonAsync($"/api/agents/{Guid.NewGuid()}", Body("Agent Thử"), Ct), HttpStatusCode.NotFound, NotFound);
+        await using (var master = new NpgsqlConnection(fixture.MasterConnection))
+        {
+            (await master.ExecuteScalarAsync<string>("SELECT name FROM agent WHERE id = @id", new { id })).ShouldBe("Agent Thử");
+        }
 
-        var response = await s.Admin.PatchAsJsonAsync($"/api/agents/{id}", Body(" Đổi tên Thử ", "XN-03"), Ct);
+        var response = await s.Admin.PatchAsJsonAsync($"/api/agents/{id}", Body(" Đổi tên Thử "), Ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         var item = await One(s.Admin, id);
         item.GetProperty("name").GetString().ShouldBe("Đổi tên Thử");
-        item.GetProperty("workstationCode").GetString().ShouldBe("XN-03");
+        item.GetProperty("workstationCode").GetString().ShouldBe(workstation);
         item.GetProperty("instruments").EnumerateArray().Select(m => m.GetProperty("id").GetString()).ShouldBe([machine.ToString()]);
-        (await s.Scalar<string>("SELECT workstation_code FROM instrument WHERE id = @machine", new { machine })).ShouldBe("XN-03");
-        (await s.Scalar<string>("SELECT workstation_code FROM instrument WHERE id = @other", new { other })).ShouldBe("XN-02");
+        (await s.Scalar<string>("SELECT workstation_code FROM instrument WHERE id = @machine", new { machine })).ShouldBe(workstation);
         (await Me(s, key)).StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        // Chỉ đổi hoa thường của mã: vẫn là chính nó, không bị coi là trùng.
-        (await s.Admin.PatchAsJsonAsync($"/api/agents/{id}", Body("Đổi tên Thử", "xn-03"), Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        (await One(s.Admin, id)).GetProperty("workstationCode").GetString().ShouldBe("xn-03");
     }
 
     [Fact]
-    public async Task Cap_khoa_moi_201_khoa_cu_het_hieu_luc_khoa_moi_goi_duoc()
+    public async Task Khong_con_duong_dan_cap_khoa_tay()
     {
-        await using var s = await StartAsync("pkgkey");
-        var (id, oldKey) = await Create(s.Admin);
-        (await Me(s, oldKey)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await using var s = await StartAsync("pkgnokey");
+        var (id, _) = await Create(s.Admin);
 
-        var response = await s.Admin.PostAsync($"/api/agents/{id}/key", null, Ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
-        var newKey = (await JsonOf(response)).GetProperty("key").GetString()!;
-        newKey.ShouldStartWith($"lisa_{id:N}_");
-        newKey.ShouldNotBe(oldKey);
-        (await Me(s, oldKey)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        (await Me(s, newKey)).StatusCode.ShouldBe(HttpStatusCode.OK);
-        await ShouldFail(await s.Admin.PostAsync("/api/agents/xyz/key", null, Ct), HttpStatusCode.BadRequest, BadUuid);
-        await ShouldFail(await s.Admin.PostAsync($"/api/agents/{Guid.NewGuid()}/key", null, Ct), HttpStatusCode.NotFound, NotFound);
+        (await s.Admin.PostAsync($"/api/agents/{id}/key", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
     public async Task Xoa_agent_409_khi_con_may_phu_trach_roi_204_va_khoa_het_hieu_luc()
     {
         await using var s = await StartAsync("pkgdel");
-        var (id, key) = await Create(s.Admin, "Agent Thử", "XN-01");
-        var machine = await s.Instrument("Máy A Thử", "xn-01");
-        await s.Instrument("Máy B Thử", "XN-01");
+        var (id, code) = await Create(s.Admin, "Agent Thử");
+        var key = await Pair(s, code);
+        var machine = await s.Instrument("Máy A Thử", id.ToString("N"));
+        await s.Instrument("Máy B Thử", id.ToString("N"));
 
         await ShouldFail(await s.Admin.DeleteAsync($"/api/agents/{id}", Ct), HttpStatusCode.Conflict,
             "Agent đang phụ trách 2 máy xét nghiệm — chuyển các máy đó sang agent khác trước khi xoá");
@@ -328,13 +416,13 @@ public sealed class AgentsEndpointsTests(ServerFixture fixture) : IClassFixture<
         var list = await List(s.Admin);
         list.GetArrayLength().ShouldBe(1);
         list[0].GetProperty("id").GetString().ShouldBe(mine.Id.ToString());
-        await ShouldFail(await s.Admin.PatchAsJsonAsync($"/api/agents/{foreign.Id}", Body("Bị đổi Thử", "XN-88"), Ct), HttpStatusCode.NotFound, NotFound);
-        await ShouldFail(await s.Admin.PostAsync($"/api/agents/{foreign.Id}/key", null, Ct), HttpStatusCode.NotFound, NotFound);
+        await ShouldFail(await s.Admin.PatchAsJsonAsync($"/api/agents/{foreign.Id}", Body("Bị đổi Thử"), Ct), HttpStatusCode.NotFound, NotFound);
+        await ShouldFail(await s.Admin.PostAsync($"/api/agents/{foreign.Id}/pairing", null, Ct), HttpStatusCode.NotFound, NotFound);
         await ShouldFail(await s.Admin.DeleteAsync($"/api/agents/{foreign.Id}", Ct), HttpStatusCode.NotFound, NotFound);
 
         (await Snapshot()).ShouldBe(before);
-        // Mã máy trạm của agent phòng khám khác không làm khó phòng khám này.
-        await Create(s.Admin, "Agent trùng mã Thử", "XN-77");
+        // Tên trùng với agent của phòng khám khác không làm khó phòng khám này.
+        await Create(s.Admin, "Agent ngoài Thử");
     }
 
     [Fact]

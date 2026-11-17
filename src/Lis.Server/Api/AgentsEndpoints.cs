@@ -2,24 +2,30 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Dapper;
+using Lis.Core.Agents;
 using Lis.Server.Tenancy;
 
 namespace Lis.Server.Api;
 
-public sealed record AgentBody(string? Name, string? WorkstationCode);
+/// <summary>Thân <c>/api/agents</c>: chỉ có tên. Mã máy trạm do server tự sinh, nên thân gửi lên có <c>workstationCode</c> là trường lạ → 400.</summary>
+public sealed record AgentBody(string? Name);
 
 public sealed record AgentInstrumentView(Guid Id, string Name, JsonElement? Status);
 
+/// <summary>
+/// Một agent trong danh sách. <see cref="Paired"/> = đã đổi mã ghép nối lấy khoá; <see cref="PairingExpiresAt"/> có giá trị khi còn một mã chưa dùng và chưa hết hạn.
+/// </summary>
 public sealed record AgentView(
-    Guid Id, string Name, string WorkstationCode, string? LastSeenAt, bool Online, IReadOnlyList<AgentInstrumentView> Instruments);
+    Guid Id, string Name, string WorkstationCode, string? LastSeenAt, bool Online, IReadOnlyList<AgentInstrumentView> Instruments,
+    bool Paired, string? PairedAt, string? MachineName, string? Version, string? PairingExpiresAt);
 
 public sealed record AgentLogView(
     string Id, string At, Guid AgentId, Guid? InstrumentId, string? InstrumentName, string Direction, string? Session, string? Hex, string? Note);
 
 /// <summary>
 /// Agent (<c>/api/agents</c>) và log agent đẩy lên (<c>/api/agent-logs</c>). Agent: Quản trị, Kỹ thuật viên, Trưởng khoa xem; chỉ Quản trị ghi.
-/// Khoá sinh bằng <see cref="MasterStore"/> nên <c>/agent/v1</c> nhận được. Agent của phòng khám khác không thấy được:
-/// mọi thao tác theo id đều gắn với phòng khám của phiên. Kiểm đầu vào chạy trước kiểm quyền, giống pipe chạy trước handler ở NestJS.
+/// Tạo agent xong thì lấy <b>mã ghép nối</b> dùng một lần (30 phút); agent đổi mã lấy khoá qua <c>/agent/v1/pair</c>, khoá không đi qua web.
+/// Agent của phòng khám khác không thấy được: mọi thao tác theo id đều gắn với phòng khám của phiên. Kiểm đầu vào chạy trước kiểm quyền, giống pipe chạy trước handler ở NestJS.
 /// </summary>
 public static class AgentsEndpoints
 {
@@ -36,9 +42,11 @@ public static class AgentsEndpoints
     {
         var agents = api.MapGroup("/agents").RequireSession();
         agents.MapGet("", (HttpContext http, MasterStore master, TimeProvider clock) => ListAsync(http.Ctx(), master, clock));
-        agents.MapPost("", (HttpContext http, MasterStore master, TimeProvider clock, AgentBody body) => CreateAsync(http.Ctx(), master, clock, body));
-        agents.MapPatch("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, string id, AgentBody body) => UpdateAsync(http.Ctx(), master, clock, id, body));
-        agents.MapPost("/{id}/key", (HttpContext http, MasterStore master, string id) => RegenerateKeyAsync(http.Ctx(), master, id));
+        agents.MapPost("", (HttpContext http, MasterStore master, TimeProvider clock, ServerOptions options, AgentBody body) =>
+            CreateAsync(http, master, clock, options, body));
+        agents.MapPatch("/{id}", (HttpContext http, MasterStore master, string id, AgentBody body) => UpdateAsync(http.Ctx(), master, id, body));
+        agents.MapPost("/{id}/pairing", (HttpContext http, MasterStore master, TimeProvider clock, ServerOptions options, string id) =>
+            PairingAsync(http, master, clock, options, id));
         agents.MapDelete("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, string id) => DeleteAsync(http.Ctx(), master, clock, id));
 
         // Ép về Delegate: lambda chỉ nhận HttpContext sẽ bị hiểu là RequestDelegate và bỏ mất kết quả trả về.
@@ -48,9 +56,9 @@ public static class AgentsEndpoints
     private static async Task<IResult> ListAsync(RequestContext ctx, MasterStore master, TimeProvider clock)
     {
         ctx.RequireLabStaff();
-        var agents = await master.AgentsOfAsync(ctx.Clinic.Id, clock.GetUtcNow());
-        var instruments = await ctx.Tenant.Instruments.ListAsync();
         var now = clock.GetUtcNow();
+        var agents = await master.AgentsOfAsync(ctx.Clinic.Id, now);
+        var instruments = await ctx.Tenant.Instruments.ListAsync();
 
         return Results.Ok(agents.Select(a =>
         {
@@ -60,63 +68,53 @@ public static class AgentsEndpoints
                 .Select(i => new AgentInstrumentView(i.Id, i.Name, online ? InstrumentsEndpoints.StatusOf(a.LastStatusJson, i.Id) : null))
                 .ToList();
             return new AgentView(
-                a.Agent.Id, a.Agent.Name, a.Agent.WorkstationCode, a.Agent.LastSeenAt is { } last ? ApiFormat.Iso(last) : null, online, mine);
+                a.Agent.Id, a.Agent.Name, a.Agent.WorkstationCode, a.Agent.LastSeenAt is { } last ? ApiFormat.Iso(last) : null, online, mine,
+                a.PairedAt is not null, a.PairedAt is { } paired ? ApiFormat.Iso(paired) : null, a.MachineName, a.AgentVersion,
+                a.PairingExpiresAt is { } expires ? ApiFormat.Iso(expires) : null);
         }));
     }
 
-    /// <summary>Tạo agent. Khoá chỉ trả về MỘT lần ở đây — dán vào appsettings.json của agent.</summary>
-    private static async Task<IResult> CreateAsync(RequestContext ctx, MasterStore master, TimeProvider clock, AgentBody body)
+    /// <summary>
+    /// Tạo agent chưa có khoá kèm mã ghép nối dùng một lần. Mã chỉ trả về MỘT lần ở đây; quá 30 phút hoặc đã dùng thì bấm ghép nối lại.
+    /// </summary>
+    private static async Task<IResult> CreateAsync(HttpContext http, MasterStore master, TimeProvider clock, ServerOptions options, AgentBody body)
     {
-        var (name, workstationCode) = Check(body);
+        var ctx = http.Ctx();
+        var name = CheckName(body);
         ctx.RequireAdmin();
-        await EnsureWorkstationFreeAsync(master, clock, ctx, workstationCode, null);
-        try
-        {
-            var (agent, key) = await master.AddAgentAsync(ctx.Clinic.Id, name, workstationCode);
-            return Results.Json(new { id = agent.Id, key }, statusCode: StatusCodes.Status201Created);
-        }
-        catch (AgentException ex)
-        {
-            throw Translate(ex);
-        }
+        var (agent, pairing) = await master.CreateAgentAsync(ctx.Clinic.Id, name, ctx.User.Id, clock.GetUtcNow());
+        return Results.Json(new { id = agent.Id, pairing = PairingView(http, options, ctx, pairing) }, statusCode: StatusCodes.Status201Created);
     }
 
-    private static async Task<IResult> UpdateAsync(RequestContext ctx, MasterStore master, TimeProvider clock, string id, AgentBody body)
+    private static async Task<IResult> UpdateAsync(RequestContext ctx, MasterStore master, string id, AgentBody body)
     {
         var agentId = ApiFormat.ParseId(id);
-        var (name, workstationCode) = Check(body);
+        var name = CheckName(body);
         ctx.RequireAdmin();
-        await FindAsync(master, clock, ctx, agentId);
-        await EnsureWorkstationFreeAsync(master, clock, ctx, workstationCode, agentId);
-        string previous;
         try
         {
-            previous = await master.UpdateAgentAsync(ctx.Clinic.Id, agentId, name, workstationCode);
+            await master.RenameAgentAsync(ctx.Clinic.Id, agentId, name);
         }
         catch (AgentException ex)
         {
             throw Translate(ex);
-        }
-
-        // Đổi mã máy trạm: các máy đang gán cho agent này đi theo mã mới, không bị "mồ côi".
-        if (!string.Equals(workstationCode, previous, StringComparison.OrdinalIgnoreCase))
-        {
-            await using var connection = await ctx.Tenant.Db.OpenAsync();
-            await connection.ExecuteAsync(
-                "UPDATE instrument SET workstation_code = @code WHERE lower(workstation_code) = lower(@previous)", new { code = workstationCode, previous });
         }
 
         return Results.NoContent();
     }
 
-    /// <summary>Cấp khoá mới (khoá cũ hết hiệu lực ngay) — dùng khi lộ khoá hoặc cài lại máy tính agent.</summary>
-    private static async Task<IResult> RegenerateKeyAsync(RequestContext ctx, MasterStore master, string id)
+    /// <summary>
+    /// Cấp mã ghép nối mới cho agent (mã chưa dùng trước đó bị huỷ). Khoá đang chạy vẫn dùng được tới khi agent đổi mã mới.
+    /// </summary>
+    private static async Task<IResult> PairingAsync(HttpContext http, MasterStore master, TimeProvider clock, ServerOptions options, string id)
     {
         var agentId = ApiFormat.ParseId(id);
+        var ctx = http.Ctx();
         ctx.RequireAdmin();
         try
         {
-            return Results.Json(new { key = await master.RegenerateAgentKeyAsync(ctx.Clinic.Id, agentId) }, statusCode: StatusCodes.Status201Created);
+            var ticket = await master.CreatePairingAsync(ctx.Clinic.Id, agentId, ctx.User.Id, clock.GetUtcNow());
+            return Results.Json(PairingView(http, options, ctx, ticket), statusCode: StatusCodes.Status201Created);
         }
         catch (AgentException ex)
         {
@@ -149,12 +147,18 @@ public static class AgentsEndpoints
     private static async Task<AgentInfo> FindAsync(MasterStore master, TimeProvider clock, RequestContext ctx, Guid id) =>
         (await master.AgentsOfAsync(ctx.Clinic.Id, clock.GetUtcNow())).Select(a => a.Agent).FirstOrDefault(a => a.Id == id) ?? throw ApiException.NotFound(AgentNotFound);
 
-    private static async Task EnsureWorkstationFreeAsync(MasterStore master, TimeProvider clock, RequestContext ctx, string workstationCode, Guid? exceptId)
+    /// <summary>
+    /// Địa chỉ server đưa vào mã ghép nối: <c>PublicUrl</c> nếu đặt, không thì địa chỉ request đang đến
+    /// (đã qua forwarded headers nếu bật <c>Proxy:TrustForwardedHeaders</c>).
+    /// </summary>
+    private static string ServerUrl(HttpContext http, ServerOptions options) =>
+        options.PublicUrl ?? $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}";
+
+    private static object PairingView(HttpContext http, ServerOptions options, RequestContext ctx, PairingTicket ticket) => new
     {
-        var taken = (await master.AgentsOfAsync(ctx.Clinic.Id, clock.GetUtcNow())).Any(a =>
-            a.Agent.Id != exceptId && string.Equals(a.Agent.WorkstationCode, workstationCode, StringComparison.OrdinalIgnoreCase));
-        if (taken) throw ApiException.Conflict($"Mã máy trạm {workstationCode} đã có agent khác dùng");
-    }
+        code = new PairingCode(ServerUrl(http, options), ctx.Clinic.Code, ticket.Secret).Encode(),
+        expiresAt = ApiFormat.Iso(ticket.ExpiresAt),
+    };
 
     private static ApiException Translate(AgentException ex) => ex.Failure switch
     {
@@ -162,22 +166,13 @@ public static class AgentsEndpoints
         _ => ApiException.Conflict(ex.Message),
     };
 
-    /// <summary>Kiểm thân (cùng câu báo lỗi như DTO ở NestJS) và cắt khoảng trắng tên.</summary>
-    private static (string Name, string WorkstationCode) Check(AgentBody body)
+    /// <summary>Kiểm tên (cùng câu báo lỗi như DTO ở NestJS) và cắt khoảng trắng.</summary>
+    private static string CheckName(AgentBody body)
     {
         var name = body.Name ?? throw ApiException.BadRequest(InvalidBody);
         if (name.Trim().Length == 0) throw ApiException.BadRequest("Nhập tên agent");
         if (name.Length > 100) throw ApiException.BadRequest(InvalidBody);
-
-        var code = body.WorkstationCode ?? throw ApiException.BadRequest(InvalidBody);
-        if (code.Length == 0) throw ApiException.BadRequest("Nhập mã máy trạm");
-        if (code.Length > 64) throw ApiException.BadRequest(InvalidBody);
-        if (!code.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-'))
-        {
-            throw ApiException.BadRequest("Mã máy trạm chỉ gồm chữ không dấu, số, dấu chấm, gạch ngang, gạch dưới");
-        }
-
-        return (name.Trim(), code);
+        return name.Trim();
     }
 
     // ---- log ----

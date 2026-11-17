@@ -7,7 +7,7 @@ using Lis.Server.Tenancy;
 //   LisServer clinic add --code pkstl --name "Phòng khám STL" --db lis
 //   LisServer clinic list
 //   LisServer user add --clinic pkstl --username admin --name "Quản trị" --password "..."   (tài khoản Quản trị đầu tiên)
-//   LisServer agent add --clinic pkstl --name "Máy phòng xét nghiệm" --workstation XN-01
+//   LisServer agent add --clinic pkstl --name "Máy phòng xét nghiệm" [--workstation XN-01]   (in khoá — cứu hộ / phát triển; thường ghép nối bằng mã trên web)
 //   LisServer --healthcheck   (gọi /healthz của chính server đang chạy; thoát 0 = khoẻ, 1 = lỗi — cho HEALTHCHECK của Docker)
 // Không có lệnh → chạy server web.
 if (HealthCheck.IsRequested(args))

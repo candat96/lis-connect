@@ -31,10 +31,11 @@ public static class AdminCommands
                         Option(args, "--clinic"), Option(args, "--username"), Option(args, "--name"), Option(args, "--password"),
                         OptionOrDefault(args, "--role", Roles.QuanTri), master, tenants);
                 case ("agent", "add"):
-                    return await AddAgentAsync(Option(args, "--clinic"), Option(args, "--name"), Option(args, "--workstation"), master);
+                    return await AddAgentAsync(
+                        Option(args, "--clinic"), Option(args, "--name"), OptionOrDefault(args, "--workstation", Guid.CreateVersion7().ToString("N")), master);
                 default:
                     Console.Error.WriteLine(
-                        "Lệnh: clinic add --code --name --db | clinic list | user add --clinic --username --name --password [--role] | agent add --clinic --name --workstation");
+                        "Lệnh: clinic add --code --name --db | clinic list | user add --clinic --username --name --password [--role] | agent add --clinic --name [--workstation]");
                     return 2;
             }
         }
@@ -72,7 +73,8 @@ public static class AdminCommands
 
         var (agent, key) = await master.AddAgentAsync(clinic.Id, name, workstation);
         Console.WriteLine($"Đã thêm agent \"{agent.Name}\" (máy trạm {agent.WorkstationCode}) cho phòng khám {clinic.Code}.");
-        Console.WriteLine("Khoá agent — CHỈ HIỆN MỘT LẦN, dán vào appsettings.json của agent (Server:AgentKey):");
+        Console.WriteLine("Khoá agent — CHỈ HIỆN MỘT LẦN. Chỉ dùng để cứu hộ hoặc phát triển: đặt biến môi trường LISAGENT_Server__Url (địa chỉ server)");
+        Console.WriteLine("và LISAGENT_Server__AgentKey (khoá dưới đây), rồi chạy agent ở chế độ console. Agent thường được ghép nối bằng mã trên web.");
         Console.WriteLine(key);
         return 0;
     }

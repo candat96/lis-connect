@@ -271,39 +271,13 @@ public sealed class MasterStore(string connectionString)
         return (new AgentInfo(id, clinicId, name.Trim(), workstationCode.Trim(), null), key);
     }
 
-    /// <summary>
-    /// Sửa tên và mã máy trạm của agent thuộc <paramref name="clinicId"/>; trả về mã máy trạm CŨ.
-    /// Không có (hoặc của phòng khám khác) → <see cref="AgentFailure.NotFound"/>; trùng mã → <see cref="AgentFailure.DuplicateWorkstation"/>.
-    /// </summary>
-    public async Task<string> UpdateAgentAsync(Guid clinicId, Guid agentId, string name, string workstationCode)
+    /// <summary>Đổi tên agent thuộc <paramref name="clinicId"/>; mã máy trạm giữ nguyên. Không có (hoặc của phòng khám khác) → <see cref="AgentFailure.NotFound"/>.</summary>
+    public async Task RenameAgentAsync(Guid clinicId, Guid agentId, string name)
     {
-        await using var connection = await OpenAsync();
-        try
-        {
-            var previous = await connection.ExecuteScalarAsync<string?>(
-                """
-                WITH old AS (SELECT workstation_code FROM agent WHERE id = @agentId AND clinic_id = @clinicId)
-                UPDATE agent SET name = @name, workstation_code = @workstationCode
-                WHERE id = @agentId AND clinic_id = @clinicId
-                RETURNING (SELECT workstation_code FROM old)
-                """,
-                new { agentId, clinicId, name = name.Trim(), workstationCode = workstationCode.Trim() });
-            return previous ?? throw NotFound();
-        }
-        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
-        {
-            throw DuplicateWorkstation(workstationCode);
-        }
-    }
-
-    /// <summary>Cấp khoá mới cho agent (khoá cũ hết hiệu lực ngay) và trả về khoá — CHỈ hiện một lần. Không có → <see cref="AgentFailure.NotFound"/>.</summary>
-    public async Task<string> RegenerateAgentKeyAsync(Guid clinicId, Guid agentId)
-    {
-        var (key, hash) = NewKey(agentId);
         await using var connection = await OpenAsync();
         var updated = await connection.ExecuteAsync(
-            "UPDATE agent SET key_hash = @hash WHERE id = @agentId AND clinic_id = @clinicId", new { hash, agentId, clinicId });
-        return updated == 1 ? key : throw NotFound();
+            "UPDATE agent SET name = @name WHERE id = @agentId AND clinic_id = @clinicId", new { name = name.Trim(), agentId, clinicId });
+        if (updated == 0) throw NotFound();
     }
 
     /// <summary>Xoá agent thuộc <paramref name="clinicId"/>; false khi không có.</summary>
