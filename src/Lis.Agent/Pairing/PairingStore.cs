@@ -21,6 +21,9 @@ public sealed class PairingStore(AgentPaths paths, ISecretProtector protector, T
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
+    /// <summary>Thư mục cách ly của lần <see cref="Save"/> gần nhất (null nếu không phải cách ly) — để nơi gọi báo cho người vận hành.</summary>
+    public string? LastQuarantine { get; private set; }
+
     private sealed record Stored(PairingState State, string ProtectedKey);
 
     /// <summary>Đọc ghép nối đã lưu; tệp không có, hỏng hoặc không giải mã được → null.</summary>
@@ -45,6 +48,7 @@ public sealed class PairingStore(AgentPaths paths, ISecretProtector protector, T
     public void Save(PairingState state, string agentKey)
     {
         Directory.CreateDirectory(paths.Root);
+        LastQuarantine = null;
 
         // Phòng khám cũ đọc từ phần thông tin (không cần giải mã khoá) để khoá hỏng vẫn cách ly đúng.
         var previous = TryReadStored()?.State;
@@ -121,6 +125,7 @@ public sealed class PairingStore(AgentPaths paths, ISecretProtector protector, T
 
         Directory.CreateDirectory(folder);
         Directory.Move(paths.Pending, Path.Combine(folder, "cho-gui"));
+        LastQuarantine = folder;
     }
 
     [SupportedOSPlatform("windows")]

@@ -49,6 +49,24 @@ public sealed class AgentConnectionTests : IDisposable
     }
 
     [Fact]
+    public void Server_trong_tep_appsettings_khong_thang_cau_hinh_da_ghep_noi()
+    {
+        var file = Path.Combine(_root, "appsettings.json");
+        File.WriteAllText(file, """{ "Server": { "Url": "http://tep-cu.thu:1", "AgentKey": "KHOA-TEP-CU" } }""");
+        var full = new ConfigurationBuilder().AddJsonFile(file).Build();
+        full["Server:AgentKey"].ShouldBe("KHOA-TEP-CU"); // tệp có thật — nhưng chỉ cấu hình biến môi trường được đưa vào Resolve
+
+        var env = AgentConnection.EnvironmentConfiguration([KeyValuePair.Create("LISAGENT_DataDirectory", (string?)"x"), KeyValuePair.Create("PATH", (string?)"y")]);
+        var connection = AgentConnection.Resolve(env, Store(true), out _);
+        connection!.AgentKey.ShouldBe("KHOA-DA-GHEP");
+        connection.Source.ShouldBe("cấu hình đã ghép nối");
+
+        var withEnv = AgentConnection.EnvironmentConfiguration([
+            KeyValuePair.Create("LISAGENT_Server__Url", (string?)"http://env.thu:1"), KeyValuePair.Create("LISAGENT_Server__AgentKey", (string?)"KHOA-ENV")]);
+        AgentConnection.Resolve(withEnv, Store(true), out _)!.Source.ShouldBe("biến môi trường");
+    }
+
+    [Fact]
     public void Khong_co_gi_thi_null_va_cau_huong_dan()
     {
         var connection = AgentConnection.Resolve(Config(), Store(false), out var problem);

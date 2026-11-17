@@ -58,9 +58,7 @@ public sealed class PairingStoreTests : IDisposable
         File.WriteAllText(Paths.Pairing, "{ khong phai json");
         Store().Load().ShouldBeNull();
 
-        Store().Save(State(Guid.NewGuid()), Key);
-        var raw = File.ReadAllText(Paths.Pairing);
-        File.WriteAllText(Paths.Pairing, raw.Replace("\"", "\"", StringComparison.Ordinal)[..^5] + "!!!}");
+        File.WriteAllText(Paths.Pairing, "{\"state\": {\"serverUrl\": 12, \"clinicId\": \"khong-phai-guid\"}, \"protectedKey\": \"@@@\"}");
         Store().Load().ShouldBeNull();
     }
 
@@ -87,6 +85,17 @@ public sealed class PairingStoreTests : IDisposable
         var moved = Path.Combine(Paths.Quarantine, "20261117-030405-pkcu", "cho-gui", "ket-qua-1.json");
         File.Exists(moved).ShouldBeTrue();
         store.Load()!.Value.State.ClinicCode.ShouldBe("pkmoi");
+        store.LastQuarantine.ShouldBe(Path.GetDirectoryName(moved)!.Replace(Path.DirectorySeparatorChar + "cho-gui", "", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Khong_biet_phong_kham_cu_ma_con_cho_gui_thi_cach_ly_khong_ro()
+    {
+        Seed(Paths.Pending, "ket-qua-1.json");
+        var store = Store();
+        store.Save(State(Guid.NewGuid()), Key);
+        store.LastQuarantine.ShouldNotBeNull().ShouldEndWith("-khong-ro");
+        File.Exists(Path.Combine(store.LastQuarantine, "cho-gui", "ket-qua-1.json")).ShouldBeTrue();
     }
 
     [Fact]
@@ -101,6 +110,7 @@ public sealed class PairingStoreTests : IDisposable
 
         File.Exists(Path.Combine(Paths.Pending, "ket-qua-1.json")).ShouldBeTrue();
         Directory.Exists(Paths.Quarantine).ShouldBeFalse();
+        store.LastQuarantine.ShouldBeNull();
     }
 
     [Fact]

@@ -69,7 +69,7 @@ public sealed class PairingClient(HttpClient http)
 }
 
 /// <summary>Kết quả <see cref="PairingFlow.PairAsync"/>: trạng thái đã lưu và cảnh báo (nếu có) để nơi gọi in ra.</summary>
-public sealed record PairingResult(PairingState State, string? Warning);
+public sealed record PairingResult(PairingState State, string? Warning, string? QuarantinedTo = null);
 
 public static class PairingFlow
 {
@@ -84,8 +84,18 @@ public static class PairingFlow
         var state = new PairingState(
             code.ServerUrl, response.ClinicId, response.ClinicCode, response.ClinicName,
             response.AgentId, response.AgentName, clock.GetUtcNow());
-        store.Save(state, response.AgentKey);
+        try
+        {
+            store.Save(state, response.AgentKey);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            throw new PairingException(
+                $"Mã ghép nối đã được dùng nhưng không lưu được cấu hình ({ex.Message}). Hãy chạy lại bằng quyền quản trị, " +
+                "rồi bấm \"Ghép nối lại\" trên web để lấy mã mới.");
+        }
+
         var warning = code.ServerUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ? HttpWarning : null;
-        return new PairingResult(state, warning);
+        return new PairingResult(state, warning, store.LastQuarantine);
     }
 }

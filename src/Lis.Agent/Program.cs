@@ -25,6 +25,9 @@ var config = new ConfigurationBuilder()
     .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true)
     .AddEnvironmentVariables("LISAGENT_")
     .Build();
+var environment = AgentConnection.EnvironmentConfiguration(
+    Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
+        .Select(e => KeyValuePair.Create((string)e.Key, (string?)e.Value)));
 var dataRoot = config["DataDirectory"];
 var paths = string.IsNullOrWhiteSpace(dataRoot) ? AgentPaths.Default : new AgentPaths(dataRoot);
 Directory.CreateDirectory(paths.Root);
@@ -35,7 +38,7 @@ switch (command)
     case AgentCommand.Pair pair:
         return await PairAsync(pair.CodeText, store);
     case AgentCommand.Service or AgentCommand.Run:
-        return await RunAsync(config, paths, store);
+        return await RunAsync(config, environment, paths, store);
     default:
         // Cài / gỡ dịch vụ và chế độ bấm đúp tệp cài do bước sau nối vào.
         Console.Error.WriteLine("Chỉ hỗ trợ trên Windows");
@@ -59,19 +62,24 @@ static async Task<int> PairAsync(string? codeText, PairingStore store)
             Console.Error.WriteLine(result.Warning);
         }
 
+        if (result.QuarantinedTo is not null)
+        {
+            Console.Error.WriteLine($"Đổi sang phòng khám khác: kết quả đang chờ gửi của phòng khám cũ đã chuyển vào {result.QuarantinedTo} (không gửi lên phòng khám mới).");
+        }
+
         Console.WriteLine($"Đã ghép nối với phòng khám {result.State.ClinicName} ({result.State.ClinicCode}), agent \"{result.State.AgentName}\".");
         return 0;
     }
-    catch (PairingException ex)
+    catch (Exception ex) when (ex is PairingException or UriFormatException)
     {
-        Console.Error.WriteLine(ex.Message);
+        Console.Error.WriteLine(ex is UriFormatException ? $"Địa chỉ máy chủ trong mã không hợp lệ: {ex.Message}" : ex.Message);
         return 1;
     }
 }
 
-static async Task<int> RunAsync(IConfiguration config, AgentPaths paths, PairingStore store)
+static async Task<int> RunAsync(IConfiguration config, IConfiguration environment, AgentPaths paths, PairingStore store)
 {
-    var connection = AgentConnection.Resolve(config, store, out var problem);
+    var connection = AgentConnection.Resolve(environment, store, out var problem);
     if (connection is null)
     {
         Console.Error.WriteLine(problem);

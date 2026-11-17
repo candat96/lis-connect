@@ -43,7 +43,7 @@ public abstract record AgentCommand
             case "uninstall" when args.Length == 1:
                 return new Uninstall();
             case "pair" when args.Length == 1:
-                throw new ArgumentException($"Thiếu mã ghép nối. Dùng: LisAgent pair <mã>");
+                throw new ArgumentException("Thiếu mã ghép nối. Dùng: LisAgent pair <mã>");
             case "pair" when args.Length == 2:
                 return new Pair(args[1]);
             case "install" when args.Length == 1:
