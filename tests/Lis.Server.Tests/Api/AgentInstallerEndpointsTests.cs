@@ -93,6 +93,25 @@ public sealed class AgentInstallerEndpointsTests(ServerFixture fixture) : IClass
     }
 
     [Fact]
+    public async Task Duong_dan_tuong_doi_van_tai_duoc_tep()
+    {
+        // Thư mục tương đối so với thư mục làm việc của tiến trình test (không phải thư mục tạm tuyệt đối).
+        var relative = "lis-agent-rel-" + Guid.NewGuid().ToString("N");
+        var dir = Path.GetFullPath(relative);
+        Directory.CreateDirectory(dir);
+        _dirs.Add(dir);
+        WriteInstaller(dir, FirstBuild);
+        await using var host = await StartAsync(fixture, "drel", relative);
+        var admin = await host.LoginAsync("drel", "admin", Password);
+
+        (await InfoOf(admin)).GetProperty("available").GetBoolean().ShouldBeTrue();
+        var response = await admin.GetAsync("/api/agents/installer", Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsByteArrayAsync(Ct)).ShouldBe(FirstBuild);
+    }
+
+    [Fact]
     public async Task Chua_cau_hinh_thi_info_available_false_va_tai_404_json()
     {
         await using var host = await StartAsync(fixture, "dnone", distDir: null);
