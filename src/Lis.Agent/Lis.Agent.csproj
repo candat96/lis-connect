@@ -6,12 +6,17 @@
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>LisAgent</AssemblyName>
     <RootNamespace>Lis.Agent</RootNamespace>
+    <Version>0.2.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Lis.Core\Lis.Core.csproj" />
     <ProjectReference Include="..\Lis.Data\Lis.Data.csproj" />
     <ProjectReference Include="..\Lis.Connections\Lis.Connections.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lis.Agent.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,32 +1,95 @@
 using Lis.Agent;
+using Lis.Core.Agents;
+using Lis.Data.Local;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.WindowsServices;
+using Microsoft.Extensions.Logging;
 
-// Chạy thử: LisAgent.exe (cửa sổ dòng lệnh). Cài làm dịch vụ Windows (tự chạy khi bật máy):
-//   sc create "LIS Agent" binPath= "C:\LisAgent\LisAgent.exe" start= auto
-// Cấu hình ở appsettings.json cạnh tệp chạy: Server:Url, Server:AgentKey (lấy từ lệnh "LisServer agent add").
-var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddWindowsService(options => options.ServiceName = "LIS Agent");
-
-// Dịch vụ Windows chạy với thư mục làm việc là System32 — đọc cấu hình cạnh tệp chạy.
-builder.Configuration.AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true);
-builder.Configuration.AddEnvironmentVariables("LISAGENT_");
-
-var serverUrl = builder.Configuration["Server:Url"];
-var agentKey = builder.Configuration["Server:AgentKey"];
-if (string.IsNullOrWhiteSpace(serverUrl) || string.IsNullOrWhiteSpace(agentKey))
+// Cấu hình đến từ phép ghép nối (pairing.json trong thư mục dữ liệu, khoá đã mã hoá), không còn nhập tay.
+// Lệnh: run | pair <mã> | install [--code <mã>] | uninstall. Chạy phát triển: biến LISAGENT_Server__Url + LISAGENT_Server__AgentKey.
+AgentCommand command;
+try
 {
-    Console.Error.WriteLine("Thiếu cấu hình Server:Url hoặc Server:AgentKey trong appsettings.json.");
+    command = AgentCommand.Parse(args, WindowsServiceHelpers.IsWindowsService(), OperatingSystem.IsWindows());
+}
+catch (ArgumentException ex)
+{
+    Console.Error.WriteLine(ex.Message);
     return 2;
 }
 
-var dataRoot = builder.Configuration["DataDirectory"];
-builder.Services.AddSingleton(string.IsNullOrWhiteSpace(dataRoot) ? AgentPaths.Default : new AgentPaths(dataRoot));
-builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton(new ServerClient(ServerClient.CreateHttp(serverUrl, agentKey)));
-builder.Services.AddSingleton<LogUploader>();
-builder.Services.AddHostedService<AgentWorker>();
+// Dịch vụ Windows chạy với thư mục làm việc là System32 — đọc cấu hình cạnh tệp chạy.
+var config = new ConfigurationBuilder()
+    .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true)
+    .AddEnvironmentVariables("LISAGENT_")
+    .Build();
+var dataRoot = config["DataDirectory"];
+var paths = string.IsNullOrWhiteSpace(dataRoot) ? AgentPaths.Default : new AgentPaths(dataRoot);
+Directory.CreateDirectory(paths.Root);
+var store = new PairingStore(paths, SecretProtectors.ForCurrentOs(paths.Root), TimeProvider.System);
 
-await builder.Build().RunAsync();
-return 0;
+switch (command)
+{
+    case AgentCommand.Pair pair:
+        return await PairAsync(pair.CodeText, store);
+    case AgentCommand.Service or AgentCommand.Run:
+        return await RunAsync(config, paths, store);
+    default:
+        // Cài / gỡ dịch vụ và chế độ bấm đúp tệp cài do bước sau nối vào.
+        Console.Error.WriteLine("Chỉ hỗ trợ trên Windows");
+        return 2;
+}
+
+static async Task<int> PairAsync(string? codeText, PairingStore store)
+{
+    if (!PairingCode.TryFind(codeText, out var code))
+    {
+        Console.Error.WriteLine("Mã ghép nối không hợp lệ — sao chép đủ chuỗi bắt đầu bằng LIS1. từ mục Agent trên web.");
+        return 2;
+    }
+
+    try
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        var result = await PairingFlow.PairAsync(code, new PairingClient(http), store, TimeProvider.System, CancellationToken.None);
+        if (result.Warning is not null)
+        {
+            Console.Error.WriteLine(result.Warning);
+        }
+
+        Console.WriteLine($"Đã ghép nối với phòng khám {result.State.ClinicName} ({result.State.ClinicCode}), agent \"{result.State.AgentName}\".");
+        return 0;
+    }
+    catch (PairingException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 1;
+    }
+}
+
+static async Task<int> RunAsync(IConfiguration config, AgentPaths paths, PairingStore store)
+{
+    var connection = AgentConnection.Resolve(config, store, out var problem);
+    if (connection is null)
+    {
+        Console.Error.WriteLine(problem);
+        return 2;
+    }
+
+    var builder = Host.CreateApplicationBuilder();
+    builder.Services.AddWindowsService(options => options.ServiceName = "LIS Agent");
+    builder.Configuration.AddConfiguration(config);
+    builder.Services.AddSingleton(paths);
+    builder.Services.AddSingleton(TimeProvider.System);
+    builder.Services.AddSingleton(new ServerClient(ServerClient.CreateHttp(connection.ServerUrl, connection.AgentKey)));
+    builder.Services.AddSingleton<LogUploader>();
+    builder.Services.AddHostedService<AgentWorker>();
+
+    var host = builder.Build();
+    host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LisAgent")
+        .LogInformation("Agent {Version} kết nối tới {Url} (nguồn: {Source})", AgentVersion.Current, connection.ServerUrl, connection.Source);
+    await host.RunAsync();
+    return 0;
+}

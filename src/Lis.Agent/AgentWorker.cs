@@ -19,6 +19,12 @@ public sealed record AgentPaths(string Root)
     public string InstrumentsCache => Path.Combine(Root, "instruments.json");
 
     public string IdentityCache => Path.Combine(Root, "agent.json");
+
+    /// <summary>Kết quả ghép nối (khoá agent đã mã hoá).</summary>
+    public string Pairing => Path.Combine(Root, "pairing.json");
+
+    /// <summary>Hàng chờ của phòng khám cũ bị cách ly khi ghép nối sang phòng khám khác — không bao giờ tự gửi đi.</summary>
+    public string Quarantine => Path.Combine(Root, "cach-ly");
 }
 
 /// <summary>

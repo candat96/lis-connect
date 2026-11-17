@@ -54,7 +54,7 @@ public sealed class ServerClient(HttpClient http)
 
     public async Task SendStatusAsync(IReadOnlyList<InstrumentStatusReport> instruments, CancellationToken ct = default)
     {
-        using var response = await http.PostAsJsonAsync("agent/v1/status", new { instruments }, Json, ct);
+        using var response = await http.PostAsJsonAsync("agent/v1/status", new { instruments, agentVersion = AgentVersion.Current, machineName = Environment.MachineName }, Json, ct);
         await EnsureOkAsync(response, ct);
     }
 

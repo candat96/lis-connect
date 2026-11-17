@@ -9,6 +9,7 @@
     <Project Path="src/Lis.Server/Lis.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Lis.Agent.Tests/Lis.Agent.Tests.csproj" />
     <Project Path="tests/Lis.App.Tests/Lis.App.Tests.csproj" />
     <Project Path="tests/Lis.Core.Tests/Lis.Core.Tests.csproj" />
     <Project Path="tests/Lis.Data.Tests/Lis.Data.Tests.csproj" />
