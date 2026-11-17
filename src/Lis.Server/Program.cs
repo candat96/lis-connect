@@ -36,6 +36,8 @@ if (AdminCommands.IsCommand(args))
 var options = ServerOptions.From(builder.Configuration);
 
 builder.Services.AddSingleton(options);
+// Tệp cài agent đọc từ Agent:DistDir (AGENT_DIST_DIR); không cấu hình thì web báo chưa có tệp.
+builder.Services.AddSingleton(new AgentDistribution(options.AgentDistDir));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(sp => new SessionTokens(options.JwtSecret, sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(master);

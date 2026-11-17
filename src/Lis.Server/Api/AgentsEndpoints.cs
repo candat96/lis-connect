@@ -34,6 +34,8 @@ public static class AgentsEndpoints
 
     private const string InvalidBody = "Dữ liệu gửi lên không hợp lệ";
     private const string AgentNotFound = "Không tìm thấy agent";
+    private const string InstallerMissing = "Máy chủ chưa có tệp cài agent — xem mục AGENT_DIST_DIR trong hướng dẫn cài đặt";
+    private const string InstallerContentType = "application/vnd.microsoft.portable-executable";
     private const int DefaultLogLimit = 300;
     private const int MaxLogLimit = 1000;
     private static readonly string[] Directions = ["in", "out", "event", "agent"];
@@ -48,6 +50,9 @@ public static class AgentsEndpoints
         agents.MapPost("/{id}/pairing", (HttpContext http, MasterStore master, TimeProvider clock, ServerOptions options, string id) =>
             PairingAsync(http, master, clock, options, id));
         agents.MapDelete("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, string id) => DeleteAsync(http.Ctx(), master, clock, id));
+        // Tệp cài agent: chỉ Quản trị. Route tĩnh /installer không vướng /{id} vì /{id} chỉ có PATCH và DELETE.
+        agents.MapGet("/installer/info", (HttpContext http, AgentDistribution distribution) => InstallerInfo(http.Ctx(), distribution));
+        agents.MapGet("/installer", (HttpContext http, AgentDistribution distribution) => InstallerFile(http, distribution));
 
         // Ép về Delegate: lambda chỉ nhận HttpContext sẽ bị hiểu là RequestDelegate và bỏ mất kết quả trả về.
         api.MapGroup("/agent-logs").RequireSession().MapGet("", (Delegate)((HttpContext http) => LogsAsync(http.Ctx(), http.Request.Query)));
@@ -139,6 +144,26 @@ public static class AgentsEndpoints
 
         if (!await master.DeleteAgentAsync(ctx.Clinic.Id, agentId)) throw ApiException.NotFound(AgentNotFound);
         return Results.NoContent();
+    }
+
+    /// <summary>Phiên bản, SHA-256 và kích thước tệp cài agent; chưa có tệp thì <c>available</c> = false, ba trường kia null.</summary>
+    private static IResult InstallerInfo(RequestContext ctx, AgentDistribution distribution)
+    {
+        ctx.RequireAdmin();
+        var package = distribution.Current();
+        return Results.Ok(new { available = package is not null, version = package?.Version, sha256 = package?.Sha256, size = package?.Size });
+    }
+
+    /// <summary>Tải <c>LisAgent.exe</c>; web đọc <c>X-Agent-Version</c> và <c>X-Agent-Sha256</c> để kiểm tệp sau khi tải.</summary>
+    private static IResult InstallerFile(HttpContext http, AgentDistribution distribution)
+    {
+        var ctx = http.Ctx();
+        ctx.RequireAdmin();
+        var package = distribution.Current() ?? throw ApiException.NotFound(InstallerMissing);
+        http.Response.Headers["Content-Disposition"] = "attachment; filename=\"LisAgent.exe\"";
+        http.Response.Headers["X-Agent-Sha256"] = package.Sha256;
+        if (package.Version is not null) http.Response.Headers["X-Agent-Version"] = package.Version;
+        return Results.File(package.Path, InstallerContentType, enableRangeProcessing: false);
     }
 
     // ---- dùng chung ----
