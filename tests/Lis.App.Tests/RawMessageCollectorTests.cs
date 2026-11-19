@@ -154,6 +154,51 @@ public class RawMessageCollectorTests
     }
 
     [Fact]
+    public void Collector_bo_dem_cham_4MB_cat_ngay_thanh_ban_tin_Partial_phan_con_lai_sang_ban_sau()
+    {
+        var c = Collector();
+        c.Append(new byte[RawMessageCollector.MaxMessageBytes - 1], T0);
+        c.ApplyBoundaries(RawMessageCollector.MaxMessageBytes - 1, None, T0, isReceiving: true).ShouldBeEmpty();
+
+        c.Append(new byte[11], T0.AddSeconds(1));
+        var cut = c.ApplyBoundaries(11, None, T0.AddSeconds(1), isReceiving: true);
+
+        cut.Count.ShouldBe(1);
+        cut[0].Bytes.Length.ShouldBe(RawMessageCollector.MaxMessageBytes);
+        cut[0].Partial.ShouldBeTrue();
+        c.Pending.ShouldBe(10);
+    }
+
+    [Fact]
+    public void Collector_ranh_gioi_sau_bo_dem_gan_day_khong_sinh_ban_tin_qua_4MB()
+    {
+        var c = Collector();
+        c.Append(new byte[RawMessageCollector.MaxMessageBytes - 10], T0);
+        c.ApplyBoundaries(RawMessageCollector.MaxMessageBytes - 10, None, T0, isReceiving: true).ShouldBeEmpty();
+
+        c.Append(new byte[100], T0.AddSeconds(1));
+        var cut = c.ApplyBoundaries(100, [new DriverBoundary(50, false)], T0.AddSeconds(1), isReceiving: true);
+
+        cut.ShouldAllBe(m => m.Bytes.Length <= RawMessageCollector.MaxMessageBytes);
+        cut.Sum(m => m.Bytes.Length).ShouldBe(RawMessageCollector.MaxMessageBytes - 10 + 50);
+        cut.Select(m => m.Seq).ShouldBeInOrder();
+        c.Pending.ShouldBe(50);
+    }
+
+    [Fact]
+    public void Collector_Tick_va_ngat_ket_noi_cung_khong_vuot_4MB()
+    {
+        var c = Collector();
+        c.Append(new byte[RawMessageCollector.MaxMessageBytes - 1], T0);
+        // Receive ném lỗi nên ApplyBoundaries không được gọi; bộ đệm chỉ được cắt ở lượt Tick sau đó.
+        c.Append(new byte[5], T0);
+        var tick = c.OnTick(None, T0, isReceiving: true);
+        tick.Single().Bytes.Length.ShouldBe(RawMessageCollector.MaxMessageBytes);
+        c.Pending.ShouldBe(4);
+        c.OnDisconnect(T0).Single().Bytes.Length.ShouldBe(4);
+    }
+
+    [Fact]
     public void Collector_khong_xa_theo_tuoi_khi_driver_dang_nhan()
     {
         var c = Collector();

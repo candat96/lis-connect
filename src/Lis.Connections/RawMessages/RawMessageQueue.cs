@@ -4,9 +4,10 @@ namespace Lis.Connections.RawMessages;
 
 /// <summary>
 /// Hàng chờ bản tin thô trên đĩa: <c>{root}/{instrumentId:N}/{Seq:D20}-{Id:N}.json</c>. Ghi nguyên tử (.tmp, flush xuống đĩa, đổi tên);
-/// đọc theo <see cref="RawMessage.Seq"/>; tệp hỏng đổi thành <c>.loi</c> và không chặn hàng.
+/// đọc theo <see cref="RawMessage.Seq"/>; tệp hỏng đổi thành <c>.loi</c> và không chặn hàng. Tệp đang bị khoá thì
+/// <see cref="Peek"/> dừng tại đó (không nhảy qua), để bản tin sau không đến server trước bản tin trước.
 /// </summary>
-public sealed class RawMessageQueue : IRawMessageSink
+public class RawMessageQueue : IRawMessageSink
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = false };
     private static readonly TimeSpan StaleTemp = TimeSpan.FromDays(1);
@@ -39,7 +40,7 @@ public sealed class RawMessageQueue : IRawMessageSink
         File.Move(temp, path, overwrite: true);
     }
 
-    /// <summary>Tối đa <paramref name="max"/> bản tin của máy, theo <c>Seq</c> tăng dần.</summary>
+    /// <summary>Tối đa <paramref name="max"/> bản tin của máy, theo <c>Seq</c> tăng dần; dừng tại tệp đầu tiên đang bị khoá.</summary>
     public IReadOnlyList<RawMessage> Peek(Guid instrumentId, int max)
     {
         var dir = DirectoryOf(instrumentId);
@@ -67,7 +68,9 @@ public sealed class RawMessageQueue : IRawMessageSink
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                continue; // bỏ qua ở lần Peek này, lần sau đọc lại
+                // Dừng tại đây, không nhảy qua: server ingest đường Live theo thứ tự đến, bản tin cũ đến sau bản tin mới
+                // sẽ ghi giá trị cũ đè lên kết quả chạy lại của mẫu chưa duyệt. Lần Peek sau đọc lại từ tệp này.
+                break;
             }
 
             try
@@ -183,7 +186,7 @@ public sealed class RawMessageQueue : IRawMessageSink
         }
     }
 
-    public void Delete(RawMessage message)
+    public virtual void Delete(RawMessage message)
     {
         var path = Path.Combine(DirectoryOf(message.InstrumentId), FileName(message));
         if (File.Exists(path))
@@ -193,7 +196,7 @@ public sealed class RawMessageQueue : IRawMessageSink
     }
 
     /// <summary>Đổi tệp của bản tin thành <c>.json.loi</c> (server từ chối vì không hợp lệ): rời khỏi hàng gửi nhưng giữ lại để xem tay và giữ <see cref="MaxSeq"/>.</summary>
-    public void MarkInvalid(RawMessage message)
+    public virtual void MarkInvalid(RawMessage message)
     {
         var path = Path.Combine(DirectoryOf(message.InstrumentId), FileName(message));
         if (File.Exists(path))

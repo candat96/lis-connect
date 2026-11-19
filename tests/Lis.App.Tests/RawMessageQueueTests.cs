@@ -69,21 +69,43 @@ public class RawMessageQueueTests : IDisposable
     }
 
     [Fact]
-    public async Task Queue_peek_tep_dang_bi_khoa_khong_thanh_loi()
+    public async Task Queue_peek_tep_dang_bi_khoa_khong_thanh_loi_chi_tra_cac_tep_truoc_no()
     {
         var q = new RawMessageQueue(_root);
-        var m = Msg(10);
-        await q.SaveAsync(m, TestContext.Current.CancellationToken);
-        var path = Path.Combine(_root, Inst.ToString("N"), $"{10:D20}-{m.Id:N}.json");
+        var m1 = Msg(10);
+        var m2 = Msg(20);
+        var m3 = Msg(30);
+        foreach (var m in new[] { m1, m2, m3 })
+        {
+            await q.SaveAsync(m, TestContext.Current.CancellationToken);
+        }
+
+        var path = Path.Combine(_root, Inst.ToString("N"), $"{20:D20}-{m2.Id:N}.json");
 
         using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {
-            q.Peek(Inst, 10).ShouldBeEmpty();
+            // Dừng tại tệp bị khoá: bản tin Seq 30 không được vượt lên trước Seq 20 (server ingest theo thứ tự đến).
+            q.Peek(Inst, 10).Select(m => m.Id).ShouldBe([m1.Id]);
             File.Exists(path).ShouldBeTrue();
             File.Exists(path + ".loi").ShouldBeFalse();
         }
 
-        q.Peek(Inst, 10).Single().Id.ShouldBe(m.Id);
+        q.Peek(Inst, 10).Select(m => m.Id).ShouldBe([m1.Id, m2.Id, m3.Id]);
+    }
+
+    [Fact]
+    public async Task Queue_peek_tep_dau_bi_khoa_tra_rong_khong_nhay_qua()
+    {
+        var q = new RawMessageQueue(_root);
+        var m1 = Msg(10);
+        await q.SaveAsync(m1, TestContext.Current.CancellationToken);
+        await q.SaveAsync(Msg(20), TestContext.Current.CancellationToken);
+        var path = Path.Combine(_root, Inst.ToString("N"), $"{10:D20}-{m1.Id:N}.json");
+
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            q.Peek(Inst, 10).ShouldBeEmpty();
+        }
     }
 
     [Fact]

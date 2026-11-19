@@ -10,10 +10,14 @@ namespace Lis.Connections.RawMessages;
 /// <remarks>
 /// Byte không thuộc lượt nào (ACK/NAK máy trả, rác, CR sau FS) dồn vào đầu bản tin kế tiếp. Xả thành bản tin <c>Partial</c> khi:
 /// im lặng quá <c>idleFlush</c> kể từ byte cuối; byte đầu trong bộ đệm quá <see cref="MaxAge"/> mà driver đang rảnh
-/// (máy gửi rác đều đặn); ngắt kết nối. <c>initialSeq</c> = <c>Seq</c> lớn nhất đã dùng trước lần khởi động này, để <c>Seq</c> không lùi khi đồng hồ máy bị chỉnh lùi.
+/// (máy gửi rác đều đặn); ngắt kết nối; bộ đệm chạm <see cref="MaxMessageBytes"/> (cắt ngay, phần còn lại sang bản sau,
+/// để không bản tin nào bị server từ chối vì quá lớn). <c>initialSeq</c> = <c>Seq</c> lớn nhất đã dùng trước lần khởi động này, để <c>Seq</c> không lùi khi đồng hồ máy bị chỉnh lùi.
 /// </remarks>
 public sealed class RawMessageCollector(Guid instrumentId, TimeProvider clock, TimeSpan idleFlush, long initialSeq = 0)
 {
+    /// <summary>Kích thước tối đa một bản tin (byte gốc). Khớp <c>RawMessagesEndpoint.MaxMessageBytes</c> ở Lis.Server: lớn hơn bị server trả <c>khong-hop-le</c>.</summary>
+    public const int MaxMessageBytes = 4 * 1024 * 1024;
+
     /// <summary>Tuổi tối đa của byte rời khi driver rảnh.</summary>
     public static readonly TimeSpan MaxAge = TimeSpan.FromSeconds(60);
 
@@ -59,10 +63,11 @@ public sealed class RawMessageCollector(Guid instrumentId, TimeProvider clock, T
                 continue;
             }
 
-            result.Add(Take(cut, b.Abandoned, now));
+            Emit(result, cut, b.Abandoned, now);
             consumed += cut;
         }
 
+        SizeFlush(result, now);
         AgeFlush(result, now, isReceiving);
         return result;
     }
@@ -77,29 +82,59 @@ public sealed class RawMessageCollector(Guid instrumentId, TimeProvider clock, T
         {
             if (_buffer.Count > 0)
             {
-                result.Add(Take(_buffer.Count, b.Abandoned, now));
+                Emit(result, _buffer.Count, b.Abandoned, now);
             }
         }
 
         if (_buffer.Count > 0 && now - _lastByteAt >= idleFlush)
         {
-            result.Add(Take(_buffer.Count, true, now));
+            Emit(result, _buffer.Count, true, now);
         }
 
+        SizeFlush(result, now);
         AgeFlush(result, now, isReceiving);
         return result;
     }
 
     /// <summary>Kết nối đứt / dừng: còn byte thì xả một bản tin <c>Partial</c>.</summary>
-    public IReadOnlyList<RawMessage> OnDisconnect(DateTimeOffset now) =>
-        _buffer.Count > 0 ? [Take(_buffer.Count, true, now)] : [];
+    public IReadOnlyList<RawMessage> OnDisconnect(DateTimeOffset now)
+    {
+        var result = new List<RawMessage>();
+        if (_buffer.Count > 0)
+        {
+            Emit(result, _buffer.Count, true, now);
+        }
+
+        return result;
+    }
 
     private void AgeFlush(List<RawMessage> result, DateTimeOffset now, bool isReceiving)
     {
         if (!isReceiving && _buffer.Count > 0 && now - _chunks[0].At > MaxAge)
         {
-            result.Add(Take(_buffer.Count, true, now));
+            Emit(result, _buffer.Count, true, now);
         }
+    }
+
+    /// <summary>Bộ đệm chạm giới hạn thì cắt ngay thành bản tin <c>Partial</c>, phần dư (nếu có) ở lại bộ đệm cho bản sau.</summary>
+    private void SizeFlush(List<RawMessage> result, DateTimeOffset now)
+    {
+        while (_buffer.Count >= MaxMessageBytes)
+        {
+            result.Add(Take(MaxMessageBytes, true, now));
+        }
+    }
+
+    /// <summary>Lấy <paramref name="count"/> byte; nhiều hơn giới hạn thì chia thành các bản <c>Partial</c> ≤ 4 MB, bản cuối mang cờ <paramref name="partial"/>.</summary>
+    private void Emit(List<RawMessage> result, int count, bool partial, DateTimeOffset now)
+    {
+        while (count > MaxMessageBytes)
+        {
+            result.Add(Take(MaxMessageBytes, true, now));
+            count -= MaxMessageBytes;
+        }
+
+        result.Add(Take(count, partial, now));
     }
 
     private RawMessage Take(int count, bool partial, DateTimeOffset now)
