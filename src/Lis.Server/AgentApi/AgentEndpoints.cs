@@ -73,6 +73,8 @@ public static class AgentEndpoints
             return await next(context);
         });
 
+        group.MapAgentChannel();
+
         group.MapGet("/me", (HttpContext http) =>
         {
             var id = Identity(http);
@@ -248,11 +250,11 @@ public static class AgentEndpoints
     }
 
     /// <summary>Bỏ khoảng trắng đầu/cuối, rỗng → null (giữ giá trị cũ), cắt tối đa <paramref name="max"/> ký tự.</summary>
-    private static string? Clean(string? text, int max) => string.IsNullOrWhiteSpace(text) ? null : Truncate(text.Trim(), max);
+    internal static string? Clean(string? text, int max) => string.IsNullOrWhiteSpace(text) ? null : Truncate(text.Trim(), max);
 
     private static string? Truncate(string? text, int max) => text is null || text.Length <= max ? text : text[..max];
 
-    private static AgentIdentity Identity(HttpContext http) => (AgentIdentity)http.Items[IdentityItem]!;
+    internal static AgentIdentity Identity(HttpContext http) => (AgentIdentity)http.Items[IdentityItem]!;
 
     private static bool IsMine(InstrumentInfo instrument, AgentIdentity id) =>
         string.Equals(instrument.WorkstationCode, id.Agent.WorkstationCode, StringComparison.OrdinalIgnoreCase);

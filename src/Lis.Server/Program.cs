@@ -43,6 +43,9 @@ builder.Services.AddSingleton(sp => new SessionTokens(options.JwtSecret, sp.GetR
 builder.Services.AddSingleton(master);
 // Lệnh gửi cho agent (bảng agent_command trên CSDL master) — cùng CSDL với MasterStore.
 builder.Services.AddSingleton(new AgentCommandStore(masterConnection));
+builder.Services.AddSingleton<AgentChannelHub>();
+builder.Services.AddSingleton<AgentCommandSweeper>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AgentCommandSweeper>());
 // Đồng hồ lấy từ DI (test thay được); TenantRegistry bọc nó thành giờ phòng khám cho mọi dịch vụ chia ngày / tính tuổi.
 builder.Services.AddSingleton(sp => new TenantRegistry(tenantTemplate, sp.GetRequiredService<TimeProvider>(), localUtcOffset));
 builder.Services.AddSingleton<ClinicProvisioner>();
@@ -58,6 +61,12 @@ await master.EnsureSchemaAsync();
 // Nâng schema CSDL của mọi phòng khám lên bản mới nhất trước khi nhận request; phòng khám lỗi bị cô lập (503), phòng khác chạy bình thường.
 await app.Services.GetRequiredService<ClinicProvisioner>().UpgradeAllAsync();
 app.Services.GetRequiredService<SetupGuard>().LogIfGenerated(app.Logger);
+
+// Lệnh gửi agent còn dở từ lần chạy trước không rõ kết quả — đánh dấu unknown, không tự chạy lại. Làm trước khi nhận kết nối agent.
+await app.Services.GetRequiredService<AgentCommandStore>().MarkUnfinishedUnknownAsync(app.Services.GetRequiredService<TimeProvider>().GetUtcNow());
+
+// Kênh lệnh agent: ping 20 giây, mất ping 60 giây thì coi là đứt.
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20), KeepAliveTimeout = TimeSpan.FromSeconds(60) });
 
 app.MapGet("/healthz", () => Results.Ok(new { ok = true }));
 app.MapAgentApi();

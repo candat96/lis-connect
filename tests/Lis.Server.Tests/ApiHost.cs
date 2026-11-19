@@ -93,6 +93,22 @@ public sealed class ApiHost : IAsyncDisposable
     public async Task<string> AddAgentKeyAsync(Clinic clinic, string name, string workstationCode) =>
         (await _master.AddAgentAsync(clinic.Id, name, workstationCode)).Key;
 
+    /// <summary>Thêm agent, trả cả agent lẫn khoá (kênh lệnh cần cả hai).</summary>
+    public async Task<(AgentInfo Agent, string Key)> AddAgentWithKeyAsync(Clinic clinic, string name, string workstationCode)
+    {
+        var (agent, key) = await _master.AddAgentAsync(clinic.Id, name, workstationCode);
+        return (agent, key);
+    }
+
+    /// <summary>Máy chủ thử (mở WebSocket tới kênh lệnh bằng <c>CreateWebSocketClient</c>).</summary>
+    public Microsoft.AspNetCore.TestHost.TestServer Server => _factory.Server;
+
+    public Lis.Server.AgentApi.AgentChannelHub Hub => _factory.Services.GetRequiredService<Lis.Server.AgentApi.AgentChannelHub>();
+
+    public Lis.Server.AgentApi.AgentCommandSweeper Sweeper => _factory.Services.GetRequiredService<Lis.Server.AgentApi.AgentCommandSweeper>();
+
+    public AgentCommandStore AgentCommands => _factory.Services.GetRequiredService<AgentCommandStore>();
+
     /// <summary>Token phiên hợp lệ cho một tài khoản bất kỳ của phòng khám (không cần CSDL phòng khám).</summary>
     public string IssueToken(Clinic clinic) =>
         _factory.Services.GetRequiredService<SessionTokens>().Issue(Guid.NewGuid(), clinic.Id);
