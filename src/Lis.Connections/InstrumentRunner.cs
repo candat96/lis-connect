@@ -85,7 +85,7 @@ public sealed class InstrumentRunner : IAsyncDisposable
     private long _unsavedBytes;
     private string? _rawFailureText;
 
-    /// <summary>Trần phòng thủ của hàng giữ trong bộ nhớ khi đĩa lỗi: chạm trần thì ngắt máy như khi ghi đĩa lỗi.</summary>
+    /// <summary>Trần cảnh báo của hàng giữ trong bộ nhớ khi đĩa lỗi (đang có bản tin chưa ghi thì runner đã ngắt máy, hàng không phình thêm).</summary>
     private const int MaxUnsavedMessages = 1000;
 
     private const long MaxUnsavedBytes = 50L * 1024 * 1024;
@@ -340,8 +340,8 @@ public sealed class InstrumentRunner : IAsyncDisposable
     }
 
     /// <summary>
-    /// Ghi các bản tin hoàn tất (và mọi bản tin còn tồn) theo thứ tự. Trả false nếu còn bản tin chưa xuống đĩa (lỗi ghi, hoặc
-    /// hàng giữ chạm trần): bản tin giữ trong bộ nhớ, không ném. Chỉ ném khi bị huỷ.
+    /// Ghi các bản tin hoàn tất (và mọi bản tin còn tồn) theo thứ tự. Trả false nếu còn bản tin chưa xuống đĩa
+    /// (ghi lỗi): bản tin giữ trong bộ nhớ, không ném. Chỉ ném khi bị huỷ.
     /// </summary>
     private async Task<bool> StoreRawAsync(IReadOnlyList<RawMessage> fresh, CancellationToken ct)
     {
@@ -353,12 +353,8 @@ public sealed class InstrumentRunner : IAsyncDisposable
 
         while (_unsaved.Count > 0)
         {
-            if (_unsaved.Count > MaxUnsavedMessages || _unsavedBytes > MaxUnsavedBytes)
-            {
-                LogEvent($"Hàng bản tin chưa ghi đĩa chạm trần ({_unsaved.Count} bản tin, {_unsavedBytes} byte)");
-                return false;
-            }
-
+            // Luôn thử ghi trước: kiểm trần trước khi ghi sẽ kẹt vĩnh viễn khi hàng giữ đã vượt trần mà đĩa đã phục hồi.
+            // Còn bản tin chưa ghi là runner đã ngắt máy, không nhận thêm — trần chỉ còn là cảnh báo.
             try
             {
                 await _raw!.SaveAsync(_unsaved[0], ct);
@@ -372,6 +368,11 @@ public sealed class InstrumentRunner : IAsyncDisposable
             catch (Exception ex)
             {
                 LogEvent($"Chưa ghi được bản tin thô xuống đĩa ({ex.Message}) — giữ trong bộ nhớ ({_unsaved.Count} bản tin)");
+                if (_unsaved.Count > MaxUnsavedMessages || _unsavedBytes > MaxUnsavedBytes)
+                {
+                    LogEvent($"Hàng bản tin chưa ghi đĩa vượt trần ({_unsaved.Count} bản tin, {_unsavedBytes} byte)");
+                }
+
                 return false;
             }
         }
@@ -443,7 +444,11 @@ public sealed class InstrumentRunner : IAsyncDisposable
             }
         }
 
-        LogEvent($"[Critical] Dừng runner khi đĩa vẫn lỗi: mất {_unsaved.Count} bản tin thô, tổng {_unsavedBytes} byte (chưa ghi xuống đĩa)");
+        var lost = $"[Critical] Dừng runner khi đĩa vẫn lỗi: mất {_unsaved.Count} bản tin thô, tổng {_unsavedBytes} byte (chưa ghi xuống đĩa)";
+        LogEvent(lost);
+        // Log thô nằm trên chính cái đĩa đang lỗi — thêm kênh không phụ thuộc đĩa để còn dấu vết.
+        System.Diagnostics.Trace.TraceError(lost);
+        try { Console.Error.WriteLine(lost); } catch (IOException) { }
     }
 
     /// <summary>Xử lý đầu ra driver: ghi chú → log; khối gửi → máy; kết quả → CSDL; câu hỏi chỉ định → tra rồi trả lời.</summary>
