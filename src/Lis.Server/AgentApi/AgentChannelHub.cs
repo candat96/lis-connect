@@ -96,10 +96,21 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
         }
         finally
         {
-            // So khớp rồi mới gỡ: nếu kênh mới đã thay chỗ thì không đụng tới lệnh của kênh mới.
-            if (_connections.TryRemove(new KeyValuePair<Guid, ChannelConnection>(identity.Agent.Id, connection)))
+            // So khớp rồi mới gỡ: nếu kênh mới đã thay chỗ thì không đụng tới lệnh của kênh mới. Giữ khoá đăng ký của agent suốt
+            // "gỡ → đánh dấu": agent nối lại ngay lúc này phải chờ, nên không lệnh nào kịp gửi vào kênh mới rồi bị đánh dấu unknown
+            // (MarkDisconnectedAsync tính theo agent, không theo kênh).
+            var gate = _registerLocks.GetOrAdd(identity.Agent.Id, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync();
+            try
             {
-                await MarkDisconnectedSafeAsync(identity.Agent.Id);
+                if (_connections.TryRemove(new KeyValuePair<Guid, ChannelConnection>(identity.Agent.Id, connection)))
+                {
+                    await MarkDisconnectedSafeAsync(identity.Agent.Id);
+                }
+            }
+            finally
+            {
+                gate.Release();
             }
 
             await connection.FinishAsync();
