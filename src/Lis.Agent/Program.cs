@@ -102,7 +102,9 @@ static async Task<int> RunAsync(IConfiguration config, IConfiguration environmen
     builder.Services.AddSingleton<IAgentCommandHandler, ReloadConfigHandler>();
     builder.Services.AddSingleton<IAgentCommandHandler, ReconnectInstrumentHandler>();
     builder.Services.AddSingleton<IAgentCommandHandler, FlushPendingHandler>();
-    builder.Services.AddSingleton<IAgentCommandHandler, RestartHandler>();
+    builder.Services.AddSingleton<IAgentCommandHandler>(sp => new RestartHandler(
+        sp.GetRequiredService<AgentRuntime>(), sp.GetRequiredService<IAgentLifetime>(), runningAsService,
+        sp.GetRequiredService<ILogger<RestartHandler>>()));
     builder.Services.AddSingleton<IAgentCommandHandler>(sp => new RevokeHandler(
         sp.GetRequiredService<AgentRuntime>(), paths, sp.GetRequiredService<IAgentLifetime>(),
         runningAsService && OperatingSystem.IsWindows() ? ServiceControlForWindows() : null, runningAsService,

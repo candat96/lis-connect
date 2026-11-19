@@ -329,7 +329,10 @@ public sealed class InstrumentRunner : IAsyncDisposable
         {
             Directory.CreateDirectory(PendingDirectory);
             var file = Path.Combine(PendingDirectory, $"{reading.ReceivedAt:yyyyMMdd-HHmmssfff}-{Guid.NewGuid():N}.json");
-            File.WriteAllText(file, JsonSerializer.Serialize(reading, JsonOptions), Encoding.UTF8);
+            // Ghi ra tệp .tmp rồi đổi tên (nguyên tử trên cùng ổ đĩa) — mất điện giữa chừng không để lại tệp .json dở.
+            var temp = file + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(reading, JsonOptions), Encoding.UTF8);
+            File.Move(temp, file);
         }
         catch (Exception ex)
         {
@@ -360,6 +363,7 @@ public sealed class InstrumentRunner : IAsyncDisposable
             return;
         }
 
+        DeleteStaleTempFiles();
         foreach (var file in Directory.GetFiles(PendingDirectory, "*.json").Order(StringComparer.Ordinal))
         {
             InstrumentReading? reading;
@@ -393,6 +397,25 @@ public sealed class InstrumentRunner : IAsyncDisposable
         }
 
         UpdatePendingCount();
+    }
+
+    /// <summary>Tệp <c>.tmp</c> sót lại do tắt máy giữa lúc ghi: không bao giờ gửi; quá 1 ngày thì xoá.</summary>
+    private void DeleteStaleTempFiles()
+    {
+        try
+        {
+            foreach (var temp in Directory.GetFiles(PendingDirectory, "*.tmp"))
+            {
+                if (_clock.GetUtcNow() - File.GetLastWriteTimeUtc(temp) > TimeSpan.FromDays(1))
+                {
+                    File.Delete(temp);
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // dọn không được thì để lần sau
+        }
     }
 
     private void UpdatePendingCount()

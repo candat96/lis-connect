@@ -165,4 +165,112 @@ public sealed class ChannelClientTests : IDisposable
         await run.WaitAsync(Polling.Wait, TestContext.Current.CancellationToken);
         manager.StopAlls.ShouldBe(0);
     }
+
+    private async Task<(FakeWebSocket Socket, Task Run, CancellationTokenSource Cts, List<FakeWebSocket> All)> StartTrackedAsync(FakeTimeProvider clock)
+    {
+        var all = new List<FakeWebSocket>();
+        var client = NewClient(new CommandDispatcher([new RecordingHandler("x", [])]), clock, (_, _, _) =>
+        {
+            var socket = new FakeWebSocket();
+            lock (all)
+            {
+                all.Add(socket);
+            }
+
+            return Task.FromResult<WebSocket>(socket);
+        });
+        var cts = new CancellationTokenSource();
+        var run = client.RunAsync(cts.Token);
+        await Polling.UntilAsync(() => { lock (all) { return all.Count == 1 && all[0].SentSnapshot().Length == 1; } }, "hello");
+        return (all[0], run, cts, all);
+    }
+
+    [Fact]
+    public async Task Thong_diep_bi_chia_manh_duoc_ghep_lai()
+    {
+        var clock = new FakeTimeProvider();
+        var (socket, run, cts, _) = await StartTrackedAsync(clock);
+        var id = Guid.NewGuid();
+        var bytes = System.Text.Encoding.UTF8.GetBytes(ChannelProtocol.Serialize(new ChannelEnvelope(ChannelProtocol.Command, id, "x")));
+        var cut = bytes.Length / 3;
+        socket.PushRaw(bytes[..cut], last: false);
+        socket.PushRaw(bytes[cut..(2 * cut)], last: false);
+        socket.PushRaw(bytes[(2 * cut)..], last: true);
+
+        await Polling.UntilAsync(() => socket.SentSnapshot().Length == 3, "started + result");
+        socket.SentSnapshot()[2].Id.ShouldBe(id);
+
+        await cts.CancelAsync();
+        await run.WaitAsync(Polling.Wait, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Thong_diep_qua_lon_thi_bo_ket_noi_va_noi_lai()
+    {
+        var clock = new FakeTimeProvider();
+        var (socket, run, cts, all) = await StartTrackedAsync(clock);
+        socket.PushRaw(new byte[ChannelProtocol.MaxMessageBytes + 1024], last: true);
+
+        await Polling.UntilAsync(
+            () => { lock (all) { return all.Count == 2 && all[1].SentSnapshot().Length == 1; } },
+            "nối lại sau khung quá lớn", () => clock.Advance(TimeSpan.FromMilliseconds(200)));
+        socket.State.ShouldNotBe(WebSocketState.Open);
+
+        await cts.CancelAsync();
+        await run.WaitAsync(Polling.Wait, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Server_dong_kenh_thi_noi_lai()
+    {
+        var clock = new FakeTimeProvider();
+        var (socket, run, cts, all) = await StartTrackedAsync(clock);
+        socket.ServerClose();
+
+        await Polling.UntilAsync(
+            () => { lock (all) { return all.Count == 2 && all[1].SentSnapshot().Length == 1; } },
+            "nối lại sau khi server đóng", () => clock.Advance(TimeSpan.FromMilliseconds(200)));
+
+        await cts.CancelAsync();
+        await run.WaitAsync(Polling.Wait, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Cho_noi_lai_ve_1_giay_sau_khi_hello_gui_thanh_cong()
+    {
+        var clock = new FakeTimeProvider();
+        var connects = 0;
+        var sockets = new List<FakeWebSocket>();
+        DateTimeOffset helloAt = default;
+        var client = NewClient(new CommandDispatcher([]), clock, (_, _, _) =>
+        {
+            var n = Interlocked.Increment(ref connects);
+            if (n <= 3)
+            {
+                throw new HttpRequestException("chưa nối được");
+            }
+
+            var socket = new FakeWebSocket();
+            lock (sockets)
+            {
+                sockets.Add(socket);
+            }
+
+            return Task.FromResult<WebSocket>(socket);
+        });
+        using var cts = new CancellationTokenSource();
+        var run = client.RunAsync(cts.Token);
+
+        // 3 lần hỏng (chờ 1 + 2 + 4 giây) rồi lần 4 nối được.
+        await Polling.UntilAsync(() => { lock (sockets) { return sockets.Count == 1 && sockets[0].SentSnapshot().Length == 1; } }, "hello sau 3 lần hỏng", () => clock.Advance(TimeSpan.FromMilliseconds(100)));
+        helloAt = clock.GetUtcNow();
+        sockets[0].ServerClose();
+
+        await Polling.UntilAsync(() => Volatile.Read(ref connects) == 5, "lần nối kế tiếp", () => clock.Advance(TimeSpan.FromMilliseconds(100)));
+        // Chưa reset thì phải chờ >= 8 giây (lần thứ 4); reset thì khoảng 1 giây (tối đa 1,2 giây + một nhịp đồng hồ).
+        (clock.GetUtcNow() - helloAt).ShouldBeLessThan(TimeSpan.FromSeconds(2));
+
+        await cts.CancelAsync();
+        await run.WaitAsync(Polling.Wait, TestContext.Current.CancellationToken);
+    }
 }

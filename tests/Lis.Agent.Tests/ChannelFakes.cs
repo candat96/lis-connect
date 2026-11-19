@@ -61,8 +61,9 @@ internal sealed class FakeLifetime : IAgentLifetime
 /// <summary>WebSocket giả trong bộ nhớ: server "đẩy" khung vào <see cref="Incoming"/>, khung agent gửi nằm ở <see cref="Sent"/>.</summary>
 internal sealed class FakeWebSocket : WebSocket
 {
-    private readonly Channel<byte[]?> _incoming = Channel.CreateUnbounded<byte[]?>();
+    private readonly Channel<(byte[]? Bytes, bool Last)> _incoming = Channel.CreateUnbounded<(byte[]?, bool)>();
     private WebSocketState _state = WebSocketState.Open;
+    private (byte[] Bytes, int Offset, bool Last)? _current;
 
     public List<ChannelEnvelope> Sent { get; } = [];
 
@@ -75,22 +76,35 @@ internal sealed class FakeWebSocket : WebSocket
     public override string? SubProtocol => null;
 
     /// <summary>Server gửi một khung.</summary>
-    public void Push(ChannelEnvelope envelope) => _incoming.Writer.TryWrite(Encoding.UTF8.GetBytes(ChannelProtocol.Serialize(envelope)));
+    public void Push(ChannelEnvelope envelope) => PushRaw(Encoding.UTF8.GetBytes(ChannelProtocol.Serialize(envelope)), last: true);
+
+    /// <summary>Server gửi một mảnh (<paramref name="last"/> = mảnh cuối của thông điệp).</summary>
+    public void PushRaw(byte[] bytes, bool last) => _incoming.Writer.TryWrite((bytes, last));
 
     /// <summary>Server đóng kênh.</summary>
-    public void ServerClose() => _incoming.Writer.TryWrite(null);
+    public void ServerClose() => _incoming.Writer.TryWrite((null, true));
 
     public override async Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken)
     {
-        var frame = await _incoming.Reader.ReadAsync(cancellationToken);
-        if (frame is null)
+        if (_current is null)
         {
-            _state = WebSocketState.CloseReceived;
-            return new WebSocketReceiveResult(0, WebSocketMessageType.Close, true);
+            var (bytes, last) = await _incoming.Reader.ReadAsync(cancellationToken);
+            if (bytes is null)
+            {
+                _state = WebSocketState.CloseReceived;
+                return new WebSocketReceiveResult(0, WebSocketMessageType.Close, true);
+            }
+
+            _current = (bytes, 0, last);
         }
 
-        frame.CopyTo(buffer.Array!, buffer.Offset);
-        return new WebSocketReceiveResult(frame.Length, WebSocketMessageType.Text, true);
+        var (data, offset, isLast) = _current.Value;
+        var count = Math.Min(buffer.Count, data.Length - offset);
+        Array.Copy(data, offset, buffer.Array!, buffer.Offset, count);
+        offset += count;
+        var finished = offset >= data.Length;
+        _current = finished ? null : (data, offset, isLast);
+        return new WebSocketReceiveResult(count, WebSocketMessageType.Text, finished && isLast);
     }
 
     public override Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType messageType, bool endOfMessage, CancellationToken cancellationToken)

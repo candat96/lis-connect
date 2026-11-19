@@ -137,17 +137,37 @@ public sealed class FlushPendingHandler(AgentRuntime runtime) : IAgentCommandHan
         CommandJson.Of(new { remaining = await runtime.RequireManager().RetryPendingNowAsync() });
 }
 
-/// <summary><c>restart</c>: trả kết quả trước, rồi mới khởi động lại.</summary>
-public sealed class RestartHandler(IAgentLifetime lifetime) : IAfterResultHandler
+/// <summary>
+/// <c>restart</c>: chỉ khi chạy như dịch vụ (có Windows Recovery bật lại) — chạy console thì thoát là mất agent hẳn nên báo lỗi.
+/// Trả kết quả trước; rồi đóng êm kết nối máy (tối đa <see cref="StopTimeout"/>, để không mất kết quả đang ghi) và mới khởi động lại.
+/// </summary>
+public sealed class RestartHandler(AgentRuntime runtime, IAgentLifetime lifetime, bool runningAsService, ILogger<RestartHandler>? logger = null)
+    : IAfterResultHandler
 {
+    public static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
+
     public string Name => "restart";
 
-    public Task<JsonElement?> RunAsync(JsonElement? args, CancellationToken ct) => Task.FromResult<JsonElement?>(null);
+    public Task<JsonElement?> RunAsync(JsonElement? args, CancellationToken ct) =>
+        runningAsService
+            ? Task.FromResult<JsonElement?>(null)
+            : throw new AgentCommandException("Agent không chạy như dịch vụ nên không tự khởi động lại");
 
-    public Task AfterResultAsync(CancellationToken ct)
+    public async Task AfterResultAsync(CancellationToken ct)
     {
+        try
+        {
+            if (runtime.Manager is { } manager)
+            {
+                await manager.StopAllAsync().WaitAsync(StopTimeout, ct);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger?.LogWarning("Đóng kết nối máy trước khi khởi động lại chưa xong: {Message}", ex.Message);
+        }
+
         lifetime.RestartSoon();
-        return Task.CompletedTask;
     }
 }
 

@@ -92,11 +92,13 @@ public sealed class ChannelClient
 
             if (socket is not null)
             {
-                attempt = 0;
-                _reportedDown = false;
                 try
                 {
-                    await SessionAsync(socket, ct);
+                    await SessionAsync(socket, ct, () =>
+                    {
+                        attempt = 0; // chỉ coi là nối được khi hello đã gửi xong
+                        _reportedDown = false;
+                    });
                     ReportDown("Kênh lệnh tới server đã đóng — đang nối lại");
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -134,7 +136,7 @@ public sealed class ChannelClient
         }
     }
 
-    private async Task SessionAsync(WebSocket socket, CancellationToken ct)
+    private async Task SessionAsync(WebSocket socket, CancellationToken ct, Action onHelloSent)
     {
         using var sendLock = new SemaphoreSlim(1, 1);
 
@@ -160,6 +162,7 @@ public sealed class ChannelClient
         try
         {
             await HelloAsync(SendAsync);
+            onHelloSent();
             _logger.LogInformation("Đã nối kênh lệnh tới server");
 
             var buffer = new byte[16 * 1024];

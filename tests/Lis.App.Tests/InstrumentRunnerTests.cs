@@ -107,6 +107,27 @@ public class InstrumentRunnerTests : IDisposable
         runner.Status.PendingToRetry.ShouldBe(0);
     }
 
+    [Fact]
+    public async Task StalePendingTempFile_IsNotSentNorCounted_AndOldOnesAreDeleted()
+    {
+        var sink = new FakeSink();
+        await using var runner = Runner(new FakeLink(), sink, new FakeRawLogStore());
+        Directory.CreateDirectory(runner.PendingDirectory);
+        var fresh = Path.Combine(runner.PendingDirectory, "a.json.tmp");
+        var old = Path.Combine(runner.PendingDirectory, "b.json.tmp");
+        File.WriteAllText(fresh, "{ dở dang");
+        File.WriteAllText(old, "{ dở dang");
+        File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-2));
+
+        await runner.RetryPendingAsync();
+
+        sink.Readings.ShouldBeEmpty();
+        File.Exists(fresh).ShouldBeTrue();
+        File.Exists(old).ShouldBeFalse();
+        Directory.GetFiles(runner.PendingDirectory, "*.loi").ShouldBeEmpty();
+        runner.Status.PendingToRetry.ShouldBe(0);
+    }
+
     private sealed class FakeLink : IByteLink
     {
         public Channel<byte[]> Incoming { get; } = Channel.CreateUnbounded<byte[]>();

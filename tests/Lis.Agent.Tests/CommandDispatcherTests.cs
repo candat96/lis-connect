@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Lis.Connections;
 using Lis.Core.Agents;
 using Lis.Data.Instruments;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -144,16 +145,57 @@ public sealed class CommandDispatcherTests : IDisposable
         lifetime.Revokes.ShouldBe(1);
     }
 
+    private sealed class OrderedConnections(List<string> log) : IInstrumentConnections
+    {
+        public event Action<InstrumentConnectionStatus>? StatusChanged { add { } remove { } }
+
+        public InstrumentConnectionStatus StatusOf(Guid id) => new(id, LinkState.NotRunning, "giả");
+
+        public Task ReloadAsync() => Task.CompletedTask;
+
+        public Task RestartAsync(Guid id) => Task.CompletedTask;
+
+        public async Task StopAllAsync()
+        {
+            await Task.Delay(50);
+            log.Add("StopAll xong");
+        }
+
+        public Task<int> RetryPendingNowAsync() => Task.FromResult(0);
+    }
+
+    private sealed class OrderedLifetime(List<string> log) : IAgentLifetime
+    {
+        public void RestartSoon() => log.Add("RestartSoon");
+
+        public void StopForRevoke() => log.Add("StopForRevoke");
+    }
+
     [Fact]
-    public async Task Restart_tra_ket_qua_roi_moi_khoi_dong_lai()
+    public async Task Restart_dich_vu_tra_ket_qua_roi_dong_may_xong_moi_khoi_dong_lai()
+    {
+        var log = new List<string>();
+        var runtime = new AgentRuntime { Manager = new OrderedConnections(log) };
+        var dispatcher = new CommandDispatcher([new RestartHandler(runtime, new OrderedLifetime(log), runningAsService: true)]);
+        var command = Command("restart");
+
+        (await dispatcher.RunAsync(command, _ => Task.CompletedTask, TestContext.Current.CancellationToken)).Ok.ShouldBe(true);
+        log.ShouldBeEmpty();
+        await dispatcher.AfterResultAsync(command, TestContext.Current.CancellationToken);
+
+        log.ShouldBe(["StopAll xong", "RestartSoon"]);
+    }
+
+    [Fact]
+    public async Task Restart_khong_phai_dich_vu_bao_loi_va_khong_thoat()
     {
         var lifetime = new FakeLifetime();
-        var dispatcher = new CommandDispatcher([new RestartHandler(lifetime)]);
-        var command = Command("restart");
-        (await dispatcher.RunAsync(command, _ => Task.CompletedTask, TestContext.Current.CancellationToken)).Ok.ShouldBe(true);
-        lifetime.Restarts.ShouldBe(0);
-        await dispatcher.AfterResultAsync(command, TestContext.Current.CancellationToken);
-        lifetime.Restarts.ShouldBe(1);
+        var dispatcher = new CommandDispatcher([new RestartHandler(new AgentRuntime(), lifetime, runningAsService: false)]);
+        var result = await dispatcher.RunAsync(Command("restart"), _ => Task.CompletedTask, TestContext.Current.CancellationToken);
+
+        result.Ok.ShouldBe(false);
+        result.Error.ShouldBe("Agent không chạy như dịch vụ nên không tự khởi động lại");
+        lifetime.Restarts.ShouldBe(0); // ok=false nên ChannelClient không gọi AfterResult
     }
 
     private static InstrumentInfo Instrument(Guid id, string workstation) =>
