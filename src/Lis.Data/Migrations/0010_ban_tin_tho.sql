@@ -53,3 +53,9 @@ CREATE INDEX IF NOT EXISTS raw_message_decode_msg_idx ON raw_message_decode (raw
 -- (xoá theo máy + raw_ref rồi ingest lại), nên chỉ cần chỉ mục tra cứu thường.
 CREATE INDEX IF NOT EXISTS qc_result_rawref_idx ON qc_result (instrument_id, raw_ref);
 CREATE INDEX IF NOT EXISTS unmatched_result_rawref_idx ON unmatched_result (instrument_id, raw_ref);
+
+-- Giải mã lại ra giá trị khác nhưng đang có bản chờ thay của bản tin khác: dòng vết riêng, không lẫn với 'thay-the' (máy gửi lại).
+-- 0010 chưa phát hành nên sửa CHECK ngay tại đây (0003 đã tạo CHECK với 6 hành động cũ).
+ALTER TABLE result_history DROP CONSTRAINT IF EXISTS result_history_action_check;
+ALTER TABLE result_history ADD CONSTRAINT result_history_action_check
+    CHECK (action IN ('nhan', 'sua', 'duyet', 'huy-duyet', 'thay-the', 'bo-thay-the', 'giai-ma-lai-khac'));

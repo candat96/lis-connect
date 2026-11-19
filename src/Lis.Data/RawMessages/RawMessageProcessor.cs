@@ -38,6 +38,8 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
     private const string KindAuto = "tu-dong";
     private const string KindRedo = "giai-ma-lai";
 
+    private const string RedecodeEmptyNote = "Giải mã lại không ra kết quả nào — giữ nguyên dòng Chưa ghép/QC cũ. Kiểm cấu hình máy.";
+
     /// <summary>Số lần thử lại tối đa khi gặp deadlock / lỗi tạm thời, nghỉ <see cref="RetryStep"/> × lần thử.</summary>
     private const int MaxTransientRetries = 3;
 
@@ -77,7 +79,7 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
                 {
                     var summary = await db.InTransactionAsync(
                         (connection, transaction) => RunAsync(message, claim.ClaimedAt, kind, actorId, state, connection, transaction), ct);
-                    if (summary.Unmatched > 0 && learning is not null)
+                    if (kind == KindAuto && summary.Unmatched > 0 && learning is not null)
                     {
                         await TryLearnAsync(message.InstrumentId);
                     }
@@ -90,12 +92,12 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
                     log?.Invoke($"Bản tin {id}: lượt {kind} mất quyền chạy, bỏ lượt này.");
                     break;
                 }
-                catch (Exception ex) when (attempt < MaxTransientRetries && IsTransient(ex))
+                catch (Exception ex) when (attempt < MaxTransientRetries && !ct.IsCancellationRequested && IsTransient(ex))
                 {
                     log?.Invoke($"Bản tin {id}: lỗi tạm thời ({ex.GetType().Name}), thử lại lần {attempt + 1}: {ex.Message}");
                     await Task.Delay(RetryStep * (attempt + 1), clock, ct);
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                catch (Exception ex) when (!ct.IsCancellationRequested)
                 {
                     // Kể cả OperationCanceledException mà token KHÔNG bị huỷ (hết giờ nội bộ…): là lỗi, không phải thành công.
                     await RecordErrorAsync(message, claim.ClaimedAt, kind, actorId, state.Config, ex);
@@ -103,9 +105,12 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
                 }
             }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (Exception) when (ct.IsCancellationRequested)
         {
+            // Token đã huỷ (tắt máy chủ): lỗi nào kéo theo (kể cả không phải OperationCanceledException, vd kết nối đứt) cũng xử lý như
+            // tắt máy — trả trạng thái như trước (có hàng rào), không ghi loi.
             await RevertAsync(id, claim.PreviousStatus!, claim.ClaimedAt);
+            ct.ThrowIfCancellationRequested();
             throw;
         }
 
@@ -139,9 +144,13 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
     /// giải mã các bản tin <c>cho-giai-ma</c> (tối đa 500 cái mỗi lần gọi, từng máy theo thứ tự truyền). Một bản tin lỗi
     /// không chặn các bản tin sau; lỗi hạ tầng được gom và ném sau cùng.
     /// </summary>
-    public async Task RecoverAsync(CancellationToken ct)
+    public async Task<RawMessageRecovery> RecoverAsync(CancellationToken ct)
     {
-        await _store.RecoverAsync(RecoverGrace, ct);
+        var recovery = await _store.RecoverAsync(RecoverGrace, ct);
+        if (recovery.Requeued > 0 || recovery.NeedsReview > 0)
+        {
+            log?.Invoke($"Phục hồi bản tin thô: {recovery.Requeued} bản tin về cho-giai-ma, {recovery.NeedsReview} bản tin sang can-xem-lai.");
+        }
 
         List<Exception>? failures = null;
         foreach (var id in await _store.PendingAsync(500))
@@ -165,6 +174,8 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
         {
             throw new AggregateException("Một số bản tin thô không giải mã được do lỗi hạ tầng.", failures);
         }
+
+        return recovery;
     }
 
     /// <summary>Kết quả claim: dòng + trạng thái trước + dấu thời gian claim; hoặc <see cref="Skipped"/> khi không được chạy.</summary>
@@ -231,6 +242,14 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
         var rawRef = $"ban-tin:{message.Id}";
         var totals = new Totals();
 
+        if (kind == KindRedo && decoded.Readings.Count == 0)
+        {
+            // Giải mã lại không ra kết quả nào (cấu hình máy sai, bộ giải mã lỗi…): không xoá gì, không ingest — giữ dòng Chưa ghép / QC cũ.
+            var emptyJson = Json(0, totals, decoded.QueryBarcodes, decoded.Notes, decoded.Abandoned, decoded.Discarded, RedecodeEmptyNote);
+            await FinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, config, RawMessageStatus.Error, emptyJson);
+            return new Summary(RawMessageStatus.Error, 0);
+        }
+
         if (kind == KindRedo)
         {
             // Dòng QC / Chưa ghép chưa xử lý do bản tin này sinh ra ở lượt trước bị thay bằng kết quả của bộ giải mã hiện tại.
@@ -292,7 +311,10 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
             error = "Bản tin dở dang, không ra kết quả nào.";
         }
 
-        var resultJson = Json(decoded.Readings.Count, totals, decoded.QueryBarcodes, decoded.Notes, decoded.Abandoned, decoded.Discarded, error);
+        // Dòng Chưa ghép đã xử lý mà giải mã lại ra giá trị khác: giữ nguyên dòng đó, báo bằng resolvedMismatch + cảnh báo.
+        var warnings = decoded.Discarded.Concat(totals.ResolvedMismatches.Select(m =>
+            $"Dòng Chưa ghép đã xử lý (mẫu {m.Barcode}, kênh {m.Channel}) có giá trị {m.OldValue}, giải mã lại ra {m.NewValue} — kiểm tra lại")).ToList();
+        var resultJson = Json(decoded.Readings.Count, totals, decoded.QueryBarcodes, decoded.Notes, decoded.Abandoned, warnings, error);
         await FinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, config, status, resultJson);
         return new Summary(status, totals.Unmatched);
     }
@@ -329,7 +351,7 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
         var updated = await connection.ExecuteAsync(
             """
             UPDATE raw_message
-            SET decode_status = @status, decode_result = @resultJson::jsonb, decoder_version = @version, decoded_at = now()
+            SET decode_status = @status, decode_result = @resultJson::jsonb, decoder_version = @version, decoded_at = now(), decode_attempts = 0
             WHERE id = @id AND decode_status = 'dang-giai-ma' AND decode_started_at = @claimedAt
             """,
             new { id, status, resultJson, version = RawMessageDecoder.Version, claimedAt }, transaction);
@@ -438,9 +460,11 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
             pendingCleared = t.PendingCleared,
             supersededUnmatched = t.SupersededUnmatched,
             supersededQc = t.SupersededQc,
+            olderThanCurrent = t.OlderThanCurrent,
             queries,
             notes,
             warnings,
+            resolvedMismatch = t.ResolvedMismatches.Select(m => new { unmatchedId = m.UnmatchedId, barcode = m.Barcode, channel = m.Channel, oldValue = m.OldValue, newValue = m.NewValue }),
             abandoned,
             error,
         });
@@ -466,6 +490,8 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
         public int PendingCleared { get; private set; }
         public int SupersededUnmatched { get; set; }
         public int SupersededQc { get; set; }
+        public int OlderThanCurrent { get; private set; }
+        public List<ResolvedMismatch> ResolvedMismatches { get; } = [];
 
         public void Add(IngestDetail d)
         {
@@ -476,6 +502,11 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
             Unchanged += d.Unchanged;
             Conflicts += d.Conflicts;
             PendingCleared += d.PendingCleared;
+            OlderThanCurrent += d.OlderThanCurrent;
+            if (d.ResolvedMismatches is { Count: > 0 } mismatches)
+            {
+                ResolvedMismatches.AddRange(mismatches);
+            }
         }
     }
 

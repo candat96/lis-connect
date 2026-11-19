@@ -31,6 +31,9 @@ internal enum InstrumentWriteKind
     Unchanged,
     PendingCleared,
     Conflict,
+
+    /// <summary>Chỉ ở chế độ Redecode: kết quả hiện có do bản tin MỚI hơn bản tin đang giải mã ghi — không tạo chờ thay, không ghi gì.</summary>
+    OlderThanCurrent,
 }
 
 /// <summary>
@@ -67,7 +70,7 @@ internal static class InstrumentValuePipeline
         // Đọc lại và khóa kết quả hiện có *sau khi* đã giữ khóa mẫu — bản LEFT JOIN trong
         // ItemContext có thể cũ khi một máy trạm khác vừa ghi/duyệt xong.
         var existing = await connection.QuerySingleOrDefaultAsync<ExistingResultRow>(
-            "SELECT id, value, status, pending_value, pending_raw_ref, instrument_flag FROM result WHERE order_item_id = @orderItemId FOR UPDATE",
+            "SELECT id, value, status, source, raw_ref, pending_value, pending_raw_ref, pending_instrument_flag, instrument_flag FROM result WHERE order_item_id = @orderItemId FOR UPDATE",
             new { orderItemId = item.OrderItemId }, transaction);
 
         // Map kênh (hệ số/số lẻ/giữ dấu so sánh) chỉ áp khi nó thật sự trỏ tới đúng chỉ số của
@@ -83,9 +86,16 @@ internal static class InstrumentValuePipeline
 
         if (mode == ValueWriteMode.Redecode && existing is { Value: { Length: > 0 } currentValue })
         {
-            if (currentValue == computed.Value && NormalizeFlag(existing.InstrumentFlag) == NormalizeFlag(reading.InstrumentFlag))
+            if (currentValue == computed.Value && NormalFlag(existing.InstrumentFlag) == NormalFlag(reading.InstrumentFlag))
             {
                 return InstrumentWriteKind.Unchanged;
+            }
+
+            // Bản tin cũ hơn không tạo chờ thay đè lên kết quả máy do bản tin mới hơn ghi (giá trị sửa tay, đường cũ, bản tin
+            // cũ hơn hoặc cùng thứ tự thì vẫn vào chờ thay).
+            if (existing.Source == "may" && await IsWrittenByNewerMessageAsync(connection, transaction, existing.RawRef, rawRef))
+            {
+                return InstrumentWriteKind.OlderThanCurrent;
             }
 
             if (existing.PendingValue is not null)
@@ -93,12 +103,12 @@ internal static class InstrumentValuePipeline
                 if (existing.PendingRawRef != rawRef)
                 {
                     await ResultWriter.InsertHistoryAsync(
-                        connection, transaction, existing.Id, "thay-the", currentValue, computed.Value ?? adjusted,
+                        connection, transaction, existing.Id, "giai-ma-lai-khac", currentValue, computed.Value ?? adjusted,
                         conflictReason, actorId: null, now);
                     return InstrumentWriteKind.Conflict;
                 }
 
-                if (existing.PendingValue == (computed.Value ?? ""))
+                if (existing.PendingValue == (computed.Value ?? "") && NormalFlag(existing.PendingInstrumentFlag) == NormalFlag(reading.InstrumentFlag))
                 {
                     // Chính bản tin này đã đặt bản chờ thay đúng giá trị đó (giải mã lại lần nữa) — không ghi trùng.
                     return InstrumentWriteKind.Unchanged;
@@ -117,13 +127,13 @@ internal static class InstrumentValuePipeline
             {
                 // Chỉ số chưa có giá trị chính thức nhưng đang treo bản chờ thay của bản tin khác: không ghi đè nó.
                 await ResultWriter.InsertHistoryAsync(
-                    connection, transaction, existing.Id, "thay-the", existing.Value, computed.Value ?? adjusted, conflictReason, actorId: null, now);
+                    connection, transaction, existing.Id, "giai-ma-lai-khac", existing.Value, computed.Value ?? adjusted, conflictReason, actorId: null, now);
                 return InstrumentWriteKind.Conflict;
             }
 
             if (existing is { Status: ResultWriter.StatusApproved } && existing.Value == computed.Value)
             {
-                if (existing.PendingValue is not null)
+                if (existing.PendingValue is not null && mode == ValueWriteMode.Live)
                 {
                     // Máy gửi lại đúng giá trị đã duyệt trong khi đang có bản chờ thay thế từ lần
                     // gửi trước (vd lần đó đọc lỗi) — bản chờ thay thế đó không còn đúng nữa, bỏ đi
@@ -172,15 +182,65 @@ internal static class InstrumentValuePipeline
         return InstrumentWriteKind.Stored;
     }
 
-    private static string? NormalizeFlag(string? flag) => string.IsNullOrEmpty(flag) ? null : flag;
+    /// <summary>
+    /// Chuẩn hoá cờ máy CHỈ để so sánh (không đổi dữ liệu lưu): bỏ khoảng trắng, tách theo <c>~</c> và <c>;</c>, bỏ phần rỗng và
+    /// phần <c>N</c> (bình thường, không phân biệt hoa thường), sắp xếp rồi nối bằng <c>~</c>; rỗng thì <c>null</c>.
+    /// Nhờ đó cờ trống (nhập tay) và <c>N</c> (HL7 báo bình thường) coi là một.
+    /// </summary>
+    internal static string? NormalFlag(string? flag)
+    {
+        if (string.IsNullOrWhiteSpace(flag))
+        {
+            return null;
+        }
+
+        var parts = flag.Trim()
+            .Split(['~', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(p => !string.Equals(p, "N", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        return parts.Length == 0 ? null : string.Join('~', parts);
+    }
+
+    /// <summary>
+    /// <paramref name="existingRawRef"/> dạng <c>ban-tin:X</c>, bản tin X tồn tại và (<c>completed_at</c>, <c>seq</c>) của X MỚI hơn
+    /// bản tin đang giải mã (<paramref name="currentRawRef"/>). Không phân tích được hoặc không tìm thấy thì false (vào chờ thay như thường).
+    /// </summary>
+    private static async Task<bool> IsWrittenByNewerMessageAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, string? existingRawRef, string? currentRawRef)
+    {
+        if (!TryParseMessageRef(existingRawRef, out var existingId) || !TryParseMessageRef(currentRawRef, out var currentId) || existingId == currentId)
+        {
+            return false;
+        }
+
+        return await connection.ExecuteScalarAsync<bool>(
+            """
+            SELECT COALESCE(
+                (SELECT (e.completed_at, e.seq) > (c.completed_at, c.seq)
+                 FROM raw_message e, raw_message c
+                 WHERE e.id = @existingId AND c.id = @currentId), false)
+            """,
+            new { existingId, currentId }, transaction);
+    }
+
+    private static bool TryParseMessageRef(string? rawRef, out Guid id)
+    {
+        const string prefix = "ban-tin:";
+        id = default;
+        return rawRef is not null && rawRef.StartsWith(prefix, StringComparison.Ordinal) && Guid.TryParse(rawRef.AsSpan(prefix.Length), out id);
+    }
 
     private sealed record ExistingResultRow
     {
         public Guid Id { get; init; }
         public string? Value { get; init; }
         public string Status { get; init; } = "";
+        public string? Source { get; init; }
+        public string? RawRef { get; init; }
         public string? PendingValue { get; init; }
         public string? PendingRawRef { get; init; }
+        public string? PendingInstrumentFlag { get; init; }
         public string? InstrumentFlag { get; init; }
     }
 }

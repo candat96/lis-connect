@@ -149,7 +149,7 @@ public class RawMessageRunFenceTests(PostgresFixture fixture)
 
         var row = await StatusAsync(env, id);
         row.DecodeStatus.ShouldBe(RawMessageStatus.NeedsReview);
-        row.DecodeResult!.Value.GetProperty("note").GetString().ShouldBe("Giải mã bị gián đoạn 2 lần");
+        row.DecodeResult!.Value.GetProperty("note").GetString().ShouldBe("Giải mã bị gián đoạn 1 lần");
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public class RawMessageRunFenceTests(PostgresFixture fixture)
         calls.ShouldBe(2);
         (await HistoryAsync(env.Db, items[env.WbcId])).Count(h => h.Action == "nhan").ShouldBe(1);
         (await env.CountAsync("SELECT count(*) FROM raw_message_decode WHERE raw_message_id = @id", new { id })).ShouldBe(1);
-        (await env.CountAsync("SELECT decode_attempts FROM raw_message WHERE id = @id", new { id })).ShouldBe(1);
+        (await env.CountAsync("SELECT decode_attempts FROM raw_message WHERE id = @id", new { id })).ShouldBe(0);
     }
 
     [Fact]
@@ -312,6 +312,33 @@ public class RawMessageRunFenceTests(PostgresFixture fixture)
         result.ShouldBe(InstrumentDeleteResult.Deleted);
         (await env.CountAsync("SELECT count(*) FROM raw_message")).ShouldBe(0);
         (await env.CountAsync("SELECT count(*) FROM instrument WHERE id = @id", new { id = env.InstrumentId })).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Xoa_may_chi_luu_partial_thi_xoa_chi_luu_khong_partial_thi_chan()
+    {
+        var env = await RawEnv.CreateAsync(fixture);
+        var store = new InstrumentStore(env.Db);
+        var partial = await env.StoreAsync([1], partial: true);
+        var whole = await env.StoreAsync([2]);
+        await using (var connection = await env.Db.OpenAsync(Ct))
+        {
+            await connection.ExecuteAsync("UPDATE raw_message SET decode_status = 'chi-luu' WHERE id IN (@partial, @whole)", new { partial, whole });
+        }
+
+        // chi-luu không partial là bản tin lạ của máy đã chọn giao thức: chặn, và báo số bản tin chặn.
+        var blocked = await store.DeleteWithDetailAsync(env.InstrumentId);
+        blocked.Result.ShouldBe(InstrumentDeleteResult.InUseRawMessages);
+        blocked.BlockingRawMessages.ShouldBe(1);
+        (await env.Store.FindAsync(partial)).ShouldNotBeNull("bị chặn thì không xoá gì");
+
+        await using (var connection = await env.Db.OpenAsync(Ct))
+        {
+            await connection.ExecuteAsync("UPDATE raw_message SET partial = true WHERE id = @whole", new { whole });
+        }
+
+        (await store.DeleteAsync(env.InstrumentId)).ShouldBe(InstrumentDeleteResult.Deleted);
+        (await env.CountAsync("SELECT count(*) FROM raw_message")).ShouldBe(0);
     }
 
     [Fact]

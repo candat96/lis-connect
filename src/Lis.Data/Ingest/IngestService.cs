@@ -15,10 +15,14 @@ public sealed record IngestOutcome(int Stored, int PendingReplacement, int Unmat
 /// <see cref="PendingCleared"/> (máy gửi lại đúng giá trị đã duyệt nên bỏ bản chờ thay cũ).
 /// </summary>
 internal sealed record IngestDetail(
-    int Stored, int PendingReplacement, int Unmatched, int Qc, int Unchanged = 0, int Conflicts = 0, int PendingCleared = 0)
+    int Stored, int PendingReplacement, int Unmatched, int Qc, int Unchanged = 0, int Conflicts = 0, int PendingCleared = 0,
+    int OlderThanCurrent = 0, IReadOnlyList<ResolvedMismatch>? ResolvedMismatches = null)
 {
     public IngestOutcome ToOutcome() => new(Stored, PendingReplacement, Unmatched, Qc);
 }
+
+/// <summary>Giải mã lại ra giá trị khác với dòng Chưa ghép ĐÃ xử lý (đã gán / bỏ qua): không tạo dòng mới, báo để người dùng xem lại.</summary>
+internal sealed record ResolvedMismatch(Guid UnmatchedId, string Barcode, string Channel, string? OldValue, string NewValue);
 
 /// <summary>Mã lý do trong <c>unmatched_result.reason</c>.</summary>
 public static class UnmatchedReason
@@ -107,15 +111,16 @@ public sealed class IngestService(Db db, TimeProvider clock)
         if (sample is null)
         {
             var noBarcode = 0;
+            var noBarcodeMismatches = new List<ResolvedMismatch>();
             foreach (var item in reading.Items)
             {
-                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.NoBarcode, mode))
+                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.NoBarcode, mode, noBarcodeMismatches))
                 {
                     noBarcode++;
                 }
             }
 
-            return new IngestDetail(0, 0, noBarcode, 0);
+            return new IngestDetail(0, 0, noBarcode, 0, ResolvedMismatches: noBarcodeMismatches);
         }
 
         var stored = 0;
@@ -124,6 +129,8 @@ public sealed class IngestService(Db db, TimeProvider clock)
         var unchanged = 0;
         var conflicts = 0;
         var cleared = 0;
+        var older = 0;
+        var mismatches = new List<ResolvedMismatch>();
 
         foreach (var item in reading.Items)
         {
@@ -131,7 +138,7 @@ public sealed class IngestService(Db db, TimeProvider clock)
             var channel = await InstrumentStore.FindChannelAsync(connection, transaction, reading.InstrumentId, channelCode);
             if (channel is null)
             {
-                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.ChannelUnmapped, mode))
+                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.ChannelUnmapped, mode, mismatches))
                 {
                     unmatched++;
                 }
@@ -149,7 +156,7 @@ public sealed class IngestService(Db db, TimeProvider clock)
 
             if (context is null)
             {
-                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.NotOrdered, mode))
+                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.NotOrdered, mode, mismatches))
                 {
                     unmatched++;
                 }
@@ -178,6 +185,9 @@ public sealed class IngestService(Db db, TimeProvider clock)
                 case InstrumentWriteKind.Conflict:
                     conflicts++;
                     break;
+                case InstrumentWriteKind.OlderThanCurrent:
+                    older++;
+                    break;
             }
         }
 
@@ -187,30 +197,37 @@ public sealed class IngestService(Db db, TimeProvider clock)
             await _results.TryAutoApproveAsync(connection, transaction, sample.Id);
         }
 
-        return new IngestDetail(stored, pending, unmatched, 0, unchanged, conflicts, cleared);
+        return new IngestDetail(stored, pending, unmatched, 0, unchanged, conflicts, cleared, older, mismatches);
     }
 
     /// <summary>
-    /// Chèn một dòng Chưa ghép; trả false khi bỏ qua. Chỉ ở chế độ giải mã lại: bỏ qua khi đã có dòng ĐÃ XỬ LÝ cùng
-    /// (máy, raw_ref, barcode, kênh, giá trị) — dòng đã xử lý được giữ nguyên, không tạo lại.
+    /// Chèn một dòng Chưa ghép; trả false khi bỏ qua. Chỉ ở chế độ giải mã lại: đã có dòng ĐÃ XỬ LÝ cùng (máy, raw_ref, barcode, kênh)
+    /// thì không tạo dòng mới — dòng đã xử lý được giữ nguyên; nếu giá trị khác thì ghi vào <paramref name="mismatches"/> để báo.
     /// </summary>
     private static async Task<bool> InsertUnmatchedAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, InstrumentReading reading, string barcode, ReadingItem item, string reason,
-        ValueWriteMode mode)
+        ValueWriteMode mode, List<ResolvedMismatch> mismatches)
     {
         var channelCode = item.ChannelCode.Trim();
-        if (mode == ValueWriteMode.Redecode
-            && await connection.ExecuteScalarAsync<bool>(
-                """
-                SELECT EXISTS (
-                    SELECT 1 FROM unmatched_result
-                    WHERE instrument_id = @instrumentId AND raw_ref = @rawRef AND barcode = @barcode AND channel_code = @channelCode
-                      AND value = @value AND resolved_at IS NOT NULL)
-                """,
-                new { instrumentId = reading.InstrumentId, rawRef = reading.RawRef, barcode, channelCode, value = item.RawValue },
-                transaction))
+        if (mode == ValueWriteMode.Redecode)
         {
-            return false;
+            var resolved = (await connection.QueryAsync<ResolvedRow>(
+                """
+                SELECT id, value FROM unmatched_result
+                WHERE instrument_id = @instrumentId AND raw_ref = @rawRef AND barcode = @barcode AND channel_code = @channelCode
+                  AND resolved_at IS NOT NULL
+                ORDER BY received_at, id
+                """,
+                new { instrumentId = reading.InstrumentId, rawRef = reading.RawRef, barcode, channelCode }, transaction)).ToList();
+            if (resolved.Count > 0)
+            {
+                if (!resolved.Any(r => r.Value == item.RawValue))
+                {
+                    mismatches.Add(new ResolvedMismatch(resolved[0].Id, barcode, channelCode, resolved[0].Value, item.RawValue));
+                }
+
+                return false;
+            }
         }
 
         await connection.ExecuteAsync(
@@ -232,6 +249,12 @@ public sealed class IngestService(Db db, TimeProvider clock)
             },
             transaction);
         return true;
+    }
+
+    private sealed record ResolvedRow
+    {
+        public Guid Id { get; init; }
+        public string? Value { get; init; }
     }
 
     private sealed record SampleLockRow

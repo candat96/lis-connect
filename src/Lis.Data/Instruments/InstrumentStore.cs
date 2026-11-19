@@ -74,6 +74,9 @@ public enum InstrumentDeleteResult
     InUseRawMessages,
 }
 
+/// <summary>Kết quả xoá máy kèm số bản tin thô đang chặn (chỉ có nghĩa khi <see cref="InstrumentDeleteResult.InUseRawMessages"/>).</summary>
+public sealed record InstrumentDeleteOutcome(InstrumentDeleteResult Result, int BlockingRawMessages);
+
 /// <summary>Danh mục máy và map kênh mà màn "Máy &amp; map" cần. Cài đặt thật là <see cref="InstrumentStore"/>; kiểm thử ViewModel dùng bản giả.</summary>
 public interface IInstrumentStore
 {
@@ -341,39 +344,40 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
     }
 
     /// <summary>
-    /// Xoá máy cùng map kênh, danh sách chỉ số khai báo và các bản tin thô đã xong (<c>da-giai-ma</c>, <c>khong-co-ket-qua</c>) của nó
-    /// trong một giao dịch. Còn bản tin thô ở trạng thái khác thì <see cref="InstrumentDeleteResult.InUseRawMessages"/>.
+    /// Xoá máy cùng map kênh, danh sách chỉ số khai báo và các bản tin thô xong hẳn của nó trong một giao dịch: <c>da-giai-ma</c>,
+    /// <c>khong-co-ket-qua</c>, và <c>chi-luu</c> có <c>partial</c> (máy chỉ nghe chỉ sinh bản tin partial). Còn bản tin khác
+    /// (<c>chi-luu</c> không partial, <c>cho-giai-ma</c>, <c>dang-giai-ma</c>, <c>loi</c>, <c>can-xem-lai</c>) thì
+    /// <see cref="InstrumentDeleteResult.InUseRawMessages"/> và không xoá gì.
     /// </summary>
-    public async Task<InstrumentDeleteResult> DeleteAsync(Guid instrumentId)
+    public async Task<InstrumentDeleteResult> DeleteAsync(Guid instrumentId) => (await DeleteWithDetailAsync(instrumentId)).Result;
+
+    /// <summary>Như <see cref="DeleteAsync"/>, kèm số bản tin thô đang chặn (để báo "Máy còn {n} bản tin thô chưa xử lý xong").</summary>
+    public async Task<InstrumentDeleteOutcome> DeleteWithDetailAsync(Guid instrumentId)
     {
+        const string finished = "(decode_status IN ('da-giai-ma', 'khong-co-ket-qua') OR (decode_status = 'chi-luu' AND partial))";
         try
         {
             return await db.InTransactionAsync(async (connection, transaction) =>
             {
-                var unfinished = await connection.ExecuteScalarAsync<bool>(
-                    """
-                    SELECT EXISTS (
-                        SELECT 1 FROM raw_message
-                        WHERE instrument_id = @instrumentId AND decode_status NOT IN ('da-giai-ma', 'khong-co-ket-qua'))
-                    """,
+                var blocking = await connection.ExecuteScalarAsync<int>(
+                    $"SELECT count(*) FROM raw_message WHERE instrument_id = @instrumentId AND NOT {finished}",
                     new { instrumentId }, transaction);
-                if (unfinished)
+                if (blocking > 0)
                 {
-                    return InstrumentDeleteResult.InUseRawMessages;
+                    return new InstrumentDeleteOutcome(InstrumentDeleteResult.InUseRawMessages, blocking);
                 }
 
                 await connection.ExecuteAsync(
-                    "DELETE FROM raw_message WHERE instrument_id = @instrumentId AND decode_status IN ('da-giai-ma', 'khong-co-ket-qua')",
-                    new { instrumentId }, transaction);
+                    $"DELETE FROM raw_message WHERE instrument_id = @instrumentId AND {finished}", new { instrumentId }, transaction);
                 await connection.ExecuteAsync("DELETE FROM instrument_service WHERE instrument_id = @instrumentId", new { instrumentId }, transaction);
                 await connection.ExecuteAsync("DELETE FROM instrument_channel WHERE instrument_id = @instrumentId", new { instrumentId }, transaction);
                 var deleted = await connection.ExecuteAsync("DELETE FROM instrument WHERE id = @instrumentId", new { instrumentId }, transaction);
-                return deleted == 0 ? InstrumentDeleteResult.NotFound : InstrumentDeleteResult.Deleted;
+                return new InstrumentDeleteOutcome(deleted == 0 ? InstrumentDeleteResult.NotFound : InstrumentDeleteResult.Deleted, 0);
             });
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
         {
-            return InstrumentDeleteResult.InUse;
+            return new InstrumentDeleteOutcome(InstrumentDeleteResult.InUse, 0);
         }
     }
 

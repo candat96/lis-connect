@@ -142,13 +142,14 @@ public static class InstrumentsEndpoints
         var instrumentId = ApiFormat.ParseId(id);
         ctx.RequireAdmin();
         var workstationCode = (await ctx.Tenant.Instruments.ListAsync()).FirstOrDefault(i => i.Id == instrumentId)?.WorkstationCode;
-        var result = await ctx.Tenant.Instruments.DeleteAsync(instrumentId);
+        var outcome = await ctx.Tenant.Instruments.DeleteWithDetailAsync(instrumentId);
+        var result = outcome.Result;
         if (result == InstrumentDeleteResult.Deleted) await NotifyAgentsAsync(ctx, master, clock, hub, logger, workstationCode);
         return result switch
         {
             InstrumentDeleteResult.Deleted => Results.NoContent(),
             InstrumentDeleteResult.NotFound => throw ApiException.NotFound(InstrumentNotFound),
-            InstrumentDeleteResult.InUseRawMessages => throw ApiException.Conflict("Máy còn bản tin thô chưa xử lý xong"),
+            InstrumentDeleteResult.InUseRawMessages => throw ApiException.Conflict($"Máy còn {outcome.BlockingRawMessages} bản tin thô chưa xử lý xong"),
             _ => throw ApiException.Conflict("Máy đã có kết quả xét nghiệm gắn với nó nên không xoá được — hãy chuyển sang \"Ngừng dùng\""),
         };
     }
