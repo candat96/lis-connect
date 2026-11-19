@@ -110,7 +110,8 @@ public sealed class AgentCommandStore(string masterConnection)
             WHERE status IN ('sent', 'running') AND
                   coalesce(started_at, requested_at) + CASE name
                       WHEN 'update' THEN interval '10 minutes'
-                      WHEN 'test-port' THEN make_interval(secs => coalesce((args->>'seconds')::double precision, 0) + 30)
+                      -- seconds chỉ nhận số nguyên 0..99 (đã kẹp 60); giá trị khác (chữ, âm, rỗng, số lớn) coi như 0, không làm hỏng cả lần quét.
+                      WHEN 'test-port' THEN make_interval(secs => (CASE WHEN args->>'seconds' ~ '^[0-9]{1,2}$' THEN least((args->>'seconds')::int, 60) ELSE 0 END) + 30)
                       ELSE interval '2 minutes'
                   END < @utcNow
             """,
@@ -146,14 +147,10 @@ public sealed class AgentCommandStore(string masterConnection)
         return row is null ? null : ToRow(row);
     }
 
-    /// <summary>Lịch sử lệnh của một agent thuộc phòng khám, mới nhất trước; <paramref name="limit"/> trong khoảng 1..200.</summary>
+    /// <summary>Lịch sử lệnh của một agent thuộc phòng khám, mới nhất trước; <paramref name="limit"/> được kẹp vào khoảng 1..200.</summary>
     public async Task<IReadOnlyList<AgentCommandRow>> ListAsync(Guid clinicId, Guid agentId, int limit)
     {
-        if (limit is < 1 or > 200)
-        {
-            throw new ArgumentOutOfRangeException(nameof(limit), "Số lệnh cần xem phải trong khoảng 1 đến 200");
-        }
-
+        limit = Math.Clamp(limit, 1, 200);
         await using var connection = await OpenAsync();
         var rows = await connection.QueryAsync<CommandRow>(
             $"""

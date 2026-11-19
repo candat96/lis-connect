@@ -174,7 +174,27 @@ public sealed class AgentCommandStoreTests(ServerFixture fixture) : IClassFixtur
         (await env.Commands.ListAsync(env.ClinicB.Id, env.AgentA.Id, 20)).ShouldBeEmpty();
         (await env.Commands.FindAsync(env.ClinicB.Id, cmd.Id)).ShouldBeNull();
         (await env.Commands.ListAsync(env.ClinicA.Id, env.AgentA.Id, 20)).Select(c => c.Id).ShouldBe([cmd.Id]);
-        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => env.Commands.ListAsync(env.ClinicA.Id, env.AgentA.Id, 0));
+        (await env.Commands.ListAsync(env.ClinicA.Id, env.AgentA.Id, 0)).Count.ShouldBe(1);
+        (await env.Commands.ListAsync(env.ClinicA.Id, env.AgentA.Id, 500)).Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Tham_so_seconds_hong_khong_lam_hong_quet()
+    {
+        var env = await SetupAsync();
+        // test-port có seconds không phải số: phải coi như 0 và quá hạn sau 30 giây, không được làm hỏng cả lần quét.
+        var port = await QueueAsync(env, "test-port", Start, "{\"seconds\":\"abc\"}");
+        (await env.Commands.TransitionAsync(port.Id, ["queued"], "running", Start)).ShouldBeTrue();
+        var scan = await QueueAsync(env, "scan-ports", Start);
+        (await env.Commands.TransitionAsync(scan.Id, ["queued"], "running", Start)).ShouldBeTrue();
+
+        (await env.Commands.TimeoutRunningAsync(Start.AddSeconds(29))).ShouldBe(0);
+        (await env.Commands.TimeoutRunningAsync(Start.AddSeconds(31))).ShouldBe(1);
+        (await FindAsync(env, port.Id)).Status.ShouldBe("unknown");
+        (await FindAsync(env, scan.Id)).Status.ShouldBe("running");
+
+        (await env.Commands.TimeoutRunningAsync(Start.AddMinutes(2).AddSeconds(1))).ShouldBe(1);
+        (await FindAsync(env, scan.Id)).Status.ShouldBe("unknown");
     }
 
     [Fact]
