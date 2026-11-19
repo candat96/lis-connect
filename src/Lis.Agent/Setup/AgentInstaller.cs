@@ -28,7 +28,8 @@ public sealed class AgentInstaller(
     TextWriter output,
     TimeSpan? runningTimeout = null,
     string? runningExe = null,
-    Action<string>? deferDelete = null)
+    Action<string>? deferDelete = null,
+    IDataDirSecurity? dataSecurity = null)
 {
     public const string ExeName = "LisAgent.exe";
 
@@ -43,6 +44,10 @@ public sealed class AgentInstaller(
         var undo = new List<(string What, Action Run)>();
         try
         {
+            // 0. Thư mục dữ liệu chỉ cho SYSTEM + quản trị viên ghi (người dùng thường không thả được kết quả giả vào cho-gui).
+            Directory.CreateDirectory(paths.Root);
+            (dataSecurity ?? NoDataDirSecurity.Instance).Secure(paths.Root);
+
             // 1. Ghi nhớ trạng thái cũ, dừng dịch vụ đang chạy.
             var existed = service.Exists();
             var wasRunning = existed && service.IsRunning();
@@ -73,6 +78,14 @@ public sealed class AgentInstaller(
                 output.WriteLine("Đang tạo dịch vụ Windows \"LIS Agent\"...");
                 service.Create(Target);
                 undo.Add(("xoá dịch vụ vừa tạo", service.Delete));
+            }
+
+            else if (service.BinPath() is { } oldPath && !SamePath(oldPath, Target))
+            {
+                // Dịch vụ cài tay trước đây trỏ tệp khác: phải trỏ về tệp mới, kẻo mã đã đổi mà tệp cũ vẫn chạy với khoá cũ (401).
+                output.WriteLine("Đang trỏ dịch vụ sang tệp agent mới...");
+                undo.Add(("trả đường dẫn dịch vụ cũ", () => service.SetBinPath(oldPath)));
+                service.SetBinPath(Target);
             }
 
             // 4. Đổi mã lấy khoá (lưu khoá nằm trong delegate).

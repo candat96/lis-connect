@@ -17,6 +17,12 @@ public interface IServiceControl
     /// </summary>
     void Create(string exePath);
 
+    /// <summary>Đường dẫn tệp chạy của dịch vụ đang có (đã bỏ ngoặc kép / tham số); không đọc được thì null.</summary>
+    string? BinPath();
+
+    /// <summary>Trỏ dịch vụ đang có sang <paramref name="exePath"/> (sc config binPath=).</summary>
+    void SetBinPath(string exePath);
+
     void Start();
 
     /// <summary>Dừng và chờ dịch vụ dừng hẳn (tệp chạy mới xoá / thay được).</summary>
@@ -60,6 +66,28 @@ public sealed class ScServiceControl : IServiceControl
             Sc("delete", ServiceName);
             throw;
         }
+    }
+
+    public string? BinPath()
+    {
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\" + ServiceName);
+        return key?.GetValue("ImagePath") is string image ? ExePathOf(image) : null;
+    }
+
+    public void SetBinPath(string exePath) => Sc("config", ServiceName, "binPath=", $"\"{exePath}\"");
+
+    /// <summary>ImagePath có thể là <c>"C:\a b\x.exe" run</c>, <c>C:\a\x.exe</c> hoặc <c>C:\a\x.exe run</c>.</summary>
+    internal static string ExePathOf(string imagePath)
+    {
+        var text = imagePath.Trim();
+        if (text.StartsWith('"'))
+        {
+            var end = text.IndexOf('"', 1);
+            return end < 0 ? text[1..] : text[1..end];
+        }
+
+        var exe = text.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+        return exe < 0 ? text : text[..(exe + 4)];
     }
 
     public void Start()

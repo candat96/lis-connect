@@ -5,13 +5,19 @@ using Microsoft.Extensions.Time.Testing;
 namespace Lis.Agent.Tests;
 
 /// <summary>Dịch vụ Windows giả: ghi lại chuỗi lệnh để kiểm thứ tự cài và hoàn tác.</summary>
-internal sealed class FakeServiceControl(bool exists = false, bool running = false) : IServiceControl
+internal sealed class FakeServiceControl(bool exists = false, bool running = false, string? binPath = null) : IServiceControl
 {
     public List<string> Commands { get; } = [];
 
     public bool Present { get; private set; } = exists;
 
     public bool Running { get; private set; } = running;
+
+    public string? CurrentBinPath { get; private set; } = binPath;
+
+    public string? BinPath() => CurrentBinPath;
+
+    public void SetBinPath(string exePath) { Commands.Add("SetBinPath"); CurrentBinPath = exePath; }
 
     public bool WaitRunningResult { get; set; } = true;
 
@@ -21,7 +27,7 @@ internal sealed class FakeServiceControl(bool exists = false, bool running = fal
 
     public bool IsRunning() { Commands.Add("IsRunning"); return Running; }
 
-    public void Create(string exePath) { Commands.Add("Create"); CreatedExe = exePath; Present = true; }
+    public void Create(string exePath) { Commands.Add("Create"); CreatedExe = exePath; CurrentBinPath = exePath; Present = true; }
 
     public void Start() { Commands.Add("Start"); Running = true; }
 
@@ -57,4 +63,11 @@ internal static class TestCodes
 
     public static PairingState State(string url = "https://may-chu.thu") =>
         new(url, Guid.NewGuid(), "pkthu", "Phòng khám Thử", Guid.NewGuid(), "Agent Thử", DateTimeOffset.UnixEpoch);
+}
+
+internal sealed class FakeDataDirSecurity(List<string>? log = null) : IDataDirSecurity
+{
+    public int Calls { get; private set; }
+
+    public void Secure(string directory) { Calls++; log?.Add("Secure:" + directory); }
 }

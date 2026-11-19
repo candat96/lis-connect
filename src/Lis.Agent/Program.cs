@@ -35,7 +35,7 @@ var store = new PairingStore(paths, SecretProtectors.ForCurrentOs(paths.Root), T
 switch (command)
 {
     case AgentCommand.Pair pair:
-        return await PairAsync(pair.CodeText, store);
+        return await PairAsync(pair.CodeText, paths, store);
     case AgentCommand.Service or AgentCommand.Run:
         Directory.CreateDirectory(paths.Root);
         return await RunAsync(config, environment, paths, store);
@@ -61,42 +61,22 @@ static async Task<int> SetupAsync(AgentCommand command, AgentPaths paths, Pairin
     var installer = new AgentInstaller(
         paths, installDir, new ScServiceControl(),
         (code, ct) => PairingFlow.PairAsync(code, new PairingClient(http), store, TimeProvider.System, ct),
-        Console.Out, runningExe: exePath);
+        Console.Out, runningExe: exePath, dataSecurity: new WindowsDataDirSecurity());
     return await new SetupConsole(Console.In, Console.Out, new WindowsElevation(), installer, store, exePath)
         .RunAsync(command, CancellationToken.None);
 }
 
-static async Task<int> PairAsync(string? codeText, PairingStore store)
+static async Task<int> PairAsync(string? codeText, AgentPaths paths, PairingStore store)
 {
-    if (!PairingCode.TryFind(codeText, out var code))
-    {
-        Console.Error.WriteLine("Mã ghép nối không hợp lệ — sao chép đủ chuỗi bắt đầu bằng LIS1. từ mục Agent trên web.");
-        return 2;
-    }
-
-    try
-    {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        var result = await PairingFlow.PairAsync(code, new PairingClient(http), store, TimeProvider.System, CancellationToken.None);
-        if (result.Warning is not null)
-        {
-            Console.Error.WriteLine(result.Warning);
-        }
-
-        if (result.QuarantinedTo is not null)
-        {
-            Console.Error.WriteLine($"Đổi sang phòng khám khác: kết quả đang chờ gửi của phòng khám cũ đã chuyển vào {result.QuarantinedTo} (không gửi lên phòng khám mới).");
-        }
-
-        Console.WriteLine($"Đã ghép nối với phòng khám {result.State.ClinicName} ({result.State.ClinicCode}), agent \"{result.State.AgentName}\".");
-        return 0;
-    }
-    catch (Exception ex) when (ex is PairingException or UriFormatException)
-    {
-        Console.Error.WriteLine(ex is UriFormatException ? $"Địa chỉ máy chủ trong mã không hợp lệ: {ex.Message}" : ex.Message);
-        return 1;
-    }
+    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+    return await new PairCommand(
+        paths, OperatingSystem.IsWindows() ? ServiceControlForWindows() : null,
+        (code, ct) => PairingFlow.PairAsync(code, new PairingClient(http), store, TimeProvider.System, ct),
+        Console.Out, Console.Error).RunAsync(codeText, CancellationToken.None);
 }
+
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
+static IServiceControl ServiceControlForWindows() => new ScServiceControl();
 
 static async Task<int> RunAsync(IConfiguration config, IConfiguration environment, AgentPaths paths, PairingStore store)
 {

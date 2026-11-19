@@ -190,4 +190,59 @@ public sealed class AgentInstallerTests : IDisposable
         File.Exists(paths.IdentityCache).ShouldBeFalse();
         File.Exists(paths.InstrumentsCache).ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task Ghep_noi_lai_tro_dich_vu_cai_tay_ve_tep_moi()
+    {
+        var service = new FakeServiceControl(exists: true, running: true, binPath: @"C:\LisAgent\LisAgent.exe");
+
+        var outcome = await Installer(service).InstallOrRepairAsync(Source, TestCodes.Code(), CancellationToken.None);
+
+        outcome.ShouldBeOfType<InstallOutcome.Succeeded>();
+        service.CurrentBinPath.ShouldBe(Target);
+        service.Commands.ShouldContain("SetBinPath");
+    }
+
+    [Fact]
+    public async Task Duong_dan_dich_vu_da_dung_thi_khong_cau_hinh_lai()
+    {
+        var service = new FakeServiceControl(exists: true, running: false, binPath: Target);
+
+        await Installer(service).InstallOrRepairAsync(Source, TestCodes.Code(), CancellationToken.None);
+
+        service.Commands.ShouldNotContain("SetBinPath");
+    }
+
+    [Fact]
+    public async Task Loi_sau_khi_tro_lai_dich_vu_thi_tra_duong_dan_cu()
+    {
+        var service = new FakeServiceControl(exists: true, running: true, binPath: @"C:\LisAgent\LisAgent.exe");
+        var installer = Installer(service, (_, _) => throw new PairingException("Mã đã được dùng"));
+
+        (await installer.InstallOrRepairAsync(Source, TestCodes.Code(), CancellationToken.None)).ShouldBeOfType<InstallOutcome.Failed>();
+
+        service.CurrentBinPath.ShouldBe(@"C:\LisAgent\LisAgent.exe");
+        service.Running.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Khoa_quyen_thu_muc_du_lieu_truoc_khi_ghep_noi_ca_khi_cai_va_ghep_lai()
+    {
+        foreach (var existing in new[] { false, true })
+        {
+            var security = new FakeDataDirSecurity();
+            var secureCalledBeforePair = false;
+            var installer = new AgentInstaller(new AgentPaths(DataDir), InstallDir, new FakeServiceControl(exists: existing),
+                (_, _) =>
+                {
+                    secureCalledBeforePair = security.Calls == 1;
+                    return Task.FromResult(new PairingResult(TestCodes.State(), null));
+                },
+                TextWriter.Null, dataSecurity: security);
+
+            await installer.InstallOrRepairAsync(Source, TestCodes.Code(), CancellationToken.None);
+
+            secureCalledBeforePair.ShouldBeTrue();
+        }
+    }
 }
