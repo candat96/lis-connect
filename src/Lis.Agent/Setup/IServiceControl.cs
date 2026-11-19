@@ -30,6 +30,9 @@ public interface IServiceControl
 
     void Delete();
 
+    /// <summary>Tắt chế độ tự chạy của dịch vụ (<c>sc config "LIS Agent" start= disabled</c>) — dùng khi agent bị thu hồi để không tự bật lại sau khi tắt máy.</summary>
+    void Disable();
+
     bool WaitRunning(TimeSpan timeout);
 }
 
@@ -113,6 +116,8 @@ public sealed class ScServiceControl : IServiceControl
     }
 
     public void Delete() => Sc("delete", ServiceName);
+
+    public void Disable() => Sc("config", ServiceName, "start=", "disabled");
 
     public bool WaitRunning(TimeSpan timeout)
     {

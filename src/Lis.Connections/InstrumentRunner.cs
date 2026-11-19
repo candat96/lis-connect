@@ -71,6 +71,7 @@ public sealed class InstrumentRunner : IAsyncDisposable
     private readonly TimeProvider _clock;
     private readonly Action<InstrumentConnectionStatus> _onStatus;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _retryGate = new(1, 1);
     private readonly CancellationTokenSource _stop = new();
     private Task? _loop;
     private IByteLink? _link;
@@ -338,7 +339,21 @@ public sealed class InstrumentRunner : IAsyncDisposable
         UpdatePendingCount();
     }
 
+    /// <summary>Gửi bù hàng chờ; vòng tick 30 giây và lệnh "gửi bù ngay" không chạy chồng nhau (tránh ghi trùng một tệp).</summary>
     internal async Task RetryPendingAsync()
+    {
+        await _retryGate.WaitAsync();
+        try
+        {
+            await RetryPendingCoreAsync();
+        }
+        finally
+        {
+            _retryGate.Release();
+        }
+    }
+
+    private async Task RetryPendingCoreAsync()
     {
         if (!Directory.Exists(PendingDirectory))
         {

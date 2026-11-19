@@ -25,6 +25,15 @@ public sealed record AgentPaths(string Root)
 
     /// <summary>Hàng chờ của phòng khám cũ bị cách ly khi ghép nối sang phòng khám khác — không bao giờ tự gửi đi.</summary>
     public string Quarantine => Path.Combine(Root, "cach-ly");
+
+    /// <summary>Tệp khoá mã hoá dùng khi không có DPAPI (macOS / Linux phát triển).</summary>
+    public string DevKey => Path.Combine(Root, "dev.key");
+
+    /// <summary>Agent ghi <c>{version, at}</c> sau khi gửi <c>hello</c> thành công — bản vừa cập nhật dùng để biết mình đã nối lại được server.</summary>
+    public string ConnectedMarker => Path.Combine(Root, "ket-noi.json");
+
+    /// <summary>Kết quả lần cập nhật gần nhất (<see cref="Lis.Core.Agents.UpdateReport"/>) — kèm <c>hello</c> rồi xoá.</summary>
+    public string UpdateReport => Path.Combine(Root, "cap-nhat.json");
 }
 
 /// <summary>
@@ -33,9 +42,16 @@ public sealed record AgentPaths(string Root)
 /// máy qua <see cref="InstrumentConnectionManager"/>, định kỳ nạp lại cấu hình và báo trạng thái.
 /// </summary>
 public sealed class AgentWorker(
-    ServerClient server, AgentPaths paths, LogUploader uploader, ILogger<AgentWorker> logger, TimeProvider clock) : BackgroundService
+    ServerClient server, AgentPaths paths, LogUploader uploader, ILogger<AgentWorker> logger, TimeProvider clock,
+    ChannelClient channel, AgentRuntime runtime) : BackgroundService
 {
     public static readonly TimeSpan ReloadInterval = TimeSpan.FromSeconds(30);
+
+    /// <summary>Trạng thái máy đổi thì gom bấy nhiêu rồi đẩy lên server (ngoài vòng <see cref="ReloadInterval"/>).</summary>
+    public static readonly TimeSpan StatusDebounce = TimeSpan.FromSeconds(1);
+
+    /// <summary>Tên tệp chạy dở của lần cập nhật trước (task cập nhật tạo ra cạnh tệp chạy).</summary>
+    public const string StaleUpdateFileName = "LisAgent.new.exe";
 
     /// <summary>Log thô trên đĩa máy agent giữ bao nhiêu ngày (bản gốc đã đẩy lên server).</summary>
     public const int RawLogKeepDays = Lis.Data.Settings.RawLogDefaults.KeepDays;
@@ -49,6 +65,7 @@ public sealed class AgentWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         Directory.CreateDirectory(paths.Root);
+        CleanupStaleUpdateFile(AppContext.BaseDirectory);
         var me = await IdentityAsync(stoppingToken);
         if (me is null)
         {
@@ -64,6 +81,8 @@ public sealed class AgentWorker(
         var manager = new InstrumentConnectionManager(
             ListInstrumentsAsync, me.WorkstationCode, rawLogs, new HttpReadingSink(server),
             new HttpOrderQueries(server), paths.Pending, clock);
+        runtime.WorkstationCode = me.WorkstationCode;
+        runtime.Manager = manager;
         manager.StatusChanged += status =>
         {
             lock (_statuses)
@@ -72,12 +91,23 @@ public sealed class AgentWorker(
             }
 
             logger.LogInformation("Máy {Instrument}: {State} — {Text}", status.InstrumentId, status.State, status.Text);
+            SchedulePush(manager, stoppingToken);
         };
+
+        // Kênh lệnh chạy song song; kênh hỏng / đứt không bao giờ làm dừng vòng chính hay kết nối máy.
+        Action onConfigChanged = () => _ = ReloadNowAsync(manager, stoppingToken);
+        channel.ConfigChanged += onConfigChanged;
+        var channelTask = RunChannelAsync(stoppingToken);
 
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
+                if (runtime.Revoked)
+                {
+                    break;
+                }
+
                 try
                 {
                     CleanupRawLogs(rawLogs);
@@ -98,14 +128,109 @@ public sealed class AgentWorker(
         }
         finally
         {
+            channel.ConfigChanged -= onConfigChanged;
             await manager.StopAllAsync();
             try
             {
+                await channelTask;
                 await uploading;
             }
             catch (OperationCanceledException)
             {
             }
+        }
+    }
+
+    /// <summary>Chạy kênh lệnh; mọi lỗi chỉ thành cảnh báo (kênh tự nối lại bên trong), không thoát ra vòng chính.</summary>
+    private async Task RunChannelAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await channel.RunAsync(ct);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Kênh lệnh gặp lỗi: {Message}", ex.Message);
+                uploader.AgentNote($"Kênh lệnh gặp lỗi: {ex.Message}");
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), clock, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
+        }
+    }
+
+    /// <summary>Web sửa máy → nạp lại ngay (không chờ vòng 30 giây) rồi báo trạng thái.</summary>
+    private async Task ReloadNowAsync(InstrumentConnectionManager manager, CancellationToken ct)
+    {
+        if (runtime.Revoked)
+        {
+            return;
+        }
+
+        try
+        {
+            await manager.ReloadAsync();
+            SchedulePush(manager, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning("Nạp lại cấu hình theo báo của server lỗi: {Message}", ex.Message);
+        }
+    }
+
+    private int _pushScheduled;
+
+    /// <summary>Gom các lần đổi trạng thái trong <see cref="StatusDebounce"/> thành một lần đẩy lên server.</summary>
+    private void SchedulePush(InstrumentConnectionManager manager, CancellationToken ct)
+    {
+        if (runtime.Revoked || Interlocked.Exchange(ref _pushScheduled, 1) == 1)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(StatusDebounce, clock, ct);
+                Volatile.Write(ref _pushScheduled, 0);
+                if (!runtime.Revoked)
+                {
+                    await ReportStatusAsync(manager, ct);
+                }
+            }
+            catch (Exception ex)
+            {
+                Volatile.Write(ref _pushScheduled, 0);
+                if (ex is not OperationCanceledException)
+                {
+                    logger.LogDebug("Chưa đẩy được trạng thái máy: {Message}", ex.Message);
+                }
+            }
+        }, CancellationToken.None);
+    }
+
+    /// <summary>Xoá <c>LisAgent.new.exe</c> sót lại cạnh tệp chạy sau một lần cập nhật dở; lỗi bỏ qua.</summary>
+    internal static void CleanupStaleUpdateFile(string directory)
+    {
+        try
+        {
+            File.Delete(Path.Combine(directory, StaleUpdateFileName));
+        }
+        catch (Exception)
+        {
         }
     }
 
@@ -172,13 +297,18 @@ public sealed class AgentWorker(
         try
         {
             _instruments = await server.InstrumentsAsync();
-            await File.WriteAllTextAsync(paths.InstrumentsCache, JsonSerializer.Serialize(_instruments, Json));
+            runtime.Instruments = _instruments;
+            if (!runtime.Revoked)
+            {
+                await File.WriteAllTextAsync(paths.InstrumentsCache, JsonSerializer.Serialize(_instruments, Json));
+            }
         }
         catch (Exception ex)
         {
             if (_instruments.Count == 0 && TryRead<List<InstrumentInfo>>(paths.InstrumentsCache) is { } cached)
             {
                 _instruments = cached;
+                runtime.Instruments = _instruments;
             }
 
             logger.LogWarning("Chưa lấy được danh sách máy từ server ({Message}) — giữ {Count} máy đang biết", ex.Message, _instruments.Count);

@@ -94,6 +94,24 @@ static async Task<int> RunAsync(IConfiguration config, IConfiguration environmen
     builder.Services.AddSingleton(TimeProvider.System);
     builder.Services.AddSingleton(new ServerClient(ServerClient.CreateHttp(connection.ServerUrl, connection.AgentKey)));
     builder.Services.AddSingleton<LogUploader>();
+
+    // Kênh lệnh: các lệnh agent hiểu (task sau thêm quét cổng / cập nhật bằng cách đăng ký thêm IAgentCommandHandler).
+    var runningAsService = WindowsServiceHelpers.IsWindowsService();
+    builder.Services.AddSingleton<AgentRuntime>();
+    builder.Services.AddSingleton<IAgentLifetime, HostAgentLifetime>();
+    builder.Services.AddSingleton<IAgentCommandHandler, ReloadConfigHandler>();
+    builder.Services.AddSingleton<IAgentCommandHandler, ReconnectInstrumentHandler>();
+    builder.Services.AddSingleton<IAgentCommandHandler, FlushPendingHandler>();
+    builder.Services.AddSingleton<IAgentCommandHandler, RestartHandler>();
+    builder.Services.AddSingleton<IAgentCommandHandler>(sp => new RevokeHandler(
+        sp.GetRequiredService<AgentRuntime>(), paths, sp.GetRequiredService<IAgentLifetime>(),
+        runningAsService && OperatingSystem.IsWindows() ? ServiceControlForWindows() : null, runningAsService,
+        sp.GetRequiredService<ILogger<RevokeHandler>>()));
+    builder.Services.AddSingleton<CommandDispatcher>();
+    builder.Services.AddSingleton(sp => new ChannelClient(
+        new Uri(connection.ServerUrl), connection.AgentKey, sp.GetRequiredService<CommandDispatcher>(), paths,
+        sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger("LisAgent.Channel"),
+        note: sp.GetRequiredService<LogUploader>().AgentNote));
     builder.Services.AddHostedService<AgentWorker>();
 
     var host = builder.Build();

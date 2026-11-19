@@ -35,6 +35,8 @@ internal sealed class FakeServiceControl(bool exists = false, bool running = fal
 
     public void Delete() { Commands.Add("Delete"); Present = false; Running = false; }
 
+    public void Disable() { Commands.Add("Disable"); }
+
     public bool WaitRunning(TimeSpan timeout) { Commands.Add("WaitRunning"); return WaitRunningResult; }
 }
 

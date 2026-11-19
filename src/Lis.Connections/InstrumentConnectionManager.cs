@@ -20,6 +20,9 @@ public interface IInstrumentConnections
     Task RestartAsync(Guid instrumentId);
 
     Task StopAllAsync();
+
+    /// <summary>Gửi bù ngay các bản tin lưu tạm trên đĩa (không chờ 30 giây); trả tổng số bản tin còn chờ sau khi thử.</summary>
+    Task<int> RetryPendingNowAsync();
 }
 
 /// <summary>
@@ -131,6 +134,23 @@ public sealed class InstrumentConnectionManager(
         {
             _lock.Release();
         }
+    }
+
+    public async Task<int> RetryPendingNowAsync()
+    {
+        List<InstrumentRunner> runners;
+        lock (_idle)
+        {
+            runners = _runners.Values.Select(r => r.Runner).ToList();
+        }
+
+        foreach (var runner in runners)
+        {
+            await runner.RetryPendingAsync();
+        }
+
+        // Đếm theo đĩa để tính cả hàng chờ của máy hiện không chạy.
+        return Directory.Exists(pendingRoot) ? Directory.GetFiles(pendingRoot, "*.json", SearchOption.AllDirectories).Length : 0;
     }
 
     private string? WhyNotRunning(InstrumentInfo instrument, out ConnectionSettings? settings)
