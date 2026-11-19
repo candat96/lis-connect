@@ -45,7 +45,8 @@ describe('summarizeResult', () => {
   });
 
   it('cập nhật: đã giao bản mới / đã ở bản này', () => {
-    expect(summarizeResult(cmd({ name: 'update', result: { handedOver: true } }))).toBe('Đã giao bản mới, chờ agent nối lại');
+    expect(summarizeResult(cmd({ name: 'update', status: 'running', result: { handedOver: true } }))).toBe('Đã giao bản mới, chờ agent nối lại');
+    expect(summarizeResult(cmd({ name: 'update', result: { version: '0.3.0' } }))).toBe('Đã cập nhật lên 0.3.0');
     expect(summarizeResult(cmd({ name: 'update', result: { alreadyCurrent: true } }))).toBe('Agent đã ở bản này');
   });
 
@@ -53,7 +54,7 @@ describe('summarizeResult', () => {
     expect(summarizeResult(cmd({ name: 'reload-config', result: { instruments: 2 } }))).toBe('Đang chạy 2 máy');
     expect(summarizeResult(cmd({ name: 'flush-pending', result: { remaining: 0 } }))).toBe('Đã gửi hết bản tin chờ');
     expect(summarizeResult(cmd({ name: 'flush-pending', result: { remaining: 3 } }))).toBe('Còn 3 bản tin chờ gửi');
-    expect(summarizeResult(cmd({ name: 'revoke', result: { offline: true } }))).toBe('Đã thu hồi khi agent đang tắt — agent sẽ không nối lại được');
+    expect(summarizeResult(cmd({ name: 'revoke', result: { offline: true } }))).toBe('Đã thu hồi lúc agent không nối kênh lệnh — máy chủ đã khoá, agent không gửi được dữ liệu nữa');
     expect(summarizeResult(cmd({ name: 'revoke', result: null }))).toBe('Đã thu hồi, agent đã dừng');
   });
 
@@ -61,6 +62,7 @@ describe('summarizeResult', () => {
     expect(summarizeResult(cmd({ status: 'failed', error: 'Tải bản mới lỗi' }))).toBe('Tải bản mới lỗi');
     expect(summarizeResult(cmd({ status: 'expired' }))).toBe('Agent không nhận lệnh trong 60 giây');
     expect(summarizeResult(cmd({ status: 'unknown' }))).toBe('Agent mất kết nối khi đang chạy lệnh');
+    expect(summarizeResult(cmd({ status: 'unknown', error: 'Máy chủ khởi động lại — không rõ kết quả' }))).toBe('Máy chủ khởi động lại — không rõ kết quả');
     expect(summarizeResult(cmd({ status: 'running' }))).toBe('');
   });
 });

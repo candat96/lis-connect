@@ -321,8 +321,9 @@ agent chạy là dịch vụ Windows.
 Nên cập nhật lúc vắng mẫu. Mỗi lần chỉ cập nhật một agent.
 
 **Thu hồi**: máy chủ khoá agent ngay. Agent đang chạy thì dừng dịch vụ và không tự bật lại. Thư mục `cho-gui` (kết quả chờ gửi) vẫn
-còn trên máy tính. Muốn dùng lại agent đó: **Ghép nối lại** trên web rồi chạy tệp cài mới. Agent đang tắt lúc thu hồi thì lệnh vẫn **Xong**
-với kết quả "Đã thu hồi khi agent đang tắt — agent sẽ không nối lại được".
+còn trên máy tính. Muốn dùng lại agent đó: **Ghép nối lại** trên web rồi chạy tệp cài mới. Agent không nối kênh lệnh lúc thu hồi (đang tắt,
+hoặc proxy chặn WebSocket) thì lệnh vẫn **Xong** với kết quả "Đã thu hồi lúc agent không nối kênh lệnh — máy chủ đã khoá, agent không
+gửi được dữ liệu nữa". Khi đó agent có thể vẫn chạy trên máy tính đó và giữ cổng COM: nếu cần, gỡ hoặc tắt dịch vụ LIS Agent tại chỗ.
 
 ### Máy xét nghiệm của agent
 

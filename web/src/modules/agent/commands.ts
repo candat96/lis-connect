@@ -40,7 +40,8 @@ function summarizeDone(name: AgentCommandName, r: Json, args: Json): string {
     }
     case 'update':
       if (r?.alreadyCurrent === true) return 'Agent đã ở bản này';
-      return 'Đã giao bản mới, chờ agent nối lại';
+      // Lệnh update chốt qua hello của bản mới mang {version}.
+      return typeof r?.version === 'string' ? `Đã cập nhật lên ${r.version}` : 'Đã cập nhật';
     case 'reload-config':
       return `Đang chạy ${num(r, 'instruments')} máy`;
     case 'flush-pending': {
@@ -52,7 +53,11 @@ function summarizeDone(name: AgentCommandName, r: Json, args: Json): string {
     case 'restart':
       return 'Agent đang khởi động lại';
     case 'revoke':
-      return r?.offline === true ? 'Đã thu hồi khi agent đang tắt — agent sẽ không nối lại được' : 'Đã thu hồi, agent đã dừng';
+      // offline = lúc thu hồi agent không nối kênh lệnh (đang tắt, hoặc proxy chặn WebSocket): máy chủ đã khoá agent,
+      // agent không gửi được dữ liệu nữa nhưng có thể vẫn đang chạy trên máy tính đó.
+      return r?.offline === true
+        ? 'Đã thu hồi lúc agent không nối kênh lệnh — máy chủ đã khoá, agent không gửi được dữ liệu nữa'
+        : 'Đã thu hồi, agent đã dừng';
     default:
       return 'Xong';
   }
@@ -66,9 +71,12 @@ export function summarizeResult(cmd: AgentCommand): string {
     case 'failed':
       return cmd.error || 'Lỗi không rõ';
     case 'expired':
-      return 'Agent không nhận lệnh trong 60 giây';
+      return cmd.error || 'Agent không nhận lệnh trong 60 giây';
     case 'unknown':
-      return 'Agent mất kết nối khi đang chạy lệnh';
+      // Server ghi lý do cụ thể: mất kết nối giữa chừng, máy chủ khởi động lại, agent không trả lời…
+      return cmd.error || 'Agent mất kết nối khi đang chạy lệnh';
+    case 'running':
+      return cmd.name === 'update' && cmd.result?.handedOver === true ? 'Đã giao bản mới, chờ agent nối lại' : '';
     default:
       return '';
   }

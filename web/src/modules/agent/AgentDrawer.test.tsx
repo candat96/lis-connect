@@ -83,7 +83,8 @@ describe('AgentDrawer', () => {
     byId.mockResolvedValue(command({ status: 'done', result: { ports } }));
 
     expect(await screen.findByText('USB-SERIAL CH340', undefined, { timeout: 4000 })).toBeInTheDocument();
-    expect(screen.getByText(/2 cổng: COM3 \(BC-5380\), COM5 bận/)).toBeInTheDocument();
+    // Bảng cổng theo danh sách agent, dòng tóm tắt theo lần hỏi lệnh — hai nhịp khác nhau nên chờ riêng.
+    expect(await screen.findByText(/2 cổng: COM3 \(BC-5380\), COM5 bận/, undefined, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getByText(/Phần mềm khác đang giữ/)).toBeInTheDocument();
   });
 
