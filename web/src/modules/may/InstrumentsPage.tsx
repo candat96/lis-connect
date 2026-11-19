@@ -113,7 +113,7 @@ export default function InstrumentsPage() {
                 items={[
                   { key: 'proto', label: 'Giao thức', children: PROTOCOL[selected.protocolFamily ?? ''] ?? 'Chưa chọn' },
                   { key: 'conn', label: 'Kết nối', children: selected.connectionText ?? 'Chưa cấu hình' },
-                  { key: 'agent', label: 'Agent', children: selected.agent ? `${selected.agent.name} (${selected.workstationCode})` : 'Chưa gán agent' },
+                  { key: 'agent', label: 'Agent', children: selected.agent ? selected.agent.name : 'Chưa gán agent' },
                   { key: 'state', label: 'Trạng thái', children: <Space size={8}><StatusTag domain="link" value={linkState(selected)} /><span>{selected.status?.text ?? ''}</span></Space> },
                   { key: 'last', label: 'Kết quả gần nhất', children: selected.status?.lastResultAt ? dayjs(selected.status.lastResultAt).format('DD/MM/YYYY HH:mm:ss') : '—' },
                   { key: 'seen', label: 'Agent báo về', children: selected.agent?.lastSeenAt ? dayjs(selected.agent.lastSeenAt).format('DD/MM/YYYY HH:mm:ss') : '—' },

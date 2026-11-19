@@ -99,7 +99,7 @@ export function InstrumentModal({ target, onClose, onSaved }: Props) {
           <Col span={12}>
             <Form.Item name="workstationCode" label="Agent phụ trách" extra="Máy tính cắm cáp tới máy xét nghiệm này.">
               <Select allowClear placeholder="Chưa gán" loading={agents.isLoading}
-                options={(agents.data ?? []).map((a) => ({ value: a.workstationCode, label: `${a.name} (${a.workstationCode})` }))}
+                options={(agents.data ?? []).map((a) => ({ value: a.workstationCode, label: a.name }))}
                 notFoundContent="Chưa có agent — tạo ở mục Agent" />
             </Form.Item>
           </Col>

@@ -9,7 +9,13 @@ const BACKEND = process.env.LIS_BACKEND_URL ?? 'http://localhost:5080';
 export default defineConfig({
   plugins: [react()],
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
-  server: { proxy: { '/api': { target: BACKEND, changeOrigin: false, xfwd: true } } },
+  // /agent/v1 cho agent chạy dev qua cổng Vite; /agent (không có /v1) là trang web nên không proxy.
+  server: {
+    proxy: {
+      '/api': { target: BACKEND, changeOrigin: false, xfwd: true },
+      '/agent/v1': { target: BACKEND, changeOrigin: false, xfwd: true },
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

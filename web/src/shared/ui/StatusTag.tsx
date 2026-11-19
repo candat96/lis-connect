@@ -27,9 +27,11 @@ const STATUS: Record<string, Record<string, StatusDef>> = {
     'no-agent': { label: 'Chưa gán agent', color: 'default', icon: <QuestionCircleOutlined /> },
   },
   agent: {
-    online: { label: 'Đang chạy', color: 'success', icon: <CheckCircleOutlined /> },
-    offline: { label: 'Không báo về', color: 'warning', icon: <ExclamationCircleOutlined /> },
-    never: { label: 'Chưa từng kết nối', color: 'default', icon: <QuestionCircleOutlined /> },
+    online: { label: 'Đang kết nối', color: 'success', icon: <CheckCircleOutlined /> },
+    offline: { label: 'Mất kết nối', color: 'warning', icon: <ExclamationCircleOutlined /> },
+    never: { label: 'Đã ghép nối, chưa chạy', color: 'default', icon: <QuestionCircleOutlined /> },
+    pairing: { label: 'Chờ ghép nối', color: 'processing', icon: <HourglassOutlined /> },
+    unpaired: { label: 'Chưa ghép nối', color: 'default', icon: <DisconnectOutlined /> },
   },
   user: {
     active: { label: 'Đang hoạt động', color: 'success', icon: <CheckCircleOutlined /> },

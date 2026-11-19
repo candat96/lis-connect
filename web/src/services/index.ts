@@ -1,6 +1,6 @@
 // Mọi truy cập dữ liệu của màn hình đi qua đây (quy ước chung với his-web): component không gọi fetch trực tiếp.
 import { QueryClient } from '@tanstack/react-query';
-import { api, ApiError } from './http';
+import { api, apiBlob, ApiError } from './http';
 import type { SessionClinic, SessionUser } from '@/stores/sessionStore';
 
 export { ApiError };
@@ -291,19 +291,42 @@ export const instrumentService = {
 export interface Agent {
   id: string;
   name: string;
+  /** Server tự sinh; máy xét nghiệm gán agent qua mã này. Không hiện cho người dùng. */
   workstationCode: string;
   lastSeenAt: string | null;
   online: boolean;
   instruments: { id: string; name: string; status: InstrumentStatus | null }[];
+  /** Đã đổi mã ghép nối lấy khoá. */
+  paired: boolean;
+  pairedAt: string | null;
+  machineName: string | null;
+  version: string | null;
+  /** Có giá trị khi còn một mã ghép nối chưa dùng, chưa hết hạn. */
+  pairingExpiresAt: string | null;
+}
+
+/** Mã ghép nối dùng một lần (30 phút) — chỉ trả về lúc tạo, không xem lại được. */
+export interface PairingTicket {
+  code: string;
+  expiresAt: string;
+}
+
+export interface InstallerInfo {
+  available: boolean;
+  version: string | null;
+  sha256: string | null;
+  size: number | null;
 }
 
 export const agentService = {
   list: () => api<Agent[]>('/agents'),
-  /** Trả về khoá agent — chỉ hiện một lần. */
-  create: (input: { name: string; workstationCode: string }) => api<{ id: string; key: string }>('/agents', { method: 'POST', body: input }),
-  update: (id: string, input: { name: string; workstationCode: string }) => api<void>(`/agents/${id}`, { method: 'PATCH', body: input }),
-  regenerateKey: (id: string) => api<{ key: string }>(`/agents/${id}/key`, { method: 'POST' }),
+  create: (input: { name: string }) => api<{ id: string; pairing: PairingTicket }>('/agents', { method: 'POST', body: input }),
+  /** Cấp mã ghép nối mới; khoá đang dùng vẫn chạy tới khi mã mới được dùng. */
+  pair: (id: string) => api<PairingTicket>(`/agents/${id}/pairing`, { method: 'POST' }),
+  update: (id: string, input: { name: string }) => api<void>(`/agents/${id}`, { method: 'PATCH', body: input }),
   remove: (id: string) => api<void>(`/agents/${id}`, { method: 'DELETE' }),
+  installerInfo: () => api<InstallerInfo>('/agents/installer/info'),
+  downloadInstaller: () => apiBlob('/agents/installer'),
 };
 
 // ---- Log agent ----
@@ -370,6 +393,7 @@ export const qk = {
   channels: (id: string) => ['instruments', id, 'channels'] as const,
   unmapped: (id: string) => ['instruments', id, 'unmapped'] as const,
   agents: ['agents'] as const,
+  agentInstaller: ['agent-installer'] as const,
   users: ['users'] as const,
   logs: (filter: object) => ['agent-logs', filter] as const,
 };

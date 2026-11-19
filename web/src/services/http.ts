@@ -14,6 +14,17 @@ type Query = Record<string, string | number | undefined | null>;
  * thì xoá phiên — màn hình sẽ tự chuyển về đăng nhập.
  */
 export async function api<T>(path: string, options: { method?: string; body?: unknown; query?: Query } = {}): Promise<T> {
+  const response = await send(path, options);
+  return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
+}
+
+/** Tải tệp nhị phân (vd tệp cài agent) kèm phiên; trả về nội dung và các header để kiểm tệp. */
+export async function apiBlob(path: string): Promise<{ blob: Blob; headers: Headers }> {
+  const response = await send(path, {});
+  return { blob: await response.blob(), headers: response.headers };
+}
+
+async function send(path: string, options: { method?: string; body?: unknown; query?: Query }): Promise<Response> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(options.query ?? {})) {
     if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
@@ -39,7 +50,7 @@ export async function api<T>(path: string, options: { method?: string; body?: un
     if (response.status === 401 && token) useSessionStore.getState().clear();
     throw new ApiError(await readMessage(response), response.status);
   }
-  return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
+  return response;
 }
 
 async function readMessage(response: Response): Promise<string> {

@@ -1,6 +1,6 @@
 // Agent: máy tính đặt cạnh máy xét nghiệm, nối cổng COM/TCP và gửi dữ liệu về server.
-// Màn này tạo agent (lấy khoá cài đặt), đổi tên / mã máy trạm, cấp khoá mới, xoá, và xem agent đang chạy hay không.
-import { CopyOutlined, FileSearchOutlined, KeyOutlined, PlusOutlined } from '@ant-design/icons';
+// Màn này thêm agent bằng mã ghép nối (tải tệp cài → chạy là xong), đổi tên, ghép nối lại, xoá, và xem agent đang kết nối hay không.
+import { FileSearchOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Card, Empty, Flex, Form, Input, Modal, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -10,46 +10,51 @@ import { agentService, qk, type Agent } from '@/services';
 import { DeleteButton } from '@/shared/ui/DeleteButton';
 import { StatusTag } from '@/shared/ui/StatusTag';
 import { useIsAdmin } from '@/stores/sessionStore';
+import { PairingDialog, type PairingTarget } from './PairingDialog';
+import { pairingState } from './pairing';
 
 interface AgentForm {
   name: string;
-  workstationCode: string;
 }
 
 export default function AgentsPage() {
   const isAdmin = useIsAdmin();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<AgentForm>();
   const [editing, setEditing] = useState<Agent | 'new' | null>(null);
-  // Khoá vừa cấp — chỉ hiện một lần trong hộp thoại này.
-  const [issued, setIssued] = useState<{ agentName: string; key: string } | null>(null);
+  const [pairing, setPairing] = useState<PairingTarget | null>(null);
 
   const agents = useQuery({ queryKey: qk.agents, queryFn: agentService.list, refetchInterval: 10_000 });
   const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: qk.agents }), queryClient.invalidateQueries({ queryKey: qk.instruments })]);
 
   const save = useMutation({
-    mutationFn: async (values: AgentForm) => {
+    mutationFn: async (values: AgentForm): Promise<PairingTarget | null> => {
       if (editing === 'new') {
         const created = await agentService.create(values);
-        return { key: created.key, name: values.name };
+        return { agentId: created.id, agentName: values.name, ticket: created.pairing, baselinePairedAt: null };
       }
       await agentService.update((editing as Agent).id, values);
       return null;
     },
     onSuccess: async (created) => {
       setEditing(null);
-      await refresh();
-      if (created) setIssued({ agentName: created.name, key: created.key });
+      if (created) setPairing(created);
       else message.success('Đã lưu agent');
+      await refresh();
     },
     onError: (e) => message.error((e as Error).message),
   });
 
-  const regenerate = useMutation({
-    mutationFn: (agent: Agent) => agentService.regenerateKey(agent.id).then((r) => ({ agentName: agent.name, key: r.key })),
-    onSuccess: setIssued,
+  const pair = useMutation({
+    mutationFn: async (agent: { id: string; name: string; pairedAt: string | null }): Promise<PairingTarget> => ({
+      agentId: agent.id, agentName: agent.name, ticket: await agentService.pair(agent.id), baselinePairedAt: agent.pairedAt,
+    }),
+    onSuccess: async (target) => {
+      setPairing(target);
+      await refresh();
+    },
     onError: (e) => message.error((e as Error).message),
   });
 
@@ -64,17 +69,24 @@ export default function AgentsPage() {
 
   const openForm = (agent: Agent | 'new') => {
     setEditing(agent);
-    form.setFieldsValue(agent === 'new' ? { name: '', workstationCode: '' } : { name: agent.name, workstationCode: agent.workstationCode });
+    form.setFieldsValue({ name: agent === 'new' ? '' : agent.name });
   };
 
-  const { modal } = App.useApp();
-  const confirmRegenerate = (agent: Agent) =>
+  const confirmPair = (agent: Agent) => {
+    // Agent chưa ghép nối thì cấp mã mới luôn, không cần hỏi.
+    if (!agent.paired) {
+      pair.mutate(agent);
+      return;
+    }
     modal.confirm({
-      title: `Cấp khoá mới cho "${agent.name}"?`,
-      content: 'Khoá cũ hết hiệu lực ngay: agent đang chạy sẽ mất kết nối với máy chủ cho tới khi bạn dán khoá mới vào cấu hình của nó.',
-      okText: 'Cấp khoá mới', cancelText: 'Hủy bỏ', okButtonProps: { danger: true },
-      onOk: () => regenerate.mutateAsync(agent),
+      title: `Ghép nối lại "${agent.name}"?`,
+      content: 'Dùng khi cài lại Windows, thay máy tính, hoặc chuyển agent sang máy khác. Khoá đang dùng vẫn chạy cho tới khi mã mới được dùng.',
+      okText: 'Tạo mã ghép nối', cancelText: 'Hủy bỏ',
+      onOk: () => pair.mutateAsync(agent),
     });
+  };
+
+  const now = new Date();
 
   return (
     <div data-screen="agent">
@@ -87,23 +99,36 @@ export default function AgentsPage() {
         <Flex vertical gap={12}>
           <Typography.Text type="secondary">
             Agent là phần mềm cài trên máy tính đặt cạnh máy xét nghiệm. Nó mở cổng COM / TCP tới máy và gửi mọi dữ liệu nhận được về máy chủ.
-            Cấu hình máy và map chỉ số làm ở mục "Máy &amp; map kênh" — agent tự nhận cấu hình mới trong vòng 30 giây.
+            Thêm agent → tải tệp cài → chạy trên máy tính đó là xong. Cấu hình máy và map chỉ số làm ở mục "Máy &amp; map kênh".
           </Typography.Text>
           {agents.error && <Alert type="error" showIcon message={(agents.error as Error).message} />}
           <Table<Agent>
-            rowKey="id" size="small" bordered pagination={false} loading={agents.isLoading} dataSource={agents.data ?? []} scroll={{ x: 900 }}
-            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có agent nào — bấm Thêm agent để lấy khoá cài đặt" /> }}
+            rowKey="id" size="small" bordered pagination={false} loading={agents.isLoading} dataSource={agents.data ?? []} scroll={{ x: 960 }}
+            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có agent nào — bấm Thêm agent để lấy tệp cài" /> }}
             columns={[
               { title: 'Tên agent', dataIndex: 'name', render: (v: string) => <b>{v}</b> },
-              { title: 'Mã máy trạm', dataIndex: 'workstationCode', width: 190, render: (v: string) => <span className="code">{v}</span> },
               {
-                title: 'Trạng thái', width: 250,
-                render: (_, row) => (
-                  <Space direction="vertical" size={0}>
-                    <StatusTag domain="agent" value={row.online ? 'online' : row.lastSeenAt ? 'offline' : 'never'} />
-                    {row.lastSeenAt && <Typography.Text type="secondary" style={{ fontSize: 12 }}>Báo về lần cuối {dayjs(row.lastSeenAt).format('DD/MM/YYYY HH:mm:ss')}</Typography.Text>}
-                  </Space>
-                ),
+                title: 'Trạng thái', width: 230,
+                render: (_, row) => {
+                  const state = pairingState(row, now);
+                  return (
+                    <Space direction="vertical" size={0}>
+                      <StatusTag domain="agent" value={state} />
+                      {state === 'pairing' && row.pairingExpiresAt && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>Mã hết hạn lúc {dayjs(row.pairingExpiresAt).format('HH:mm')}</Typography.Text>
+                      )}
+                      {row.paired && row.lastSeenAt && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>Báo về lần cuối {dayjs(row.lastSeenAt).format('DD/MM/YYYY HH:mm:ss')}</Typography.Text>
+                      )}
+                    </Space>
+                  );
+                },
+              },
+              {
+                title: 'Máy tính', width: 190,
+                render: (_, row) => row.machineName
+                  ? <Space direction="vertical" size={0}><span className="code">{row.machineName}</span>{row.version && <Typography.Text type="secondary" style={{ fontSize: 12 }}>Phiên bản {row.version}</Typography.Text>}</Space>
+                  : <Typography.Text type="secondary">—</Typography.Text>,
               },
               {
                 title: 'Máy xét nghiệm phụ trách',
@@ -121,12 +146,16 @@ export default function AgentsPage() {
                     ),
               },
               {
-                title: '', width: isAdmin ? 300 : 110, align: 'right',
+                title: '', width: isAdmin ? 320 : 80, align: 'right',
                 render: (_, row) => (
                   <Space size={4}>
                     <Button size="small" icon={<FileSearchOutlined />} onClick={() => navigate(`/log-agent?agentId=${row.id}`)}>Log</Button>
                     {isAdmin && <Button size="small" onClick={() => openForm(row)}>Sửa</Button>}
-                    {isAdmin && <Button size="small" icon={<KeyOutlined />} onClick={() => confirmRegenerate(row)}>Khoá mới</Button>}
+                    {isAdmin && (
+                      <Button size="small" icon={<LinkOutlined />} loading={pair.isPending && pair.variables?.id === row.id} onClick={() => confirmPair(row)}>
+                        Ghép nối lại
+                      </Button>
+                    )}
                     {isAdmin && (
                       <DeleteButton title={`Xoá agent "${row.name}"?`} description="Agent này sẽ không còn gửi được dữ liệu về máy chủ."
                         onConfirm={() => remove.mutateAsync(row)} />
@@ -141,46 +170,16 @@ export default function AgentsPage() {
 
       <Modal open={editing !== null} title={editing === 'new' ? 'Thêm agent' : 'Sửa agent'} okText="Lưu" cancelText="Hủy bỏ" destroyOnHidden
         confirmLoading={save.isPending} onCancel={() => setEditing(null)} onOk={() => form.submit()}>
-        <Form form={form} layout="vertical" onFinish={(v) => save.mutate({ name: v.name.trim(), workstationCode: v.workstationCode.trim() })}>
+        <Form form={form} layout="vertical" onFinish={(v) => save.mutate({ name: v.name.trim() })}>
           <Form.Item name="name" label="Tên agent" rules={[{ required: true, whitespace: true, message: 'Nhập tên agent' }]}
             extra="Đặt theo vị trí để dễ nhận, vd: Máy tính phòng xét nghiệm tầng 2.">
             <Input autoFocus maxLength={100} />
           </Form.Item>
-          <Form.Item name="workstationCode" label="Mã máy trạm"
-            rules={[{ required: true, message: 'Nhập mã máy trạm' }, { pattern: /^[A-Za-z0-9._-]+$/, message: 'Chỉ gồm chữ không dấu, số, dấu chấm, gạch ngang, gạch dưới' }]}
-            extra="Mã ngắn để gán máy xét nghiệm cho agent này, vd: XN-01. Đổi mã thì các máy đang gán tự đi theo.">
-            <Input maxLength={64} style={{ textTransform: 'uppercase' }} />
-          </Form.Item>
         </Form>
       </Modal>
 
-      <Modal open={issued !== null} title={`Khoá cài đặt của "${issued?.agentName ?? ''}"`} footer={<Button type="primary" onClick={() => setIssued(null)}>Tôi đã lưu khoá</Button>}
-        closable={false} maskClosable={false} keyboard={false} width={680}>
-        {issued && (
-          <Flex vertical gap={12}>
-            <Alert type="warning" showIcon message="Khoá chỉ hiện một lần. Đóng hộp thoại này là không xem lại được — nếu mất phải cấp khoá mới." />
-            <Input.TextArea value={issued.key} readOnly autoSize className="code" aria-label="Khoá agent" />
-            <Button icon={<CopyOutlined />} onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(issued.key);
-                message.success('Đã chép khoá');
-              } catch {
-                message.warning('Trình duyệt không cho chép tự động — bôi đen khoá rồi Ctrl+C');
-              }
-            }}>Chép khoá</Button>
-            <Typography.Text>Trên máy tính đặt agent, mở tệp <span className="code">appsettings.json</span> cạnh <span className="code">LisAgent.exe</span> và điền:</Typography.Text>
-            <pre className="code" style={{ margin: 0, padding: 12, background: 'var(--c-muted)', borderRadius: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontWeight: 500 }}>
-{`{
-  "Server": {
-    "Url": "${window.location.origin}",
-    "AgentKey": "${issued.key}"
-  }
-}`}
-            </pre>
-            <Typography.Text type="secondary">Sau đó khởi động lại dịch vụ "LIS Agent". Trong vòng một phút, agent sẽ hiện "Đang chạy" ở danh sách.</Typography.Text>
-          </Flex>
-        )}
-      </Modal>
+      <PairingDialog target={pairing} onClose={() => setPairing(null)} newCodeLoading={pair.isPending}
+        onNewCode={() => pairing && pair.mutate({ id: pairing.agentId, name: pairing.agentName, pairedAt: pairing.baselinePairedAt })} />
     </div>
   );
 }
