@@ -215,6 +215,11 @@ public sealed class InstrumentConnectionManager(
                 await ReconcileAsync(cached);
             }
         }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Trả cổng không được làm lệnh thử cổng lỗi theo; vòng nạp định kỳ sẽ mở lại máy nếu lần này hỏng.
+            System.Diagnostics.Debug.WriteLine($"Mở lại máy sau khi trả cổng lỗi: {ex.Message}");
+        }
         finally
         {
             _lock.Release();
