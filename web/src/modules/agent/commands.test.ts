@@ -54,6 +54,7 @@ describe('summarizeResult', () => {
     expect(summarizeResult(cmd({ name: 'reload-config', result: { instruments: 2 } }))).toBe('Đang chạy 2 máy');
     expect(summarizeResult(cmd({ name: 'flush-pending', result: { remaining: 0 } }))).toBe('Đã gửi hết bản tin chờ');
     expect(summarizeResult(cmd({ name: 'flush-pending', result: { remaining: 3 } }))).toBe('Còn 3 bản tin chờ gửi');
+    expect(summarizeResult(cmd({ name: 'flush-pending', result: { remaining: 7, busy: true } }))).toBe('Agent đang gửi — còn 7 bản tin');
     expect(summarizeResult(cmd({ name: 'revoke', result: { offline: true } }))).toBe('Đã thu hồi lúc agent không nối kênh lệnh — máy chủ đã khoá, agent không gửi được dữ liệu nữa');
     expect(summarizeResult(cmd({ name: 'revoke', result: null }))).toBe('Đã thu hồi, agent đã dừng');
   });

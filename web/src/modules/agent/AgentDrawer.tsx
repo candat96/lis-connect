@@ -185,8 +185,8 @@ export function AgentDrawer({ agentId, onClose }: Props) {
                 { title: 'Máy', width: 170, render: (_, i) => <Space direction="vertical" size={0}><b>{i.name}</b><Typography.Text type="secondary" style={{ fontSize: 12 }}>{i.connectionText ?? 'Chưa cấu hình kết nối'}</Typography.Text></Space> },
                 { title: 'Đường truyền', render: (_, i) => (i.status ? <Space direction="vertical" size={0}><StatusTag domain="link" value={i.status.state} /><Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }} ellipsis={{ rows: 2, tooltip: i.status.text }}>{i.status.text}</Typography.Paragraph></Space> : '—') },
                 { title: 'Nhận lần cuối', width: 100, render: (_, i) => time(i.status?.lastResultAt ?? null) },
-                { title: 'Đã nhận', width: 70, align: 'right', render: (_, i) => i.status?.samplesReceived ?? 0 },
-                { title: 'Chờ gửi', width: 70, align: 'right', render: (_, i) => i.status?.pendingToRetry ?? 0 },
+                { title: 'Bản tin', width: 70, align: 'right', render: (_, i) => <Tooltip title="Số bản tin đã lưu xuống đĩa từ lúc agent chạy">{i.status?.samplesReceived ?? 0}</Tooltip> },
+                { title: 'Chờ gửi', width: 70, align: 'right', render: (_, i) => <Tooltip title="Số bản tin agent còn giữ, chưa gửi lên máy chủ">{i.status?.pendingToRetry ?? 0}</Tooltip> },
                 ...(isAdmin && paired ? [{
                   title: '', width: 92, align: 'right' as const,
                   render: (_: unknown, i: Instrument) => (

@@ -24,7 +24,10 @@ public sealed record ResultRow(
     ResultFlag Flag,
     string? Status,
     string? PendingValue,
-    string? Source);
+    string? Source,
+    string? PendingInstrumentFlag = null,
+    string? PendingReason = null,
+    DateTimeOffset? PendingAt = null);
 
 /// <summary>Một mẫu kèm người bệnh, trạng thái duyệt và bảng chỉ số. <see cref="ApprovedBy"/> là "Tự duyệt" khi mẫu được tự duyệt.</summary>
 public sealed record SampleResults(

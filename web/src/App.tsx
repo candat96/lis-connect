@@ -11,6 +11,7 @@ const CatalogPage = lazy(() => import('@/modules/danh-muc/CatalogPage'));
 const InstrumentsPage = lazy(() => import('@/modules/may/InstrumentsPage'));
 const AgentsPage = lazy(() => import('@/modules/agent/AgentsPage'));
 const LogsPage = lazy(() => import('@/modules/agent/LogsPage'));
+const RawMessagesPage = lazy(() => import('@/modules/ban-tin/RawMessagesPage'));
 const UsersPage = lazy(() => import('@/modules/nhan-su/UsersPage'));
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
               <Route path="/may" element={<InstrumentsPage />} />
               <Route path="/agent" element={<AgentsPage />} />
               <Route path="/log-agent" element={<LogsPage />} />
+              <Route path="/ban-tin" element={<RawMessagesPage />} />
               <Route path="/nhan-su" element={<UsersPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/ket-qua" replace />} />

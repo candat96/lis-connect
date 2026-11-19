@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, AutoComplete, Button, Card, Descriptions, Empty, Flex, Input, Modal, Space, Table, Tag, Tooltip, Typography, type InputRef } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { qk, resultService, type ResultFlag, type ResultHistory, type ResultRow, type SampleDetail } from '@/services';
+import { ApiError, qk, resultService, type ResultFlag, type ResultHistory, type ResultRow, type SampleDetail } from '@/services';
 import { StatusTag } from '@/shared/ui/StatusTag';
 import { useCanEditResults, useCanUnapprove } from '@/stores/sessionStore';
 
@@ -24,7 +24,21 @@ const FLAG: Record<ResultFlag, { text: string; rowClass: string } | null> = {
 const SEX: Record<string, string> = { M: 'Nam', F: 'Nữ', O: 'Khác' };
 const ACTION: Record<string, string> = {
   nhan: 'Nhập / nhận', sua: 'Sửa', duyet: 'Duyệt', 'huy-duyet': 'Huỷ duyệt', 'thay-the': 'Máy gửi lại / dùng bản máy', 'bo-thay-the': 'Bỏ bản máy gửi lại',
+  'giai-ma-lai-khac': 'Giải mã lại ra giá trị khác, không ghi',
 };
+
+/** Thao tác lịch sử chỉ ghi nhận, giá trị KHÔNG đổi — hiện giá trị không gạch ngang. */
+const NO_CHANGE_ACTIONS = new Set(['giai-ma-lai-khac']);
+
+/** Câu giải thích thẻ chờ thay: nguồn (máy gửi lại / giải mã lại), giờ, cờ máy. */
+export function pendingTooltip(row: Pick<ResultRow, 'pendingReason' | 'pendingAt' | 'pendingInstrumentFlag'>): string {
+  const source = row.pendingReason?.startsWith('Giải mã lại') ? 'Giải mã lại bản tin ra giá trị này' : 'Máy gửi lại giá trị này';
+  const at = row.pendingAt ? ` lúc ${dayjs(row.pendingAt).format('HH:mm DD/MM/YYYY')}` : '';
+  const flag = row.pendingInstrumentFlag ? ` · cờ máy: ${row.pendingInstrumentFlag}` : '';
+  return `${source}${at}${flag}. Bấm "Dùng" để thay giá trị hiện tại, hoặc ✕ để bỏ.`;
+}
+
+const PENDING_BLOCKS_APPROVE = 'Mẫu còn giá trị chờ thay';
 
 interface Props {
   sampleId: string | null;
@@ -92,7 +106,18 @@ export function SampleResultCard({ sampleId, onDirtyChange }: Props) {
     onError,
   });
 
-  const approve = useMutation({ mutationFn: () => resultService.approve(sampleId!), onSuccess: async () => { await refresh(); message.success('Đã duyệt mẫu'); }, onError });
+  const approve = useMutation({
+    mutationFn: () => resultService.approve(sampleId!),
+    onSuccess: async () => { await refresh(); message.success('Đã duyệt mẫu'); },
+    onError: (e: Error) =>
+      e instanceof ApiError && e.status === 409 && e.message.startsWith(PENDING_BLOCKS_APPROVE)
+        ? modal.warning({
+          title: 'Chưa duyệt được — còn giá trị chờ thay',
+          content: 'Chỉ số có thẻ cam ⇄ là giá trị máy gửi lại hoặc giải mã lại ra khác giá trị hiện tại. Với từng chỉ số, bấm "Dùng" để lấy giá trị mới hoặc ✕ để giữ giá trị hiện tại, rồi duyệt lại.',
+          okText: 'Đã hiểu',
+        })
+        : onError(e),
+  });
   const unapprove = useMutation({
     mutationFn: (r: string) => resultService.unapprove(sampleId!, r),
     onSuccess: async () => { setReasonFor(null); await refresh(); message.success('Đã huỷ duyệt — mẫu về chờ duyệt'); },
@@ -202,8 +227,11 @@ export function SampleResultCard({ sampleId, onDirtyChange }: Props) {
                         )}
                         {row.pendingValue !== null && (
                           <Flex align="center" gap={4} style={{ marginTop: 4 }}>
-                            <Tooltip title="Máy gửi lại giá trị này sau khi mẫu đã duyệt">
-                              <Tag color="warning" icon={<SwapOutlined />} style={{ marginInlineEnd: 0 }}>{row.pendingValue || 'lỗi đọc'}</Tag>
+                            <Tooltip title={pendingTooltip(row)}>
+                              <Tag color="warning" icon={<SwapOutlined />} style={{ marginInlineEnd: 0 }}>
+                                {row.pendingValue || 'lỗi đọc'}
+                                {row.pendingInstrumentFlag && row.pendingInstrumentFlag.toUpperCase() !== 'N' ? ` (cờ ${row.pendingInstrumentFlag})` : ''}
+                              </Tag>
                             </Tooltip>
                             {canEdit && row.resultId && (
                               <>
@@ -285,7 +313,15 @@ function HistoryModal({ row, onClose }: { row: ResultRow | null; onClose: () => 
         columns={[
           { title: 'Thời gian', dataIndex: 'at', width: 150, render: (v: string) => <span className="dt">{dayjs(v).format('DD/MM/YYYY HH:mm:ss')}</span> },
           { title: 'Thao tác', dataIndex: 'action', width: 170, render: (v: string) => ACTION[v] ?? v },
-          { title: 'Giá trị', render: (_, h) => (h.oldValue !== null ? <span><s className="muted">{h.oldValue || '(trống)'}</s> → <b>{h.newValue ?? '(trống)'}</b></span> : <b>{h.newValue ?? ''}</b>) },
+          {
+            title: 'Giá trị',
+            render: (_, h) => {
+              if (NO_CHANGE_ACTIONS.has(h.action)) {
+                return <span>giữ <b>{h.oldValue ?? '(trống)'}</b> · giải mã lại ra <span className="muted">{h.newValue ?? '(trống)'}</span></span>;
+              }
+              return h.oldValue !== null ? <span><s className="muted">{h.oldValue || '(trống)'}</s> → <b>{h.newValue ?? '(trống)'}</b></span> : <b>{h.newValue ?? ''}</b>;
+            },
+          },
           { title: 'Người thực hiện', dataIndex: 'actorName', width: 150, render: (v: string | null) => v ?? 'Máy / hệ thống' },
           { title: 'Lý do', dataIndex: 'reason', render: (v: string | null) => v ?? '' },
         ]}

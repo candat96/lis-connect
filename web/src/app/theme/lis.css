@@ -62,3 +62,19 @@
 .lab-grid tr.lab-crit .flag-text {
   color: var(--c-danger);
 }
+
+/* Nội dung bản tin thô máy gửi: chữ đơn cách, giữ xuống dòng theo <CR>, cuộn riêng */
+.raw-text {
+  font-family: 'Roboto Mono', ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--c-muted);
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+}

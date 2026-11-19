@@ -1,7 +1,7 @@
 import { Tag } from 'antd';
 import {
   CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, DisconnectOutlined, ExclamationCircleOutlined,
-  HourglassOutlined, LinkOutlined, LoadingOutlined, QuestionCircleOutlined, SendOutlined,
+  HourglassOutlined, LinkOutlined, LoadingOutlined, MinusCircleOutlined, QuestionCircleOutlined, SaveOutlined, SendOutlined,
 } from '@ant-design/icons';
 import type { ReactNode } from 'react';
 
@@ -41,6 +41,15 @@ const STATUS: Record<string, Record<string, StatusDef>> = {
     failed: { label: 'Lỗi', color: 'error', icon: <CloseCircleOutlined /> },
     expired: { label: 'Hết hạn', color: 'warning', icon: <ClockCircleOutlined /> },
     unknown: { label: 'Không rõ kết quả', color: 'warning', icon: <QuestionCircleOutlined /> },
+  },
+  decode: {
+    'cho-giai-ma': { label: 'Chờ giải mã', color: 'default', icon: <HourglassOutlined /> },
+    'dang-giai-ma': { label: 'Đang giải mã', color: 'processing', icon: <LoadingOutlined /> },
+    'da-giai-ma': { label: 'Đã giải mã', color: 'success', icon: <CheckCircleOutlined /> },
+    'khong-co-ket-qua': { label: 'Không có kết quả', color: 'default', icon: <MinusCircleOutlined /> },
+    loi: { label: 'Lỗi', color: 'error', icon: <CloseCircleOutlined /> },
+    'chi-luu': { label: 'Chỉ lưu', color: 'default', icon: <SaveOutlined /> },
+    'can-xem-lai': { label: 'Cần xem lại', color: 'warning', icon: <ExclamationCircleOutlined /> },
   },
   user: {
     active: { label: 'Đang hoạt động', color: 'success', icon: <CheckCircleOutlined /> },

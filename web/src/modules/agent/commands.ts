@@ -46,6 +46,8 @@ function summarizeDone(name: AgentCommandName, r: Json, args: Json): string {
       return `Đang chạy ${num(r, 'instruments')} máy`;
     case 'flush-pending': {
       const remaining = num(r, 'remaining');
+      // busy: vòng gửi nền của agent đang chạy dở, agent trả ngay số còn lại thay vì giữ kênh lệnh.
+      if (r?.busy === true) return `Agent đang gửi — còn ${remaining} bản tin`;
       return remaining === 0 ? 'Đã gửi hết bản tin chờ' : `Còn ${remaining} bản tin chờ gửi`;
     }
     case 'reconnect-instrument':

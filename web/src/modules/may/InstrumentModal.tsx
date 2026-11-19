@@ -41,6 +41,7 @@ export function InstrumentModal({ target, onClose, onSaved }: Props) {
   const { message } = App.useApp();
   const [form] = Form.useForm<FormValues>();
   const kind = Form.useWatch('kind', form);
+  const protocolFamily = Form.useWatch('protocolFamily', form);
   const workstationCode = Form.useWatch('workstationCode', form);
   const agents = useQuery({ queryKey: qk.agents, queryFn: agentService.list, enabled: target !== null });
   // Gợi ý cổng COM từ lần quét cuối của agent được chọn; vẫn gõ tay được khi chưa quét / cổng chưa cắm.
@@ -116,6 +117,13 @@ export function InstrumentModal({ target, onClose, onSaved }: Props) {
           </Col>
         </Row>
 
+        {protocolFamily === 'beckman-au' && (
+          <Alert
+            type="warning" showIcon style={{ marginBottom: 16 }}
+            message="Máy Beckman AU: bật BCC trên máy trước khi chạy thật"
+            description="Trên máy: Online › Protocol — bật BCC, nên chọn Class B. Mặc định nhà máy tắt BCC: khi đó bản tin bị nhiễu trên đường truyền không phát hiện được và giá trị sai có thể vào hệ thống mà không ai biết. Cấu hình online của LIS phải khớp đúng các lựa chọn trên máy."
+          />
+        )}
         <Form.Item name="kind" label="Cách nối với máy">
           <Radio.Group
             options={[

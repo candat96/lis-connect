@@ -185,6 +185,29 @@ public class IngestServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task Chi_tiet_mau_co_nguon_va_gio_cua_ban_cho_thay()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Base.Catalog, "HGB", "Huyết sắc tố", env.Base.EdtaId, decimals: 0, unit: "g/L");
+        await MapAsync(env, "HGB", hgbId);
+        var (sampleId, items) = await CreateSampleAsync(env.Base, FemaleAdult(), hgbId);
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+        await env.Base.Results.SetManualAsync(items[hgbId], "130", env.Base.ActorId, null);
+
+        var before = (await env.Base.Results.GetAsync(sampleId)).Rows.Single();
+        before.PendingReason.ShouldBeNull();
+        before.PendingAt.ShouldBeNull();
+
+        await env.Base.Results.ApproveAsync(sampleId, env.Base.ActorId);
+        await env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("HGB", "135")));
+
+        var row = (await env.Base.Results.GetAsync(sampleId)).Rows.Single();
+        row.PendingValue.ShouldBe("135");
+        row.PendingReason.ShouldBe("Máy gửi lại kết quả cho mẫu đã duyệt");
+        row.PendingAt.ShouldNotBeNull();
+    }
+
+    [Fact]
     public async Task Ingest_ApprovedResult_BecomesPendingReplacement()
     {
         var env = await CreateEnvAsync();

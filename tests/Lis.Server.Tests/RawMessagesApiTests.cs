@@ -186,6 +186,34 @@ public sealed class RawMessagesApiTests(ServerFixture fixture) : IClassFixture<S
     }
 
     [Fact]
+    public async Task List_can_chu_y_gom_loi_can_xem_lai_canh_bao_va_resolvedMismatch()
+    {
+        await using var env = await RawEnv.CreateAsync(fixture, "ba20");
+        var ids = new List<Guid>();
+        for (var i = 0; i < 6; i++)
+        {
+            ids.Add(await env.StoreAsync(completedAt: RawEnv.CompletedAt.AddMinutes(i), seq: i + 1));
+        }
+
+        await env.Exec("UPDATE raw_message SET decode_status = 'loi' WHERE id = @id", new { id = ids[0] });
+        await env.Exec("UPDATE raw_message SET decode_status = 'can-xem-lai' WHERE id = @id", new { id = ids[1] });
+        await env.Exec(
+            "UPDATE raw_message SET decode_status = 'khong-co-ket-qua', decode_result = '{\"warnings\":[\"Bỏ cả mẫu thử\"]}'::jsonb WHERE id = @id",
+            new { id = ids[2] });
+        await env.Exec(
+            "UPDATE raw_message SET decode_status = 'da-giai-ma', decode_result = '{\"resolvedMismatch\":[{\"barcode\":\"MAU1\"}],\"warnings\":[]}'::jsonb WHERE id = @id",
+            new { id = ids[3] });
+        await env.Exec("UPDATE raw_message SET decode_status = 'da-giai-ma', decode_result = '{\"warnings\":[]}'::jsonb WHERE id = @id", new { id = ids[4] });
+        await env.Exec("UPDATE raw_message SET decode_status = 'khong-co-ket-qua' WHERE id = @id", new { id = ids[5] });
+        var ktv = await env.LoginAsync("ktv");
+
+        var attention = await ktv.GetFromJsonAsync<JsonElement>("/api/raw-messages?attention=true", Ct);
+        attention.EnumerateArray().Select(r => r.GetProperty("id").GetGuid()).ShouldBe([ids[3], ids[2], ids[1], ids[0]]);
+        attention[1].GetProperty("summary").GetProperty("warnings")[0].GetString().ShouldBe("Bỏ cả mẫu thử");
+        (await ktv.GetAsync("/api/raw-messages?attention=1", Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Chi_tiet_co_hex_ket_qua_va_dau_vet()
     {
         await using var env = await RawEnv.CreateAsync(fixture, "ba6");

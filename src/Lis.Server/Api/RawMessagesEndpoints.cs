@@ -32,7 +32,7 @@ public static class RawMessagesEndpoints
 
     /// <summary>Các trường của <c>decode_result</c> giữ lại trong <c>summary</c> của danh sách.</summary>
     private static readonly string[] SummaryFields =
-        ["readings", "stored", "pendingReplacement", "unmatched", "qc", "unchanged", "conflicts", "olderThanCurrent", "resolvedMismatch", "error", "note", "interrupted"];
+        ["readings", "stored", "pendingReplacement", "unmatched", "qc", "unchanged", "conflicts", "olderThanCurrent", "resolvedMismatch", "warnings", "error", "note", "interrupted"];
 
     public static void MapRawMessagesApi(this RouteGroupBuilder api)
     {
@@ -83,6 +83,22 @@ public static class RawMessagesEndpoints
 
             parameters.Add("statuses", wanted);
             conditions.Add("m.decode_status = ANY(@statuses)");
+        }
+
+        if (Text(query, "attention") is { } attention)
+        {
+            if (attention != "true")
+            {
+                throw ApiException.BadRequest("attention chỉ nhận true");
+            }
+
+            // "Cần chú ý": lỗi, cần xem lại, hoặc giải mã xong mà có cảnh báo (driver bỏ dữ liệu) / dòng Chưa ghép đã gán ra giá trị khác.
+            conditions.Add(
+                """
+                (m.decode_status IN ('loi', 'can-xem-lai')
+                 OR jsonb_array_length(COALESCE(m.decode_result -> 'warnings', '[]'::jsonb)) > 0
+                 OR jsonb_array_length(COALESCE(m.decode_result -> 'resolvedMismatch', '[]'::jsonb)) > 0)
+                """);
         }
 
         if (Text(query, "from") is { } from)

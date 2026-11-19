@@ -1,4 +1,4 @@
-import { ApiOutlined, AppstoreOutlined, ClusterOutlined, DownOutlined, FileSearchOutlined, KeyOutlined, TeamOutlined, ExperimentOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ShopOutlined } from '@ant-design/icons';
+import { ApiOutlined, AppstoreOutlined, ClusterOutlined, DownOutlined, FileSearchOutlined, FileTextOutlined, KeyOutlined, TeamOutlined, ExperimentOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ShopOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { Avatar, Button, Dropdown, Flex, Grid, Layout, Menu, Spin, Typography } from 'antd';
 import { Suspense, useState } from 'react';
@@ -15,6 +15,7 @@ export const NAV = [
   { key: '/may', label: 'Máy & map kênh', icon: <ApiOutlined /> },
   { key: '/agent', label: 'Agent', icon: <ClusterOutlined /> },
   { key: '/log-agent', label: 'Log agent', icon: <FileSearchOutlined /> },
+  { key: '/ban-tin', label: 'Bản tin thô', icon: <FileTextOutlined /> },
   { key: '/nhan-su', label: 'Nhân sự', icon: <TeamOutlined />, adminOnly: true },
 ];
 

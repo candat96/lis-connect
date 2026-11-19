@@ -80,6 +80,11 @@ export interface ResultRow {
   status: string | null;
   pendingValue: string | null;
   source: string | null;
+  /** Cờ máy gửi kèm bản chờ thay (vd "H", "N"). */
+  pendingInstrumentFlag: string | null;
+  /** Lý do lúc tạo bản chờ thay: máy gửi lại cho mẫu đã duyệt / giải mã lại ra giá trị khác. */
+  pendingReason: string | null;
+  pendingAt: string | null;
 }
 
 export interface SampleDetail {
@@ -198,8 +203,11 @@ export const catalogService = {
 export interface InstrumentStatus {
   state: 'NotRunning' | 'Connecting' | 'Connected' | 'Error';
   text: string;
+  /** Lúc agent lưu xuống đĩa bản tin (không dở dang) gần nhất. */
   lastResultAt: string | null;
+  /** Số bản tin (không dở dang) agent đã lưu từ lúc chạy — đếm theo bản tin, không theo mẫu. */
   samplesReceived: number;
+  /** Số bản tin agent còn giữ trên đĩa, chưa gửi lên máy chủ. */
   pendingToRetry: number;
 }
 
@@ -396,6 +404,134 @@ export const logService = {
     api<AgentLog[]>('/agent-logs', { query: filter }),
 };
 
+// ---- Bản tin thô (máy gửi, giải mã ở máy chủ) ----
+export type DecodeStatus = 'cho-giai-ma' | 'dang-giai-ma' | 'da-giai-ma' | 'khong-co-ket-qua' | 'loi' | 'chi-luu' | 'can-xem-lai';
+
+export interface ResolvedMismatch {
+  unmatchedId?: string;
+  barcode: string;
+  channel: string;
+  oldValue: string | null;
+  newValue: string;
+}
+
+/** `decode_result` của máy chủ — mọi trường đều có thể vắng (bản tin chưa giải mã, hoặc chỉ là bản rút gọn ở danh sách). */
+export interface DecodeResult {
+  readings?: number;
+  stored?: number;
+  pendingReplacement?: number;
+  unmatched?: number;
+  qc?: number;
+  unchanged?: number;
+  conflicts?: number;
+  pendingCleared?: number;
+  supersededUnmatched?: number;
+  supersededQc?: number;
+  olderThanCurrent?: number;
+  queries?: string[];
+  notes?: string[];
+  warnings?: string[];
+  resolvedMismatch?: ResolvedMismatch[];
+  abandoned?: boolean;
+  error?: string | null;
+  note?: string | null;
+  interrupted?: number;
+}
+
+export interface RawMessageRow {
+  id: string;
+  instrumentId: string;
+  instrumentName: string;
+  seq: number;
+  session: string;
+  startedAt: string;
+  completedAt: string;
+  /** Con trỏ trang sau (đủ micro giây) — truyền vào `before`. */
+  cursor: string;
+  partial: boolean;
+  size: number;
+  decodeStatus: DecodeStatus;
+  decoderVersion: string | null;
+  summary: DecodeResult | null;
+}
+
+export type DecodeKind = 'tu-dong' | 'giai-ma-lai';
+
+export interface RawMessageDecode {
+  kind: DecodeKind;
+  actorName: string | null;
+  at: string;
+  decoderVersion: string;
+  status: DecodeStatus;
+  result: DecodeResult | null;
+}
+
+export interface RawMessageDetail {
+  id: string;
+  instrumentId: string;
+  instrumentName: string;
+  agentId: string | null;
+  seq: number;
+  session: string;
+  startedAt: string;
+  completedAt: string;
+  storedAt: string;
+  partial: boolean;
+  size: number;
+  hex: string;
+  hexTruncated: boolean;
+  protocolFamily: string | null;
+  model: string | null;
+  decodeStatus: DecodeStatus;
+  decodeStartedAt: string | null;
+  decoderVersion: string | null;
+  decodeResult: DecodeResult | null;
+  decodedAt: string | null;
+  decodes: RawMessageDecode[];
+}
+
+export interface RawPreview {
+  readings: { barcode: string; isQc: boolean; items: { channelCode: string; rawValue: string; unit: string | null; flag: string | null }[] }[];
+  queries: string[];
+  notes: string[];
+  abandoned: boolean;
+}
+
+export interface RedecodeTotals {
+  count: number;
+  stored: number;
+  pendingReplacement: number;
+  unmatched: number;
+  qc: number;
+  unchanged: number;
+  conflicts: number;
+  olderThanCurrent: number;
+  resolvedMismatch: number;
+  busy: number;
+  errors: number;
+}
+
+export interface RawMessageFilter {
+  instrumentId?: string;
+  /** "loi,can-xem-lai"… */
+  status?: string;
+  /** Cần chú ý: lỗi, cần xem lại, có cảnh báo, hoặc dòng Chưa ghép đã gán ra giá trị khác. */
+  attention?: boolean;
+  from?: string;
+  to?: string;
+  before?: string;
+  limit?: number;
+}
+
+export const rawMessageService = {
+  list: ({ attention, ...rest }: RawMessageFilter) =>
+    api<RawMessageRow[]>('/raw-messages', { query: { ...rest, attention: attention ? 'true' : undefined } }),
+  get: (id: string) => api<RawMessageDetail>(`/raw-messages/${id}`),
+  preview: (id: string) => api<RawPreview>(`/raw-messages/${id}/preview`, { method: 'POST' }),
+  redecode: (body: { ids: string[] } | { instrumentId: string; from: string; to: string }) =>
+    api<RedecodeTotals>('/raw-messages/redecode', { method: 'POST', body }),
+};
+
 // ---- Nhân sự (tài khoản đăng nhập) ----
 export const ROLE_OPTIONS = [
   { value: 'quan-tri', label: 'Quản trị', hint: 'toàn quyền: cài đặt máy, agent, danh mục, nhân sự' },
@@ -445,4 +581,6 @@ export const qk = {
   agentCommand: (commandId: string) => ['agent-command', commandId] as const,
   users: ['users'] as const,
   logs: (filter: object) => ['agent-logs', filter] as const,
+  rawMessages: (filter: object) => ['raw-messages', filter] as const,
+  rawMessage: (id: string) => ['raw-message', id] as const,
 };

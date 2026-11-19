@@ -18,7 +18,7 @@ public sealed record SampleOrderView(string? Doctor, string? Dept, string? Diagn
 public sealed record ResultRowView(
     Guid OrderItemId, Guid? ResultId, string ValueType, IReadOnlyList<string> Choices, string ServiceCode, string ServiceName,
     bool IsPanelHeader, int Depth, string? Value, string? Unit, string? RefText, string Flag, string? Status, string? PendingValue,
-    string? Source);
+    string? Source, string? PendingInstrumentFlag, string? PendingReason, string? PendingAt);
 
 public sealed record SampleDetailView(
     Guid SampleId, string Barcode, SamplePatientView Patient, SampleOrderView Order, string? ApprovedAt, string? ApprovedBy,
@@ -100,7 +100,8 @@ public static class SamplesEndpoints
             var hint = hints.GetValueOrDefault(row.ServiceId) ?? FreeTextHint;
             return new ResultRowView(
                 row.OrderItemId, row.ResultId, hint.ValueType, hint.Choices, row.ServiceCode, row.ServiceName, row.IsPanelHeader, row.Depth,
-                row.Value, row.Unit, row.RefText, row.Flag.ToString(), row.Status, row.PendingValue, row.Source);
+                row.Value, row.Unit, row.RefText, row.Flag.ToString(), row.Status, row.PendingValue, row.Source,
+                row.PendingInstrumentFlag, row.PendingReason, row.PendingAt is { } pendingAt ? ApiFormat.Iso(pendingAt) : null);
         }).ToList();
 
         var patient = sample.Patient;
