@@ -486,6 +486,21 @@ public sealed class AgentChannelTests(ServerFixture fixture) : IClassFixture<Ser
     }
 
     [Fact]
+    public async Task Hello_mang_bao_cao_cua_lenh_da_xong_van_chot_lenh_update_dang_mo_theo_phien_ban()
+    {
+        var (host, clinic, agent, key, clock) = await StartAsync(fixture, "kenhcapnhatcu");
+        await using var _h = host;
+        var finished = await host.AgentCommands.CreateAsync(clinic.Id, agent.Id, "update", UpdateArgs("0.2.5"), "failed", null, null, clock.GetUtcNow());
+        var running = await host.AgentCommands.CreateAsync(clinic.Id, agent.Id, "update", UpdateArgs("0.3.0"), "running", null, null, clock.GetUtcNow());
+
+        using var socket = await ConnectAsync(host, key);
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "0.3.0", Update: new UpdateReport(finished.Id, true, "0.2.5", null)));
+
+        await WaitUntilAsync(async () => (await RowAsync(host, clinic, running.Id))!.Status == "done");
+        (await RowAsync(host, clinic, finished.Id))!.Status.ShouldBe("failed");
+    }
+
+    [Fact]
     public async Task Hello_bao_cap_nhat_khong_dong_vao_lenh_cua_agent_khac_hay_lenh_da_xong()
     {
         var (host, clinic, agent, key, clock) = await StartAsync(fixture, "kenhcapnhatkhac");

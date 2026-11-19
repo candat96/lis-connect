@@ -197,6 +197,8 @@ Bấm vào dòng lệnh ở **Lịch sử lệnh** để đọc lý do. Hai lý 
   đúng bản trong thư mục `AGENT_DIST_DIR`.
 - **"Cài bản mới lỗi: ... — đã quay về bản cũ"**: lỗi khi thay tệp (tệp bị khoá, thiếu quyền). Chép nguyên văn lý do khi báo IT.
 
+Lỗi **"Bản mới không chạy được: ..."** nghĩa là agent đã chạy thử tệp mới trước khi cài và nó không khởi động nổi (thoát lỗi, báo sai phiên bản hoặc treo quá 20 giây); dịch vụ không bị dừng, chỉ cần publish lại tệp cài đúng rồi cập nhật lại.
+
 Lỗi xảy ra sớm hơn (tải tệp hỏng, sai SHA-256, máy chủ chưa có tệp mới) cũng hiện ở đây; khi đó tệp đang chạy chưa bị đụng tới. Chỉ cần
 sửa nguyên nhân rồi bấm **Cập nhật lên x.y.z** lại.
 

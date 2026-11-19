@@ -4,7 +4,7 @@ namespace Lis.Server.AgentApi;
 public static class AgentChannelEndpoint
 {
     public static void MapAgentChannel(this RouteGroupBuilder group) =>
-        group.MapGet("/channel", async (HttpContext http, AgentChannelHub hub) =>
+        group.MapGet("/channel", async (HttpContext http, AgentChannelHub hub, IHostApplicationLifetime lifetime) =>
         {
             if (!http.WebSockets.IsWebSocketRequest)
             {
@@ -13,7 +13,9 @@ public static class AgentChannelEndpoint
 
             var identity = AgentEndpoints.Identity(http);
             using var socket = await http.WebSockets.AcceptWebSocketAsync();
-            await hub.RunAsync(identity, socket, http.RequestAborted);
+            // Server tắt thì đóng kênh ngay, không chờ agent tự ngắt.
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, lifetime.ApplicationStopping);
+            await hub.RunAsync(identity, socket, linked.Token);
             return Results.Empty;
         });
 }

@@ -246,28 +246,28 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
 
     /// <summary>
     /// <c>hello</c> chốt lệnh <c>update</c> (agent tự khởi động lại giữa lệnh nên không có <c>result</c>): có <c>Update</c> → lệnh đó
-    /// thành <c>done</c>/<c>failed</c> (từ sent/running/unknown), chỉ khi lệnh thuộc agent này; không có mà phiên bản đang chạy khớp
-    /// <c>args.version</c> của lệnh update đang dở → <c>done</c>.
+    /// thành <c>done</c>/<c>failed</c> (từ sent/running/unknown), chỉ khi lệnh thuộc agent này; không có, hoặc báo cáo không chốt được lệnh nào,
+    /// mà phiên bản đang chạy khớp <c>args.version</c> của lệnh update đang dở → <c>done</c>.
     /// </summary>
     private async Task SettleUpdateAsync(AgentIdentity identity, ChannelEnvelope hello)
     {
         var now = clock.GetUtcNow();
         string[] open = ["sent", "running", "unknown"];
-        if (hello.Update is { } report)
+        if (hello.Update is { } report && await OwnsAsync(identity, report.CommandId) is { Name: "update" } row)
         {
-            if (await OwnsAsync(identity, report.CommandId) is not { Name: "update" } row)
-            {
-                return;
-            }
-
             var changed = report.Ok
                 ? await commands.TransitionAsync(row.Id, open, "done", now, System.Text.Json.JsonSerializer.Serialize(new { version = report.Version }))
                 : await commands.TransitionAsync(
                     row.Id, open, "failed", now, error: string.IsNullOrWhiteSpace(report.Error) ? "Cập nhật không thành công" : Truncate(report.Error, MaxError));
             logger.LogInformation("Lệnh cập nhật {CommandId} của agent {AgentId} chốt qua hello: {Status}", row.Id, identity.Agent.Id, changed ? (report.Ok ? "done" : "failed") : "bỏ qua");
-            return;
+            if (changed)
+            {
+                return;
+            }
         }
 
+        // Không có báo cáo, hoặc báo cáo không chốt được lệnh nào (lệnh đã xong / không phải update của agent này — vd báo cáo cũ còn sót):
+        // vẫn so phiên bản đang chạy với lệnh update đang mở.
         var version = AgentEndpoints.Clean(hello.Version, MaxAgentVersion);
         if (version is null || await commands.OpenUpdateAsync(identity.Agent.Id, now) is not { } pending)
         {

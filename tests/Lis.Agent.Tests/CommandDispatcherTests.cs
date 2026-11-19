@@ -26,6 +26,60 @@ public sealed class CommandDispatcherTests : IDisposable
         public Task<JsonElement?> RunAsync(JsonElement? args, CancellationToken ct) => throw ex;
     }
 
+    private sealed class GateHandler(string name, TaskCompletionSource gate) : IAgentCommandHandler
+    {
+        public int Runs { get; private set; }
+
+        public string Name => name;
+
+        public async Task<JsonElement?> RunAsync(JsonElement? args, CancellationToken ct)
+        {
+            Runs++;
+            await gate.Task;
+            return null;
+        }
+    }
+
+    [Fact]
+    public async Task Lenh_cho_luot_qua_90_giay_thi_khong_chay_ma_bao_loi()
+    {
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new GateHandler("x", gate);
+        var dispatcher = new CommandDispatcher([handler], clock);
+        var ct = TestContext.Current.CancellationToken;
+
+        var first = dispatcher.RunAsync(Command("x"), _ => Task.CompletedTask, ct);
+        var second = dispatcher.RunAsync(Command("x"), _ => Task.CompletedTask, ct);
+        clock.Advance(TimeSpan.FromSeconds(91));
+        gate.SetResult();
+
+        (await first).Ok.ShouldBe(true);
+        var late = await second;
+        late.Ok.ShouldBe(false);
+        late.Error.ShouldBe("Agent bận — lệnh chờ quá 90 giây, không chạy");
+        handler.Runs.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Lenh_cho_luot_duoi_90_giay_van_chay()
+    {
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new GateHandler("x", gate);
+        var dispatcher = new CommandDispatcher([handler], clock);
+        var ct = TestContext.Current.CancellationToken;
+
+        var first = dispatcher.RunAsync(Command("x"), _ => Task.CompletedTask, ct);
+        var second = dispatcher.RunAsync(Command("x"), _ => Task.CompletedTask, ct);
+        clock.Advance(TimeSpan.FromSeconds(89));
+        gate.SetResult();
+
+        (await first).Ok.ShouldBe(true);
+        (await second).Ok.ShouldBe(true);
+        handler.Runs.ShouldBe(2);
+    }
+
     [Fact]
     public async Task Lenh_la_tra_ok_false_dung_cau()
     {

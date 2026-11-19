@@ -26,6 +26,25 @@ internal sealed class FakeLauncher : IProcessLauncher
     }
 }
 
+internal sealed class FakeProbe(UpdateProbeResult result) : IUpdateProbe
+{
+    public int Calls { get; private set; }
+
+    public string? Exe { get; private set; }
+
+    public TimeSpan Timeout { get; private set; }
+
+    public Exception? Throws { get; set; }
+
+    public Task<UpdateProbeResult> RunAsync(string exePath, TimeSpan timeout, CancellationToken ct)
+    {
+        Calls++;
+        Exe = exePath;
+        Timeout = timeout;
+        return Throws is null ? Task.FromResult(result) : throw Throws;
+    }
+}
+
 /// <summary>Dịch vụ giả có chỗ cắm: <see cref="OnStart"/> mô phỏng bản mới vừa bật và ghi <c>ket-noi.json</c>.</summary>
 internal sealed class HookedServiceControl : IServiceControl
 {
@@ -119,7 +138,7 @@ public sealed class UpdateTests : IDisposable
 
     private static JsonElement Args(string version, string sha) => JsonSerializer.SerializeToElement(new { version, sha256 = sha });
 
-    private UpdateHandler Handler(string content, FakeLauncher launcher, bool service = true, string current = "0.2.0", FakeLifetime? lifetime = null)
+    private UpdateHandler Handler(string content, FakeLauncher launcher, bool service = true, string current = "0.2.0", FakeLifetime? lifetime = null, IUpdateProbe? probe = null)
     {
         var body = content;
         return new UpdateHandler(
@@ -128,7 +147,7 @@ public sealed class UpdateTests : IDisposable
                 await File.WriteAllTextAsync(dest, body, ct);
                 return (Sha(body), "0.3.0");
             },
-            InstallDir, current, service, launcher, Paths, lifetime ?? new FakeLifetime());
+            InstallDir, current, service, launcher, probe ?? new FakeProbe(new UpdateProbeResult(false, 0, "0.3.0\n")), Paths, lifetime ?? new FakeLifetime());
     }
 
     // ---- Handler (phía dịch vụ đang chạy) ----
@@ -170,7 +189,7 @@ public sealed class UpdateTests : IDisposable
     {
         var launcher = new FakeLauncher();
         var downloaded = false;
-        var handler = new UpdateHandler((_, _) => { downloaded = true; return Task.FromResult(("x", (string?)null)); }, InstallDir, "0.3.0", true, launcher, Paths, new FakeLifetime());
+        var handler = new UpdateHandler((_, _) => { downloaded = true; return Task.FromResult(("x", (string?)null)); }, InstallDir, "0.3.0", true, launcher, new FakeProbe(new UpdateProbeResult(false, 0, "")), Paths, new FakeLifetime());
 
         var data = await handler.RunAsync(_commandId, Args("0.3.0", "abc"), CancellationToken.None);
         data!.Value.GetProperty("alreadyCurrent").GetBoolean().ShouldBeTrue();
@@ -276,9 +295,71 @@ public sealed class UpdateTests : IDisposable
         File.ReadAllText(Installed).ShouldBe("moi");
         File.Exists(Old).ShouldBeFalse();
         File.Exists(New).ShouldBeTrue(); // đang chạy từ nó — chép chứ không di chuyển
-        ReadReport().ShouldBe(report);
+        File.Exists(Paths.UpdateReport).ShouldBeFalse(); // thành công không để lại báo cáo
         service.Calls.ShouldBe(["Stop", "Start"]);
         deferred.ShouldBe([New]);
+    }
+
+    [Fact]
+    public async Task Ap_cap_nhat_thanh_cong_xoa_bao_cao_cu()
+    {
+        Seed();
+        File.WriteAllText(Paths.UpdateReport, "{}");
+        var service = new HookedServiceControl { OnStart = _ => WriteMarker("0.3.0", _clock.GetUtcNow()) };
+
+        await Applier(service).ApplyAsync(_commandId, "0.3.0", CancellationToken.None);
+
+        File.Exists(Paths.UpdateReport).ShouldBeFalse();
+    }
+
+    // ---- Chạy thử bản mới ----
+
+    [Fact]
+    public async Task Chay_thu_dat_thi_giao_viec_va_chay_voi_timeout_20_giay()
+    {
+        File.WriteAllText(Installed, "cu");
+        var launcher = new FakeLauncher();
+        var probe = new FakeProbe(new UpdateProbeResult(false, 0, "0.3.0\r\n"));
+        var handler = Handler("moi", launcher, probe: probe);
+
+        await handler.RunAsync(_commandId, Args("0.3.0", Sha("moi")), CancellationToken.None);
+        await handler.AfterResultAsync(CancellationToken.None);
+
+        probe.Calls.ShouldBe(1);
+        probe.Exe.ShouldBe(New);
+        probe.Timeout.ShouldBe(TimeSpan.FromSeconds(20));
+        launcher.Started.Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(false, 0, "0.9.9", "báo phiên bản")]
+    [InlineData(false, 1, "", "thoát với mã 1")]
+    [InlineData(true, -1, "", "không phản hồi trong 20 giây")]
+    public async Task Chay_thu_khong_dat_thi_xoa_tep_moi_va_bao_loi_khong_giao_viec(bool timedOut, int exit, string output, string reason)
+    {
+        File.WriteAllText(Installed, "cu");
+        var launcher = new FakeLauncher();
+        var handler = Handler("moi", launcher, probe: new FakeProbe(new UpdateProbeResult(timedOut, exit, output)));
+
+        var ex = await Should.ThrowAsync<AgentCommandException>(() => handler.RunAsync(_commandId, Args("0.3.0", Sha("moi")), CancellationToken.None));
+
+        ex.Message.ShouldStartWith("Bản mới không chạy được: ");
+        ex.Message.ShouldContain(reason);
+        File.Exists(New).ShouldBeFalse();
+        File.ReadAllText(Installed).ShouldBe("cu");
+        await handler.AfterResultAsync(CancellationToken.None);
+        launcher.Started.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Chay_thu_ne_loi_bat_tien_trinh_cung_la_khong_chay_duoc()
+    {
+        var handler = Handler("moi", new FakeLauncher(), probe: new FakeProbe(new UpdateProbeResult(false, 0, "")) { Throws = new InvalidOperationException("tệp hỏng") });
+
+        var ex = await Should.ThrowAsync<AgentCommandException>(() => handler.RunAsync(_commandId, Args("0.3.0", Sha("moi")), CancellationToken.None));
+
+        ex.Message.ShouldBe("Bản mới không chạy được: không bật được (tệp hỏng)");
+        File.Exists(New).ShouldBeFalse();
     }
 
     [Fact]

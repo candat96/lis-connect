@@ -52,7 +52,7 @@ public static class AgentsEndpoints
         agents.MapPatch("/{id}", (HttpContext http, MasterStore master, string id, AgentBody body) => UpdateAsync(http.Ctx(), master, id, body));
         agents.MapPost("/{id}/pairing", (HttpContext http, MasterStore master, TimeProvider clock, ServerOptions options, string id) =>
             PairingAsync(http, master, clock, options, id));
-        agents.MapDelete("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, string id) => DeleteAsync(http.Ctx(), master, clock, id));
+        agents.MapDelete("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, AgentChannelHub hub, string id) => DeleteAsync(http.Ctx(), master, clock, hub, id));
         agents.MapAgentCommandsApi();
         // Tệp cài agent: chỉ Quản trị. Route tĩnh /installer không vướng /{id} vì /{id} chỉ có PATCH và DELETE.
         agents.MapGet("/installer/info", (HttpContext http, AgentDistribution distribution) => InstallerInfo(http.Ctx(), distribution));
@@ -147,7 +147,7 @@ public static class AgentsEndpoints
         }
     }
 
-    private static async Task<IResult> DeleteAsync(RequestContext ctx, MasterStore master, TimeProvider clock, string id)
+    private static async Task<IResult> DeleteAsync(RequestContext ctx, MasterStore master, TimeProvider clock, AgentChannelHub hub, string id)
     {
         var agentId = ApiFormat.ParseId(id);
         ctx.RequireAdmin();
@@ -163,6 +163,8 @@ public static class AgentsEndpoints
         }
 
         if (!await master.DeleteAgentAsync(ctx.Clinic.Id, agentId)) throw ApiException.NotFound(AgentNotFound);
+        // Agent đã xoá thì không được giữ kênh lệnh mở (sẽ còn nhận và ghi kết quả cho một agent không còn).
+        await hub.DisconnectAsync(agentId);
         return Results.NoContent();
     }
 

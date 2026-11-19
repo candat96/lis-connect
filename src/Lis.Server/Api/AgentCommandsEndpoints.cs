@@ -76,6 +76,7 @@ public static partial class AgentCommandsEndpoints
                 break;
             case "update":
                 var package = distribution.Current() ?? throw ApiException.Conflict(InstallerMissing);
+                if (package.Version is null) throw ApiException.Conflict("Tệp cài trên máy chủ thiếu version.txt — không cập nhật được");
                 argsJson = JsonSerializer.Serialize(new { version = package.Version, sha256 = package.Sha256 }, ArgsJson);
                 break;
             default:

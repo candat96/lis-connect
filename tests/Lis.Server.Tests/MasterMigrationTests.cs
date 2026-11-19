@@ -58,9 +58,9 @@ public sealed class MasterMigrationTests(ServerFixture fixture) : IClassFixture<
 
         await using var connection = new NpgsqlConnection(ConnectionTo(db));
         await connection.OpenAsync(Ct);
-        (await connection.ExecuteScalarAsync<int>("SELECT count(*)::int FROM schemaversions")).ShouldBe(3);
+        (await connection.ExecuteScalarAsync<int>("SELECT count(*)::int FROM schemaversions")).ShouldBe(4);
         (await connection.ExecuteScalarAsync<string>("SELECT scriptname FROM schemaversions ORDER BY scriptname DESC LIMIT 1"))
-            .ShouldEndWith("0003_kenh_lenh_agent.sql");
+            .ShouldEndWith("0004_giu_lich_su_lenh.sql");
 
         var agentColumns = (await connection.QueryAsync<string>(
             "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent'")).ToList();

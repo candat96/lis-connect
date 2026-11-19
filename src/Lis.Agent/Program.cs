@@ -21,6 +21,13 @@ catch (ArgumentException ex)
     return 2;
 }
 
+if (command is AgentCommand.Version)
+{
+    // Chạy thử bản mới: chỉ in phiên bản, không đọc cấu hình, không đụng khoá.
+    Console.Out.Write(AgentVersion.Current);
+    return 0;
+}
+
 // Dịch vụ Windows chạy với thư mục làm việc là System32 — đọc cấu hình cạnh tệp chạy.
 var config = new ConfigurationBuilder()
     .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true)
@@ -178,7 +185,7 @@ static async Task<int> RunAsync(IConfiguration config, IConfiguration environmen
     builder.Services.AddSingleton<IProcessLauncher, ProcessLauncher>();
     builder.Services.AddSingleton<IAgentCommandHandler>(sp => new UpdateHandler(
         sp.GetRequiredService<ServerClient>().DownloadInstallerAsync, AppContext.BaseDirectory, AgentVersion.Current,
-        runningAsService, sp.GetRequiredService<IProcessLauncher>(), paths, sp.GetRequiredService<IAgentLifetime>(),
+        runningAsService, sp.GetRequiredService<IProcessLauncher>(), new ProcessUpdateProbe(), paths, sp.GetRequiredService<IAgentLifetime>(),
         sp.GetRequiredService<ILogger<UpdateHandler>>()));
     builder.Services.AddSingleton<CommandDispatcher>();
     builder.Services.AddSingleton(sp => new ChannelClient(

@@ -281,11 +281,28 @@ public sealed class MasterStore(string connectionString)
         if (updated == 0) throw NotFound();
     }
 
-    /// <summary>Xoá agent thuộc <paramref name="clinicId"/>; false khi không có.</summary>
+    /// <summary>
+    /// Xoá agent thuộc <paramref name="clinicId"/>; false khi không có. Lịch sử lệnh của agent được giữ lại (không còn khoá ngoại),
+    /// ghi <c>agent_name</c> vào từng lệnh trong cùng giao dịch để còn biết lệnh của agent nào.
+    /// </summary>
     public async Task<bool> DeleteAgentAsync(Guid clinicId, Guid agentId)
     {
         await using var connection = await OpenAsync();
-        return await connection.ExecuteAsync("DELETE FROM agent WHERE id = @agentId AND clinic_id = @clinicId", new { agentId, clinicId }) == 1;
+        await using var tx = await connection.BeginTransactionAsync();
+        await connection.ExecuteAsync(
+            "UPDATE agent_command SET agent_name = (SELECT name FROM agent WHERE id = @agentId AND clinic_id = @clinicId) WHERE agent_id = @agentId AND clinic_id = @clinicId",
+            new { agentId, clinicId }, tx);
+        var deleted = await connection.ExecuteAsync("DELETE FROM agent WHERE id = @agentId AND clinic_id = @clinicId", new { agentId, clinicId }, tx) == 1;
+        if (deleted)
+        {
+            await tx.CommitAsync();
+        }
+        else
+        {
+            await tx.RollbackAsync();
+        }
+
+        return deleted;
     }
 
     /// <summary>

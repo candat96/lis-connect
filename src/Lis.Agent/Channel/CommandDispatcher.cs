@@ -26,8 +26,15 @@ public interface IAfterResultHandler : IAgentCommandHandler
 public sealed class AgentCommandException(string message) : Exception(message);
 
 /// <summary>Chạy lệnh từ server: tuần tự (một lệnh một lúc), gửi <c>started</c> trước, trả <c>result</c> ok / lỗi.</summary>
-public sealed class CommandDispatcher(IEnumerable<IAgentCommandHandler> handlers)
+public sealed class CommandDispatcher(IEnumerable<IAgentCommandHandler> handlers, TimeProvider? clock = null)
 {
+    /// <summary>Lệnh đợi lượt quá lâu (sau một lệnh dài) thì không chạy nữa — web đã coi là quá hạn, chạy muộn dễ gây nhầm.</summary>
+    public static readonly TimeSpan MaxQueueWait = TimeSpan.FromSeconds(90);
+
+    public const string QueueTimeoutMessage = "Agent bận — lệnh chờ quá 90 giây, không chạy";
+
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+
     private readonly Dictionary<string, IAgentCommandHandler> _handlers =
         handlers.ToDictionary(h => h.Name, StringComparer.Ordinal);
 
@@ -35,9 +42,15 @@ public sealed class CommandDispatcher(IEnumerable<IAgentCommandHandler> handlers
 
     public async Task<ChannelEnvelope> RunAsync(ChannelEnvelope command, Func<ChannelEnvelope, Task> send, CancellationToken ct)
     {
+        var received = _clock.GetTimestamp();
         await _one.WaitAsync(ct);
         try
         {
+            if (_clock.GetElapsedTime(received) > MaxQueueWait)
+            {
+                return Failed(command, QueueTimeoutMessage);
+            }
+
             try
             {
                 await send(new ChannelEnvelope(ChannelProtocol.Started, command.Id));

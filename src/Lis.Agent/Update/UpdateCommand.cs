@@ -18,9 +18,10 @@ public interface ICommandIdAware : IAgentCommandHandler
 /// <param name="installDir">Thư mục của tệp đang chạy.</param>
 public sealed class UpdateHandler(
     Func<string, CancellationToken, Task<(string Sha256, string? Version)>> download, string installDir, string currentVersion,
-    bool runningAsService, IProcessLauncher launcher, AgentPaths paths, IAgentLifetime lifetime, ILogger<UpdateHandler>? logger = null) : IAfterResultHandler, ICommandIdAware
+    bool runningAsService, IProcessLauncher launcher, IUpdateProbe probe, AgentPaths paths, IAgentLifetime lifetime, ILogger<UpdateHandler>? logger = null) : IAfterResultHandler, ICommandIdAware
 {
     public const string NewFileName = "LisAgent.new.exe";
+    public static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(20);
     public const string ShaMismatchMessage = "Tệp cập nhật sai mã kiểm tra — không cài";
 
     private readonly object _gate = new();
@@ -50,6 +51,7 @@ public sealed class UpdateHandler(
         }
 
         var newExe = Path.Combine(installDir, NewFileName);
+        var expectedVersion = version;
         try
         {
             string computed;
@@ -65,6 +67,13 @@ public sealed class UpdateHandler(
             if (!string.Equals(computed, sha256, StringComparison.OrdinalIgnoreCase))
             {
                 throw new AgentCommandException(ShaMismatchMessage);
+            }
+
+            // Chạy thử bản mới TRƯỚC khi giao việc: nếu tệp không khởi động nổi thì chính nó cũng không áp được cập nhật, web sẽ không bao giờ biết.
+            var failure = await ProbeAsync(newExe, expectedVersion, ct);
+            if (failure is not null)
+            {
+                throw new AgentCommandException($"Bản mới không chạy được: {failure}");
             }
         }
         catch
@@ -116,6 +125,33 @@ public sealed class UpdateHandler(
         }
 
         return Task.CompletedTask;
+    }
+
+    /// <returns>Lý do ngắn nếu bản mới chạy thử không đạt; null nếu đạt.</returns>
+    private async Task<string?> ProbeAsync(string newExe, string expectedVersion, CancellationToken ct)
+    {
+        UpdateProbeResult result;
+        try
+        {
+            result = await probe.RunAsync(newExe, ProbeTimeout, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return $"không bật được ({ex.Message})";
+        }
+
+        if (result.TimedOut)
+        {
+            return $"không phản hồi trong {(int)ProbeTimeout.TotalSeconds} giây";
+        }
+
+        if (result.ExitCode != 0)
+        {
+            return $"thoát với mã {result.ExitCode}";
+        }
+
+        var output = result.Output.Trim();
+        return output == expectedVersion ? null : $"báo phiên bản \"{(output.Length > 40 ? output[..40] : output)}\" thay vì {expectedVersion}";
     }
 
     private static bool TryText(JsonElement a, string name, out string value)

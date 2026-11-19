@@ -265,6 +265,38 @@ public sealed class AgentCommandsApiTests(ServerFixture fixture) : IClassFixture
     }
 
     [Fact]
+    public async Task Update_khi_tep_cai_thieu_version_txt_409_va_khong_tao_lenh()
+    {
+        var dir = NewDistDir();
+        await File.WriteAllBytesAsync(Path.Combine(dir, "LisAgent.exe"), Encoding.UTF8.GetBytes("MZ-thu"), Ct);
+        await using var s = await StartAsync("lenhupdnover", dir);
+
+        await ShouldFail(await s.Admin.PostAsJsonAsync(s.Url, new { name = "update" }, Ct), HttpStatusCode.Conflict,
+            "Tệp cài trên máy chủ thiếu version.txt — không cập nhật được");
+
+        (await s.Host.AgentCommands.ListAsync(s.Clinic.Id, s.Agent.Id, 10)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Xoa_agent_giu_lich_su_lenh_kem_ten_agent_va_dong_kenh()
+    {
+        await using var s = await StartAsync("lenhxoa");
+        var done = await s.Host.AgentCommands.CreateAsync(s.Clinic.Id, s.Agent.Id, "restart", null, "done", null, null, DateTimeOffset.UtcNow);
+        using var socket = await ConnectAsync(s.Host, s.Key);
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "1.0.0"));
+        await WaitUntilAsync(() => Task.FromResult(s.Host.Hub.IsConnected(s.Agent.Id)));
+
+        (await s.Admin.DeleteAsync($"/api/agents/{s.Agent.Id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        var row = (await s.Host.AgentCommands.FindAsync(s.Clinic.Id, done.Id))!;
+        row.Status.ShouldBe("done");
+        await using var connection = new Npgsql.NpgsqlConnection(fixture.MasterConnection);
+        await connection.OpenAsync(Ct);
+        (await Dapper.SqlMapper.ExecuteScalarAsync<string>(connection, "SELECT agent_name FROM agent_command WHERE id = @id", new { id = done.Id })).ShouldBe("Agent Thử");
+        await WaitUntilAsync(() => Task.FromResult(!s.Host.Hub.IsConnected(s.Agent.Id)));
+    }
+
+    [Fact]
     public async Task Update_dien_version_sha_tu_server()
     {
         var dir = NewDistDir();

@@ -1,7 +1,7 @@
 # Danh sách kiểm Windows thật: điều khiển agent từ web (phần C)
 
 Chủ dự án làm trên máy Windows 10/11 thật, cùng lượt với Task 9 của phần B. Đánh dấu `- [x]` khi đạt; không đạt thì ghi vào ô
-**Ghi chú** (kèm ảnh nếu có). Đạt đủ 9 mục thì phần C mới coi là xong.
+**Ghi chú** (kèm ảnh nếu có). Đạt đủ các mục 1–9 (mục 6 có hai ca 6a và 6b, cả hai đều phải đạt) thì phần C mới coi là xong.
 
 ## Chuẩn bị
 
@@ -17,14 +17,15 @@ Chủ dự án làm trên máy Windows 10/11 thật, cùng lượt với Task 9 
    Agent nghe `COM5`; mở `COM6` bằng PuTTY hoặc Tera Term (cùng baud 9600, 8N1) và gõ chữ để giả lập máy gửi dữ liệu.
    Muốn thêm một máy thử nối COM: Máy & map kênh → thêm máy tên "Máy Thử COM", kết nối **Cổng COM (RS-232)**, cổng `COM5`,
    agent là agent vừa cài.
-5. **Bản "cố tình hỏng" cho mục 6.** Cần một `LisAgent.exe` có phiên bản cao hơn nhưng không chạy được lên. Làm một trong hai cách:
-   - **Cách A (đơn giản):** publish với `<Version>` cao hơn (ví dụ `0.2.1`), rồi **thay** `dist/agent/LisAgent.exe` bằng một tệp exe
-     thoát ngay khi chạy (ví dụ `cmd.exe` đổi tên thành `LisAgent.exe`, hoặc chương trình rỗng `return 1;`). Giữ nguyên `version.txt`
-     của lần publish. Bản này không chạy lên, nên không bao giờ nối lại được máy chủ.
-   - **Cách B:** dùng bản build thật có `<Version>` khác, rồi làm cho nó không nối được máy chủ (ví dụ chặn riêng tệp này ở chiều ra
-     bằng Windows Firewall sau khi chép sang). Bản này chạy lên nhưng không nối lại trong 2 phút.
+5. **Hai bản "cố tình hỏng" cho mục 6** (hai ca khác nhau, chuẩn bị riêng, mỗi ca cần một `LisAgent.exe` phiên bản cao hơn bản đang cài):
+   - **Cách A, cho ca 6a (exe không chạy được / thoát ngay):** publish với `<Version>` cao hơn (ví dụ `0.2.1`), rồi **thay**
+     `dist/agent/LisAgent.exe` bằng một tệp exe thoát ngay khi chạy (ví dụ `cmd.exe` đổi tên thành `LisAgent.exe`, hoặc chương trình rỗng
+     `return 1;`). Giữ nguyên `version.txt` của lần publish. Dịch vụ chạy thử `LisAgent.exe version` trước khi áp, nên bản này bị chặn ngay.
+   - **Cách B, cho ca 6b (chạy được nhưng không nối được server):** dùng bản build thật có `<Version>` khác (in đúng phiên bản khi chạy
+     `version`), rồi làm cho nó không nối được máy chủ (ví dụ chặn riêng tệp này ở chiều ra bằng Windows Firewall sau khi chép sang).
+     Bản này qua được bước chạy thử, chạy lên nhưng không nối lại trong 2 phút.
    - Sau khi thay tệp, kiểm tra web đã hiện nút **Cập nhật lên ...** (khởi động lại server nếu nó chưa thấy tệp mới).
-   - Sau mục 6, **khôi phục** `dist/agent` về bản tốt (publish lại) trước khi làm mục 7.
+   - Sau mỗi ca ở mục 6, **khôi phục** `dist/agent` về bản tốt (publish lại); làm xong cả hai ca rồi mới sang mục 7.
 6. **Có sẵn:** đồng hồ bấm giờ, quyền quản trị Windows, một máy xét nghiệm thật hoặc cặp com0com ở bước 4.
 
 ---
@@ -113,10 +114,30 @@ Kết quả mong đợi:
 
 Ghi chú: ______________________________________________
 
-## 6. Cập nhật với bản cố tình hỏng: sau khoảng 2 phút quay về bản cũ
+## 6. Cập nhật với bản hỏng: chặn ngay (6a) hoặc quay về bản cũ sau ~2 phút (6b)
+
+### 6a. Cách A: exe không chạy được / thoát ngay
 
 Cách làm:
-1. Chuẩn bị bản hỏng theo mục 5 của phần Chuẩn bị (phiên bản cao hơn bản đang cài). Ghi phiên bản agent đang chạy: ______
+1. Chuẩn bị bản hỏng **Cách A** ở mục 5 của phần Chuẩn bị. Ghi phiên bản agent đang chạy: ______
+2. Tải lại web, bấm **Cập nhật lên ...**, xác nhận. Bấm giờ.
+3. Quan sát dịch vụ **LIS Agent** trong `services.msc` và web.
+4. Mở **Lịch sử lệnh**, bấm vào dòng lệnh vừa chạy.
+5. Khôi phục `dist/agent` về bản tốt.
+
+Kết quả mong đợi:
+- Trong vài chục giây (tối đa khoảng 20 giây chạy thử) lệnh thành **Lỗi** với lý do bắt đầu bằng "Bản mới không chạy được" (ví dụ "thoát với mã 1").
+- Dịch vụ **LIS Agent không bị dừng** (vẫn Running suốt thời gian đó), web vẫn **Đang kết nối**, ô **Phiên bản** vẫn là bản cũ; máy xét nghiệm không bị ngắt.
+- Trong thư mục cài không còn tệp `LisAgent.new.exe`.
+
+- [ ] Đạt
+
+Ghi chú: ______________________________________________
+
+### 6b. Cách B: chạy được nhưng không nối được server
+
+Cách làm:
+1. Chuẩn bị bản hỏng **Cách B** ở mục 5 của phần Chuẩn bị. Ghi phiên bản agent đang chạy: ______
 2. Tải lại web, bấm **Cập nhật lên ...**, xác nhận. Bấm giờ.
 3. Quan sát dịch vụ **LIS Agent** trong `services.msc` và web.
 4. Khi agent nối lại, mở **Lịch sử lệnh** và bấm vào dòng lệnh vừa chạy.
@@ -130,6 +151,8 @@ Kết quả mong đợi:
 - [ ] Đạt
 
 Ghi chú: ______________________________________________
+
+---
 
 ## 7. Thu hồi: dịch vụ dừng, kiểu khởi động Disabled, `cho-gui` còn
 
@@ -195,9 +218,10 @@ Ghi chú: ______________________________________________
 | 3 | Nối lại một máy | [ ] | | | |
 | 4 | Khởi động lại: dịch vụ tự bật lại ≤ 1 phút, web "Đang kết nối" | [ ] | | | |
 | 5 | Cập nhật lên bản mới: web hiện phiên bản mới | [ ] | | | |
-| 6 | Cập nhật bản hỏng: quay về bản cũ sau ~2 phút, lịch sử "Lỗi" kèm lý do | [ ] | | | |
+| 6a | Cập nhật bản không chạy được: "Lỗi" ngay ("Bản mới không chạy được"), dịch vụ không bị dừng | [ ] | | | |
+| 6b | Cập nhật bản chạy được nhưng không nối server: quay về bản cũ sau ~2 phút, "Lỗi" kèm lý do | [ ] | | | |
 | 7 | Thu hồi: dừng, Disabled, `cho-gui` còn | [ ] | | | |
 | 8 | Rút mạng 5 phút: kết quả lên đủ, kênh tự nối lại | [ ] | | | |
 | 9 | Sau nginx HTTPS: `wss://` nối được | [ ] | | | |
 
-Khi đủ 9 mục đạt: ghi "Đã thử Windows thật <ngày>" vào ledger của phần C.
+Khi đủ các mục 1–9 đạt (gồm 6a và 6b): ghi "Đã thử Windows thật <ngày>" vào ledger của phần C.

@@ -4,7 +4,7 @@ namespace Lis.Agent;
 public abstract record AgentCommand
 {
     private const string Usage =
-        "Cách dùng: LisAgent [run | pair <mã> | install [--code <mã>] | uninstall]";
+        "Cách dùng: LisAgent [run | pair <mã> | install [--code <mã>] | uninstall | version]";
 
     /// <summary>Chạy như dịch vụ Windows.</summary>
     public sealed record Service : AgentCommand;
@@ -22,6 +22,9 @@ public abstract record AgentCommand
 
     /// <summary>Do <c>LisAgent.new.exe</c> tự gọi khi cập nhật từ web: áp bản mới (tham số duy nhất là mã lệnh, một GUID).</summary>
     public sealed record ApplyUpdate(Guid CommandId) : AgentCommand;
+
+    /// <summary>In phiên bản ra stdout rồi thoát 0 — dịch vụ đang chạy dùng để chạy thử <c>LisAgent.new.exe</c> trước khi áp cập nhật. Chạy được trên mọi hệ điều hành.</summary>
+    public sealed record Version : AgentCommand;
 
     /// <summary>Bấm đúp tệp cài trên Windows (không tham số).</summary>
     public sealed record Interactive : AgentCommand;
@@ -45,6 +48,8 @@ public abstract record AgentCommand
                 return new Run();
             case "uninstall" when args.Length == 1:
                 return new Uninstall();
+            case "version" when args.Length == 1:
+                return new Version();
             case "apply-update" when args.Length == 2 && Guid.TryParse(args[1], out var commandId):
                 return new ApplyUpdate(commandId);
             case "apply-update":

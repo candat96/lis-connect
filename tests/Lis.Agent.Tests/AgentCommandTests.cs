@@ -52,6 +52,14 @@ public sealed class AgentCommandTests
     }
 
     [Fact]
+    public void Version_la_Version_tren_moi_he_dieu_hanh()
+    {
+        AgentCommand.Parse(["version"], false, true).ShouldBeOfType<AgentCommand.Version>();
+        AgentCommand.Parse(["VERSION"], false, false).ShouldBeOfType<AgentCommand.Version>();
+        Should.Throw<ArgumentException>(() => AgentCommand.Parse(["version", "x"], false, false));
+    }
+
+    [Fact]
     public void Khong_tham_so_Windows_la_Interactive_noi_khac_la_Run()
     {
         AgentCommand.Parse([], false, true).ShouldBeOfType<AgentCommand.Interactive>();

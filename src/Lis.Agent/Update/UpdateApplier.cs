@@ -28,6 +28,65 @@ public sealed class ProcessLauncher : IProcessLauncher
     }
 }
 
+public sealed record UpdateProbeResult(bool TimedOut, int ExitCode, string Output);
+
+/// <summary>Chạy thử <c>LisAgent.new.exe version</c> — tách ra để kiểm thử không chạy tiến trình thật.</summary>
+public interface IUpdateProbe
+{
+    Task<UpdateProbeResult> RunAsync(string exePath, TimeSpan timeout, CancellationToken ct);
+}
+
+public sealed class ProcessUpdateProbe : IUpdateProbe
+{
+    // Chỉ truyền những biến môi trường hệ thống cần để tiến trình .NET khởi động; không truyền khoá/URL của agent.
+    private static readonly string[] KeepVariables =
+        ["SystemRoot", "windir", "TEMP", "TMP", "PATH", "LOCALAPPDATA", "APPDATA", "USERPROFILE", "ProgramData", "HOME"];
+
+    public async Task<UpdateProbeResult> RunAsync(string exePath, TimeSpan timeout, CancellationToken ct)
+    {
+        var info = new ProcessStartInfo(exePath, "version")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = Path.GetTempPath(),
+        };
+        info.Environment.Clear();
+        foreach (var name in KeepVariables)
+        {
+            if (Environment.GetEnvironmentVariable(name) is { } value)
+            {
+                info.Environment[name] = value;
+            }
+        }
+
+        using var process = Process.Start(info) ?? throw new InvalidOperationException("không có tiến trình");
+        var output = process.StandardOutput.ReadToEndAsync(ct);
+        _ = process.StandardError.ReadToEndAsync(ct);
+        using var timer = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timer.CancelAfter(timeout);
+        try
+        {
+            await process.WaitForExitAsync(timer.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+            }
+
+            return new UpdateProbeResult(true, -1, "");
+        }
+
+        return new UpdateProbeResult(false, process.ExitCode, await output);
+    }
+}
+
 /// <summary>
 /// Việc của tiến trình <c>LisAgent.new.exe apply-update &lt;commandId&gt;</c> (chạy tách rời, quyền SYSTEM, con của dịch vụ cũ):
 /// (1) <b>trước khi dừng dịch vụ</b> chép bản mới thành <c>LisAgent.tmp.exe</c> cạnh tệp cài và kiểm SHA-256 khớp bản mới;
@@ -123,10 +182,15 @@ public sealed class UpdateApplier(
             report = FailEarly(commandId, $"Cập nhật gặp lỗi không lường trước: {ex.Message}", paths, service, log);
         }
 
-        WriteReport(paths, report, log);
         if (report.Ok)
         {
+            // Thành công: bản mới đã nối lại và gửi hello rồi — không để báo cáo nào lại (kẻo lần khởi động sau báo thừa, làm lệnh sau thành "Không rõ kết quả").
+            TryDelete(paths.UpdateReport);
             TryDelete(_oldExe);
+        }
+        else
+        {
+            WriteReport(paths, report, log);
         }
 
         TryDelete(_tmpExe);
