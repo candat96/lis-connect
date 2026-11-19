@@ -27,6 +27,8 @@ services:
       Tenants__ConnectionTemplate: ${Tenants__ConnectionTemplate:?Đặt Tenants__ConnectionTemplate trong .env}
       Jwt__Secret: ${Jwt__Secret:?Đặt Jwt__Secret trong .env}
       SETUP_KEY: ${SETUP_KEY:-}
+      # Địa chỉ công khai agent dùng để nối về; trống thì lấy theo địa chỉ trình duyệt đang mở web.
+      PUBLIC_URL: ${PUBLIC_URL:-}
       Proxy__TrustForwardedHeaders: ${Proxy__TrustForwardedHeaders:-false}
       # Giờ trong log. "Ngày địa phương" của nghiệp vụ lấy từ LocalUtcOffsetMinutes (mặc định 420 = UTC+7), không từ TZ.
       TZ: Asia/Ho_Chi_Minh

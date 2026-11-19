@@ -30,7 +30,7 @@ Trên **máy chủ** (Windows hoặc Linux), chọn một trong hai cách:
 - **Docker** (khuyên dùng): Docker + Docker Compose. Compose chạy hai dịch vụ: PostgreSQL 18 (image `postgres:18`) và server (image dựng từ `Dockerfile`, đã kèm giao diện web).
 - **Chạy trực tiếp:** PostgreSQL **18** trở lên (bắt buộc 18: CSDL dùng hàm `uuidv7()`), .NET SDK 10 và Node.js 20 trở lên để build.
 
-Trên **máy tính đặt agent** (Windows 10/11): không cần cài gì thêm nếu publish agent dạng self-contained.
+Trên **máy tính đặt agent** (Windows 10/11): không cần cài gì thêm — tệp cài agent tải thẳng từ web (mục 5).
 
 Lấy mã nguồn: `git clone git@github.com:candat96/lis-connect.git` (nhánh `main`).
 
@@ -51,6 +51,7 @@ Sửa `.env`, đổi **mọi** giá trị `CHANGE_ME`:
 | `Tenants__ConnectionTemplate` | Mẫu chuỗi kết nối CSDL từng phòng khám (giữ nguyên `{db}`) |
 | `Jwt__Secret` | Khoá ký phiên đăng nhập, chuỗi ngẫu nhiên từ 24 ký tự: `openssl rand -base64 32`. Đổi thì mọi người đang đăng nhập phải đăng nhập lại |
 | `SETUP_KEY` | Mã thiết lập, nhập trên trang `/thiet-lap` ở bước 3.3. Nếu đặt thì phải **từ 16 ký tự trở lên** (ngắn hơn server không khởi động). Để trống (hoặc còn `CHANGE_ME`) thì server tự sinh mỗi lần chạy và in ra log khi khởi động |
+| `PUBLIC_URL` | Địa chỉ công khai agent dùng để nối về, vd `https://lis.phongkham.vn` (không có đường dẫn phía sau). Để trống thì lấy theo địa chỉ trình duyệt đang mở web — nếu mở web bằng `localhost` mà agent ở máy khác thì **phải đặt** |
 | `LIS_PORT` | Cổng mở ra máy chủ (mặc định 5080) |
 | `LIS_BIND` | Địa chỉ gắn cổng, mặc định `127.0.0.1` (chỉ chính máy chủ truy cập được — dùng khi có reverse proxy, mục 6). Không dùng reverse proxy mà muốn máy khác (web, agent) vào thẳng cổng này thì đặt `LIS_BIND=0.0.0.0` |
 
@@ -171,48 +172,49 @@ Khi phát triển giao diện: `cd web && npm ci && npm run dev` (http://localho
 
 ## 5. Cài agent và kết nối máy xét nghiệm
 
-Làm theo đúng thứ tự: tạo agent trên web → cài agent → khai máy trên web → cắm máy → xem log.
+Làm theo đúng thứ tự: thêm agent trên web → cài agent bằng tệp tải về → khai máy trên web → cắm máy → xem log.
+Không phải sửa tệp cấu hình nào trên máy tính cạnh máy xét nghiệm.
 
-### 5.1. Tạo agent trên web (lấy khoá)
+### 5.1. Thêm agent trên web
 
-Web → **Agent** → *Thêm agent*:
-
-- **Tên agent:** theo vị trí, vd "Máy tính phòng xét nghiệm".
-- **Mã máy trạm:** mã ngắn, vd `XN-01`.
-
-Bấm Lưu, web hiện **khoá cài đặt một lần duy nhất** kèm sẵn đoạn cấu hình — chép lại ngay. Mất khoá thì bấm
-*Khoá mới* (khoá cũ hết hiệu lực).
+Web → **Agent** → *Thêm agent*, nhập **tên agent** theo vị trí, vd "Máy tính phòng xét nghiệm". Bấm Lưu: web hiện hộp thoại
+**Ghép nối** với nút **Tải tệp cài** (tệp tên dạng `LisAgent_LIS1.….exe`), ô mã và nút **Chép mã**. Mã ghép nối
+**hết hạn sau 30 phút** và chỉ dùng được **một lần**; hết hạn thì bấm **Ghép nối lại** ở dòng agent để lấy mã mới.
 
 ### 5.2. Cài agent lên máy tính cạnh máy xét nghiệm
 
-Trên máy build:
+1. Bấm **Tải tệp cài**. Máy tính cạnh máy xét nghiệm không mở được web thì chép tệp vừa tải sang đó (USB, mạng nội bộ) và
+   **giữ nguyên tên tệp** — mã ghép nối nằm trong tên tệp. Tải hai lần, trình duyệt thêm " (1)" vào tên thì vẫn dùng được.
+2. Bấm đúp tệp. Nếu Windows hiện cảnh báo **SmartScreen** ("Windows protected your PC"), bấm **More info** rồi **Run anyway**
+   (tệp chưa ký số nên Windows chưa biết nguồn gốc).
+   *(Ảnh bổ sung sau lần thử Windows thật — task 9.)*
+3. Hộp thoại quyền quản trị hiện ra: bấm **Yes** / **Có**. Bấm No / Không thì cửa sổ báo cần quyền quản trị và không cài gì;
+   nhờ người có tài khoản quản trị bấm chạy lại.
+   *(Ảnh bổ sung sau lần thử Windows thật — task 9.)*
+4. Chờ cửa sổ hiện chữ **Xong** ("Xong. Agent đang chạy và đã kết nối tới …"), rồi đóng cửa sổ. Không phải gõ gì.
+5. Quay lại web: hộp thoại tự chuyển **Agent đã kết nối ✓ <tên máy>**, cột Trạng thái của bảng hiện **Đang kết nối**
+   (thường trong vài giây).
 
-```bash
-dotnet publish src/Lis.Agent -c Release -r win-x64 --self-contained -o publish/agent
-```
+Agent được cài thành dịch vụ Windows **LIS Agent** (tự chạy khi bật máy, không cần ai đăng nhập) trong
+`C:\Program Files\LIS Agent`; dữ liệu (kết quả chờ gửi, log thô) ở `C:\ProgramData\LIS Agent`.
 
-Chép thư mục `publish/agent` sang máy tính đó, vd `C:\LisAgent`. Sửa `C:\LisAgent\appsettings.json`:
+**Tệp bị đổi tên** (vd còn `LisAgent.exe`): tệp cài hỏi "Dán mã ghép nối". Quay lại web, bấm **Chép mã** trong hộp thoại Ghép nối
+(hoặc **Ghép nối lại** để lấy mã mới), dán vào cửa sổ rồi Enter.
 
-```json
-{
-  "Server": {
-    "Url": "http://<địa chỉ máy chủ>:5080",
-    "AgentKey": "lisa_..."
-  }
-}
-```
+**Mã hết hạn hoặc đã dùng:** tệp cài báo rõ lý do và không cài gì (bản cài cũ, nếu có, vẫn chạy như trước). Lấy mã mới bằng
+**Ghép nối lại** trên web.
 
-`Url` trỏ tới **server LIS** (cổng 5080, cùng server với web), hoặc tên miền chung nếu đã đặt reverse proxy (mục 6).
+**Ghép nối lại / gỡ agent:** bấm đúp lại tệp cài (tải tệp mới nếu cần) → menu:
 
-Chạy thử trong cửa sổ dòng lệnh để nhìn thấy thông báo: `C:\LisAgent\LisAgent.exe`. Ổn thì cài làm dịch vụ Windows
-(mở PowerShell bằng quyền Administrator) để tự chạy khi bật máy, không cần ai đăng nhập:
+- **1. Ghép nối lại** — dán mã mới lấy từ nút **Ghép nối lại** trên web (dùng khi đổi phòng khám, hoặc nghi lộ khoá). Khoá cũ
+  dùng được cho tới khi mã mới được đổi. Đổi sang phòng khám khác thì kết quả đang chờ gửi của phòng khám cũ được cách ly,
+  không gửi lên phòng khám mới.
+- **2. Gỡ agent** — xoá dịch vụ và thư mục chương trình; dữ liệu ở `ProgramData\LIS Agent` được giữ lại (xoá tay nếu không cần).
 
-```powershell
-sc.exe create "LIS Agent" binPath= "C:\LisAgent\LisAgent.exe" start= auto
-sc.exe start "LIS Agent"
-```
+**Mạng:** agent nối về địa chỉ `PUBLIC_URL` của server. Máy tính agent và server cùng mạng nội bộ thì `http://<ip>:5080` dùng được;
+**ra khỏi mạng nội bộ phải dùng HTTPS** (mục 6) vì mã ghép nối, khoá agent và dữ liệu người bệnh đi qua mạng.
 
-Kiểm tra: web → **Agent**, trong vòng một phút cột Trạng thái chuyển thành **Đang chạy**.
+Kiểm tra: web → **Agent**, trong vài giây cột Trạng thái chuyển thành **Đang kết nối**.
 
 ### 5.3. Khai máy xét nghiệm trên web
 
@@ -281,7 +283,8 @@ server {
 }
 ```
 
-Khi đó agent đặt `"Url": "https://lis.example.vn"`. Nên dùng HTTPS: dữ liệu người bệnh và khoá agent đi qua mạng.
+Khi đó đặt `PUBLIC_URL=https://lis.example.vn` trong `.env` để mã ghép nối trỏ đúng địa chỉ này. Nên dùng HTTPS: dữ liệu người bệnh,
+mã ghép nối và khoá agent đi qua mạng.
 
 **Địa chỉ của người dùng sau proxy.** Server dùng địa chỉ kết nối để làm chậm dò mã thiết lập và ghi log. Đứng sau proxy thì
 địa chỉ đó luôn là của proxy. Muốn dùng địa chỉ thật từ `X-Forwarded-For` / `X-Forwarded-Proto`, đặt
@@ -298,8 +301,10 @@ systemd / NSSM), **sao lưu CSDL hằng ngày** (`pg_dump` từng CSDL phòng kh
 |---|---|
 | Web báo "Không kết nối được máy chủ" | Server LIS (5080) có chạy không (`/healthz`); cấu hình proxy |
 | Đăng nhập báo sai dù đúng mật khẩu | Mã phòng khám; tài khoản có bị *Tạm khoá* / *Đã ngừng* ở mục Nhân sự |
-| Agent hiện "Không báo về" / "Chưa từng kết nối" | Dịch vụ "LIS Agent" có chạy; `Url` và `AgentKey` trong `appsettings.json`; từ máy đó mở được `<Url>/healthz` |
-| Agent chạy thử báo "khoá agent không hợp lệ" | Dán sai / thiếu khoá, hoặc đã bấm *Khoá mới* trên web |
+| Agent hiện "Mất kết nối" / "Đã ghép nối, chưa chạy" | Dịch vụ "LIS Agent" có chạy (`services.msc`); từ máy đó mở được `<PUBLIC_URL>/healthz` |
+| Agent hiện "Chờ ghép nối" / "Chưa ghép nối" | Chưa chạy tệp cài, hoặc mã hết hạn: bấm **Ghép nối lại** lấy mã mới rồi chạy lại tệp cài |
+| Tệp cài báo mã hết hạn / đã được dùng | Mã chỉ sống 30 phút và dùng một lần — bấm **Ghép nối lại** trên web, tải tệp mới |
+| Web báo chưa có tệp cài agent | Server chưa có `AGENT_DIST_DIR` (image Docker đã có sẵn; chạy trực tiếp thì `bash scripts/publish-agent.sh` rồi đặt biến này) |
 | Máy hiện "Chưa gán agent" | *Sửa máy* → chọn Agent phụ trách |
 | Máy hiện "Lỗi kết nối" (COM) | Tên cổng COM; cổng đang bị phần mềm khác giữ (kể cả app LIS Windows cũ) |
 | Máy hiện "Đang chờ máy" mãi (TCP) | IP + cổng khai trên máy xét nghiệm; Windows Firewall trên máy tính agent |
@@ -337,4 +342,4 @@ agent và khoá · log agent · nhân sự, đổi mật khẩu.
 - Agent hiện tự đọc bản tin rồi gửi kết quả đã đọc kèm dữ liệu thô; chưa chuyển sang "chỉ gửi thô, máy chủ đọc".
 
 **Cần kiểm chứng với máy thật:** ba driver (BC-5380, Access 2, AU480) mới chạy với dữ liệu giả lập; cổng COM thật và
-dịch vụ Windows của agent chưa thử; khoảng tham chiếu là bản nháp.
+dịch vụ Windows và tệp cài agent chưa thử trên Windows thật (chờ task 9); khoảng tham chiếu là bản nháp.
