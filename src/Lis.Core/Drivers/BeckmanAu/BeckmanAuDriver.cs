@@ -70,65 +70,14 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
     public DriverOutput Receive(ReadOnlySpan<byte> data, DateTimeOffset now)
     {
         var output = new DriverOutput();
-        foreach (var b in data)
+        for (var index = 0; index < data.Length; index++)
         {
-            if (_awaitBcc)
+            // Rảnh = không còn khung dở và không còn kết quả nhiều khối đang gom (xem DriverBoundary).
+            var wasBusy = IsReceiving;
+            ReceiveByte(data[index], output, now);
+            if (wasBusy && !IsReceiving)
             {
-                _awaitBcc = false;
-                var expected = ComputeBcc(_frame, _terminator);
-                CompleteFrame(output, now, bccOk: b == expected, receivedBcc: b, expectedBcc: expected);
-                continue;
-            }
-
-            if (!_inFrame)
-            {
-                if (b == _options.StartCode)
-                {
-                    FlushGarbage(output);
-                    _inFrame = true;
-                    _frame.Clear();
-                    _frameStart = now;
-                }
-                else if (b == Ack || b == Nak)
-                {
-                    FlushGarbage(output);
-                    HandleResponse(b == Ack, output, now);
-                }
-                else
-                {
-                    _garbage++;
-                }
-
-                continue;
-            }
-
-            if (b == _options.StartCode)
-            {
-                output.Notes.Add($"Bỏ khung dở {_frame.Count} byte: gặp mã bắt đầu mới trước mã kết thúc");
-                _frame.Clear();
-                _frameStart = now;
-            }
-            else if (b == _options.EndCode || b == Etb)
-            {
-                _terminator = b;
-                if (_options.Bcc)
-                {
-                    _awaitBcc = true;
-                }
-                else
-                {
-                    CompleteFrame(output, now, bccOk: true, receivedBcc: 0, expectedBcc: 0);
-                }
-            }
-            else if (_frame.Count >= _options.TextLength + 16)
-            {
-                output.Notes.Add($"Bỏ khung dài quá {_options.TextLength} byte (thiếu mã kết thúc?)");
-                _inFrame = false;
-                _frame.Clear();
-            }
-            else
-            {
-                _frame.Add(b);
+                output.Boundaries.Add(new DriverBoundary(index + 1, Abandoned: false));
             }
         }
 
@@ -136,9 +85,75 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         return output;
     }
 
+    /// <summary>Phía nhận đang có dữ liệu dở: khung dở hoặc kết quả nhiều khối chưa đủ khối cuối.</summary>
+    private bool IsReceiving => _inFrame || _awaitBcc || _pending is not null;
+
+    private void ReceiveByte(byte b, DriverOutput output, DateTimeOffset now)
+    {
+        if (_awaitBcc)
+        {
+            _awaitBcc = false;
+            var expected = ComputeBcc(_frame, _terminator);
+            CompleteFrame(output, now, bccOk: b == expected, receivedBcc: b, expectedBcc: expected);
+            return;
+        }
+
+        if (!_inFrame)
+        {
+            if (b == _options.StartCode)
+            {
+                FlushGarbage(output);
+                _inFrame = true;
+                _frame.Clear();
+                _frameStart = now;
+            }
+            else if (b == Ack || b == Nak)
+            {
+                FlushGarbage(output);
+                HandleResponse(b == Ack, output, now);
+            }
+            else
+            {
+                _garbage++;
+            }
+
+            return;
+        }
+
+        if (b == _options.StartCode)
+        {
+            output.Notes.Add($"Bỏ khung dở {_frame.Count} byte: gặp mã bắt đầu mới trước mã kết thúc");
+            _frame.Clear();
+            _frameStart = now;
+        }
+        else if (b == _options.EndCode || b == Etb)
+        {
+            _terminator = b;
+            if (_options.Bcc)
+            {
+                _awaitBcc = true;
+            }
+            else
+            {
+                CompleteFrame(output, now, bccOk: true, receivedBcc: 0, expectedBcc: 0);
+            }
+        }
+        else if (_frame.Count >= _options.TextLength + 16)
+        {
+            output.Notes.Add($"Bỏ khung dài quá {_options.TextLength} byte (thiếu mã kết thúc?)");
+            _inFrame = false;
+            _frame.Clear();
+        }
+        else
+        {
+            _frame.Add(b);
+        }
+    }
+
     public DriverOutput Tick(DateTimeOffset now)
     {
         var output = new DriverOutput();
+        var wasReceiving = IsReceiving;
         if ((_inFrame || _awaitBcc) && now - _frameStart > _options.FrameTimeout)
         {
             output.Notes.Add($"Bỏ khung nhận dở {_frame.Count} byte: quá {_options.FrameTimeout.TotalSeconds:0.#} s không thấy mã kết thúc");
@@ -151,6 +166,11 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         {
             output.Notes.Add($"Bỏ kết quả mẫu {_pending.Describe()}: không nhận được khối cuối (E)");
             _pending = null;
+        }
+
+        if (wasReceiving && !IsReceiving)
+        {
+            output.Boundaries.Add(new DriverBoundary(0, Abandoned: true));
         }
 
         if (_options.ClassB)

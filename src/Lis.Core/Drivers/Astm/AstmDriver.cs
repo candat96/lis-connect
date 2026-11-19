@@ -73,6 +73,7 @@ public sealed class AstmDriver : IInstrumentDriver
         var output = new DriverOutput();
         output.Send.AddRange(result.Send);
         output.Notes.AddRange(result.Notes);
+        output.Boundaries.AddRange(result.Boundaries);
         foreach (var message in result.Messages)
         {
             Interpret(message, output);

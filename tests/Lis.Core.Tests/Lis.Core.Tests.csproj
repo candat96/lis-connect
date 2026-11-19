@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Lis.Core\Lis.Core.csproj" />
+    <ProjectReference Include="..\..\tools\Lis.Simulator\Lis.Simulator.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -12,6 +12,15 @@ public sealed record DriverReading(string Barcode, bool IsQc, IReadOnlyList<Read
 /// </summary>
 public sealed record DriverQuery(string Barcode, object Token, object? Context = null);
 
+/// <summary>
+/// Ranh giới một lượt truyền của máy trong dòng byte nhận được. Trong đầu ra của
+/// <see cref="IInstrumentDriver.Receive"/>, <see cref="Offset"/> là vị trí SAU byte cuối của lượt (tính trong
+/// <c>data</c>, 0..data.Length; riêng ASTM gặp ENQ giữa phiên thì đặt TRƯỚC ENQ mới). Trong đầu ra của
+/// <see cref="IInstrumentDriver.Tick"/>, <see cref="Offset"/> = 0, nghĩa là "mọi byte đã nhận trước lần Tick này".
+/// <see cref="Abandoned"/> = lượt bị bỏ dở (hết giờ, bắt đầu lại giữa chừng, khung quá cỡ…).
+/// </summary>
+public sealed record DriverBoundary(int Offset, bool Abandoned);
+
 /// <summary>Đầu ra của một lần gọi driver: các khối byte cần gửi trả máy (theo thứ tự), bản tin kết quả, câu hỏi chỉ định, ghi chú cho log thô.</summary>
 public sealed class DriverOutput
 {
@@ -24,7 +33,14 @@ public sealed class DriverOutput
     /// <summary>Sự kiện đáng ghi vào log thô (vd "Checksum sai khung 3 — đã NAK").</summary>
     public List<string> Notes { get; } = [];
 
-    public bool IsEmpty => Send.Count == 0 && Readings.Count == 0 && Queries.Count == 0 && Notes.Count == 0;
+    /// <summary>
+    /// Ranh giới các lượt truyền vừa kết thúc, theo thứ tự. Mỗi lần phía nhận chuyển từ "đang có dữ liệu dở" sang
+    /// "rảnh" thì phát đúng một ranh giới, dù có giải mã ra kết quả hay không. Chỉ dùng để cắt dòng byte thành bản
+    /// tin thô; không ảnh hưởng gì tới <see cref="Send"/>, <see cref="Readings"/>, <see cref="Queries"/>, <see cref="Notes"/>.
+    /// </summary>
+    public List<DriverBoundary> Boundaries { get; } = [];
+
+    public bool IsEmpty => Send.Count == 0 && Readings.Count == 0 && Queries.Count == 0 && Notes.Count == 0 && Boundaries.Count == 0;
 }
 
 /// <summary>

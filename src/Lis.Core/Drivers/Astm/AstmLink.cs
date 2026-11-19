@@ -82,6 +82,9 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
 
         public List<string> Notes { get; } = [];
 
+        /// <summary>Ranh giới các phiên nhận vừa kết thúc (xem <see cref="DriverBoundary"/>).</summary>
+        public List<DriverBoundary> Boundaries { get; } = [];
+
         /// <summary>Tin đã gửi xong (máy ACK frame cuối) — trả lại Tag lúc xếp hàng.</summary>
         public List<object?> Delivered { get; } = [];
     }
@@ -112,8 +115,9 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
     public Result Receive(ReadOnlySpan<byte> data, DateTimeOffset now)
     {
         var result = new Result();
-        foreach (var b in data)
+        for (var index = 0; index < data.Length; index++)
         {
+            var b = data[index];
             switch (_state)
             {
                 case State.Idle:
@@ -123,7 +127,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
                     break;
 
                 case State.Receiving:
-                    ReceiveByte(b, now, result);
+                    ReceiveByte(b, index, now, result);
                     break;
 
                 case State.WaitEnqReply:
@@ -199,6 +203,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
         {
             case State.Receiving when now >= _deadline:
                 result.Notes.Add($"Máy im quá {_timeouts.ReceiverFrame.TotalSeconds:0} giây giữa phiên — bỏ tin dở ({_sessionRecords.Count} record)");
+                result.Boundaries.Add(new DriverBoundary(0, Abandoned: true));
                 ResetReceive();
                 _state = State.Idle;
                 TryStartSend(now, result);
@@ -236,7 +241,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
         _sessionRecords.Clear();
     }
 
-    private void ReceiveByte(byte b, DateTimeOffset now, Result result)
+    private void ReceiveByte(byte b, int index, DateTimeOffset now, Result result)
     {
         if (!_inFrame)
         {
@@ -259,6 +264,8 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
                         result.Messages.Add(_sessionRecords.ToList());
                     }
 
+                    // Hết phiên nhận: ranh giới ngay sau EOT (dở dang nếu record còn dở).
+                    result.Boundaries.Add(new DriverBoundary(index + 1, Abandoned: _recordText.Count > 0));
                     ResetReceive();
                     _state = State.Idle;
                     // Máy vừa gửi xong: nếu LIS có tin chờ (vd trả lời câu hỏi) thì xin gửi ngay.
@@ -268,6 +275,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
 
                 case AstmFraming.Enq:
                     result.Notes.Add("ENQ giữa phiên — máy mở lại phiên, bỏ phần đã nhận");
+                    result.Boundaries.Add(new DriverBoundary(index, Abandoned: true)); // trước ENQ mới
                     BeginReceive(now, result);
                     break;
 

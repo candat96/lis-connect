@@ -46,8 +46,9 @@ public sealed class Hl7MllpDriver : IInstrumentDriver
     {
         var output = new DriverOutput();
         var skipped = 0;
-        foreach (var b in data)
+        for (var index = 0; index < data.Length; index++)
         {
+            var b = data[index];
             if (!_inFrame)
             {
                 if (b == StartBlock)
@@ -68,6 +69,7 @@ public sealed class Hl7MllpDriver : IInstrumentDriver
             {
                 // VT giữa chừng: máy bắt đầu lại bản tin (vd mất ACK rồi gửi bản sau) — bỏ phần dở.
                 output.Notes.Add($"Bỏ bản tin dở {_frame.Count} byte (gặp VT mới trước FS)");
+                output.Boundaries.Add(new DriverBoundary(index, Abandoned: true)); // trước VT mới
                 _frame.Clear();
                 _frameStarted = now;
                 continue;
@@ -78,6 +80,7 @@ public sealed class Hl7MllpDriver : IInstrumentDriver
                 // CR sau FS là phần đuôi khung; gặp ở vòng sau khi !_inFrame thì bỏ qua.
                 _inFrame = false;
                 HandleMessage(Decode(_frame.ToArray()), now, output);
+                output.Boundaries.Add(new DriverBoundary(index + 1, Abandoned: false));
                 _frame.Clear();
                 continue;
             }
@@ -85,6 +88,7 @@ public sealed class Hl7MllpDriver : IInstrumentDriver
             if (_frame.Count >= MaxFrameBytes)
             {
                 output.Notes.Add($"Bản tin vượt {MaxFrameBytes / 1024 / 1024} MB — bỏ");
+                output.Boundaries.Add(new DriverBoundary(index + 1, Abandoned: true));
                 _frame.Clear();
                 _inFrame = false;
                 continue;
@@ -107,6 +111,7 @@ public sealed class Hl7MllpDriver : IInstrumentDriver
         if (_inFrame && now - _frameStarted > StaleFrame)
         {
             output.Notes.Add($"Bỏ bản tin dở {_frame.Count} byte (quá {StaleFrame.TotalSeconds:0} giây không thấy FS)");
+            output.Boundaries.Add(new DriverBoundary(0, Abandoned: true));
             _frame.Clear();
             _inFrame = false;
         }
