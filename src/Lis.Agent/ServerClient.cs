@@ -1,8 +1,8 @@
-using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Lis.Connections;
+using Lis.Connections.RawMessages;
 using Lis.Core.Ingest;
 using Lis.Data.Ingest;
 using Lis.Data.Instruments;
@@ -11,7 +11,10 @@ namespace Lis.Agent;
 
 public sealed record AgentMe(string ClinicCode, string ClinicName, string AgentName, string WorkstationCode);
 
-public sealed record ReadingResponse(int Stored, int PendingReplacement, int Unmatched, int Qc, IReadOnlyList<string> Notes, bool Duplicate = false);
+/// <summary>Kết quả từng bản tin: <see cref="Status"/> ∈ da-luu / trung / khong-thuoc-agent / khong-hop-le.</summary>
+public sealed record RawMessageResult(Guid? Id, string Status, string? DecodeStatus);
+
+public sealed record RawMessagesResponse(IReadOnlyList<RawMessageResult> Results);
 
 public sealed record OrderQueryResponse(IReadOnlyList<string> ChannelCodes);
 
@@ -43,8 +46,9 @@ public sealed class ServerClient(HttpClient http)
     public async Task<IReadOnlyList<InstrumentInfo>> InstrumentsAsync(CancellationToken ct = default) =>
         await GetAsync<List<InstrumentInfo>>("agent/v1/instruments", ct);
 
-    public async Task<ReadingResponse> SendReadingAsync(InstrumentReading reading, CancellationToken ct = default) =>
-        await PostAsync<ReadingResponse>("agent/v1/readings", reading, ct);
+    /// <summary>Đẩy một lô bản tin thô (<c>POST agent/v1/raw-messages</c>); byte đi dưới dạng base64.</summary>
+    public async Task<RawMessagesResponse> SendRawMessagesAsync(IReadOnlyList<RawMessage> messages, CancellationToken ct = default) =>
+        await PostAsync<RawMessagesResponse>("agent/v1/raw-messages", new { messages }, ct);
 
     public async Task<IReadOnlyList<string>> OrderQueryAsync(Guid instrumentId, string barcode, CancellationToken ct = default) =>
         (await PostAsync<OrderQueryResponse>("agent/v1/order-queries", new { instrumentId, barcode }, ct)).ChannelCodes;
@@ -133,23 +137,13 @@ public sealed class ServerClient(HttpClient http)
 }
 
 /// <summary>
-/// Nơi nhận kết quả của agent: đẩy lên server. Lỗi (mất mạng, server lỗi) ném ra để
-/// <see cref="InstrumentRunner"/> lưu bản tin xuống đĩa và gửi lại sau. Server tự dò map kênh
-/// ngay khi nhận và trả kèm ghi chú — giữ lại để runner ghi vào log thô.
+/// Agent chạy chế độ bản tin thô: kết quả do server giải mã, agent không bao giờ ghi kết quả tại chỗ.
+/// Runner không gọi sink này khi có <see cref="IRawMessageSink"/>; gọi nhầm thì báo lỗi to thay vì nuốt kết quả.
 /// </summary>
-public sealed class HttpReadingSink(ServerClient server) : IReadingSink
+public sealed class RawModeReadingSink : IReadingSink
 {
-    private readonly ConcurrentDictionary<Guid, IReadOnlyList<string>> _notes = new();
-
-    public async Task<IngestOutcome> IngestAsync(InstrumentReading reading)
-    {
-        var response = await server.SendReadingAsync(reading);
-        _notes[reading.InstrumentId] = response.Notes;
-        return new IngestOutcome(response.Stored, response.PendingReplacement, response.Unmatched, response.Qc);
-    }
-
-    public Task<IReadOnlyList<string>> LearnChannelsAsync(Guid instrumentId) =>
-        Task.FromResult(_notes.TryRemove(instrumentId, out var notes) ? notes : []);
+    public Task<IngestOutcome> IngestAsync(InstrumentReading reading) =>
+        throw new InvalidOperationException("Agent chạy chế độ bản tin thô: kết quả do server giải mã, không ghi tại chỗ");
 }
 
 /// <summary>Máy hỏi chỉ định → hỏi server.</summary>

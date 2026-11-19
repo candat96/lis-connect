@@ -92,7 +92,8 @@ public sealed class AgentChannelEndToEndTests(ServerFixture fixture) : IClassFix
         var runtime = new AgentRuntime { Manager = manager, WorkstationCode = "XN-01" };
         var dispatcher = new CommandDispatcher(
         [
-            new ReloadConfigHandler(runtime), new FlushPendingHandler(runtime), new ReconnectInstrumentHandler(runtime),
+            new ReloadConfigHandler(runtime), new FlushPendingHandler(new RawMessageUploader(
+                new Lis.Connections.RawMessages.RawMessageQueue(paths.PendingMessages), new ServerClient(new HttpClient()), TimeProvider.System, NullLogger.Instance)), new ReconnectInstrumentHandler(runtime),
         ]);
 
         var sockets = new List<WebSocket>();

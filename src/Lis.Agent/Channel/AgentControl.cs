@@ -128,13 +128,13 @@ public sealed class ReconnectInstrumentHandler(AgentRuntime runtime) : IAgentCom
     }
 }
 
-/// <summary><c>flush-pending</c>: gửi bù ngay các kết quả đang nằm trong hàng chờ trên đĩa.</summary>
-public sealed class FlushPendingHandler(AgentRuntime runtime) : IAgentCommandHandler
+/// <summary><c>flush-pending</c>: gửi ngay các bản tin thô đang nằm trong hàng chờ trên đĩa; trả số bản tin còn lại.</summary>
+public sealed class FlushPendingHandler(RawMessageUploader uploader) : IAgentCommandHandler
 {
     public string Name => "flush-pending";
 
     public async Task<JsonElement?> RunAsync(JsonElement? args, CancellationToken ct) =>
-        CommandJson.Of(new { remaining = await runtime.RequireManager().RetryPendingNowAsync() });
+        CommandJson.Of(new { remaining = await uploader.FlushNowAsync(ct) });
 }
 
 /// <summary>

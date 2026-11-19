@@ -192,6 +192,29 @@ public sealed class RawMessageQueue : IRawMessageSink
         }
     }
 
+    /// <summary>Đổi tệp của bản tin thành <c>.json.loi</c> (server từ chối vì không hợp lệ): rời khỏi hàng gửi nhưng giữ lại để xem tay và giữ <see cref="MaxSeq"/>.</summary>
+    public void MarkInvalid(RawMessage message)
+    {
+        var path = Path.Combine(DirectoryOf(message.InstrumentId), FileName(message));
+        if (File.Exists(path))
+        {
+            File.Move(path, path + ".loi", overwrite: true);
+        }
+    }
+
+    /// <summary>Số bản tin còn chờ gửi của một máy.</summary>
+    public int Count(Guid instrumentId)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(DirectoryOf(instrumentId), "*.json").Count();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
+    }
+
     public int Count() =>
         Directory.Exists(root) ? Directory.GetFiles(root, "*.json", SearchOption.AllDirectories).Length : 0;
 }

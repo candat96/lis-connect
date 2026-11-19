@@ -89,6 +89,20 @@ public sealed class PairingStoreTests : IDisposable
     }
 
     [Fact]
+    public void Doi_phong_kham_thi_hang_cho_ban_tin_tho_cung_vao_cach_ly()
+    {
+        var store = Store();
+        store.Save(State(Guid.NewGuid(), "pkcu"), Key);
+        var machine = Path.Combine(Paths.PendingMessages, Guid.NewGuid().ToString("N"));
+        Seed(machine, "00000000000000000001-abc.json");
+
+        store.Save(State(Guid.NewGuid(), "pkmoi"), "KHOA-MOI");
+
+        Directory.Exists(Paths.PendingMessages).ShouldBeFalse();
+        File.Exists(Path.Combine(store.LastQuarantine!, "cho-gui", "ban-tin", Path.GetFileName(machine), "00000000000000000001-abc.json")).ShouldBeTrue();
+    }
+
+    [Fact]
     public void Khong_biet_phong_kham_cu_ma_con_cho_gui_thi_cach_ly_khong_ro()
     {
         Seed(Paths.Pending, "ket-qua-1.json");

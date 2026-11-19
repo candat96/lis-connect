@@ -266,7 +266,7 @@ public sealed class InstrumentRunner : IAsyncDisposable
             try
             {
                 await WithGateAsync(() => HandleTopAsync(_driver.Tick(_clock.GetLocalNow()), session.Token, null));
-                if (_clock.GetUtcNow() >= _nextPendingRetry)
+                if (_raw is null && _clock.GetUtcNow() >= _nextPendingRetry)
                 {
                     _nextPendingRetry = _clock.GetUtcNow() + PendingRetryInterval;
                     await RetryPendingAsync();
@@ -358,8 +358,14 @@ public sealed class InstrumentRunner : IAsyncDisposable
             try
             {
                 await _raw!.SaveAsync(_unsaved[0], ct);
-                _unsavedBytes -= _unsaved[0].Bytes.Length;
+                var saved = _unsaved[0];
+                _unsavedBytes -= saved.Bytes.Length;
                 _unsaved.RemoveAt(0);
+                if (!saved.Partial)
+                {
+                    // Chế độ thô không đi qua SubmitAsync: đếm theo bản tin đã nằm trên đĩa.
+                    SetStatus(_status.State, _status.Text, saved.CompletedAt, _status.SamplesReceived + 1);
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

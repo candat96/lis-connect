@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Lis.Connections;
+using Lis.Connections.RawMessages;
 using Lis.Data.Instruments;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,6 +16,9 @@ public sealed record AgentPaths(string Root)
     public string RawLog => Path.Combine(Root, "rawlog");
 
     public string Pending => Path.Combine(Root, "cho-gui");
+
+    /// <summary>Hàng chờ bản tin thô trên đĩa (<c>{máy}/{Seq}-{Id}.json</c>), nằm trong <c>cho-gui</c> nên bị cách ly cùng khi đổi phòng khám.</summary>
+    public string PendingMessages => Path.Combine(Pending, "ban-tin");
 
     public string InstrumentsCache => Path.Combine(Root, "instruments.json");
 
@@ -43,7 +47,7 @@ public sealed record AgentPaths(string Root)
 /// </summary>
 public sealed class AgentWorker(
     ServerClient server, AgentPaths paths, LogUploader uploader, ILogger<AgentWorker> logger, TimeProvider clock,
-    ChannelClient channel, AgentRuntime runtime) : BackgroundService
+    ChannelClient channel, AgentRuntime runtime, RawMessageQueue rawQueue, RawMessageUploader rawUploader) : BackgroundService
 {
     public static readonly TimeSpan ReloadInterval = TimeSpan.FromSeconds(30);
 
@@ -75,12 +79,19 @@ public sealed class AgentWorker(
         logger.LogInformation("Agent \"{Agent}\" — phòng khám {Clinic}, máy trạm {Workstation}", me.AgentName, me.ClinicCode, me.WorkstationCode);
 
         var uploading = uploader.RunAsync(stoppingToken);
+        if (HasLegacyPending(paths))
+        {
+            logger.LogWarning(LegacyPendingWarning);
+            uploader.AgentNote(LegacyPendingWarning);
+        }
+
+        var rawUploading = rawUploader.RunAsync(stoppingToken);
         uploader.AgentNote($"Agent \"{me.AgentName}\" khởi động trên máy {Environment.MachineName}");
 
         var rawLogs = new UploadingRawLogStore(new RawLogStore(paths.RawLog), uploader);
         var manager = new InstrumentConnectionManager(
-            ListInstrumentsAsync, me.WorkstationCode, rawLogs, new HttpReadingSink(server),
-            new HttpOrderQueries(server), paths.Pending, clock);
+            ListInstrumentsAsync, me.WorkstationCode, rawLogs, new RawModeReadingSink(),
+            new HttpOrderQueries(server), paths.Pending, clock, rawSink: rawQueue);
         runtime.WorkstationCode = me.WorkstationCode;
         runtime.Manager = manager;
         manager.StatusChanged += status =>
@@ -133,6 +144,7 @@ public sealed class AgentWorker(
             try
             {
                 await channelTask;
+                await rawUploading;
                 await uploading;
             }
             catch (OperationCanceledException)
@@ -220,6 +232,24 @@ public sealed class AgentWorker(
                 }
             }
         }, CancellationToken.None);
+    }
+
+    public const string LegacyPendingWarning = "Có kết quả chờ gửi dạng cũ — bản này không gửi được nữa";
+
+    /// <summary>Còn tệp kết quả đã giải mã (dạng của agent cũ) trong <c>cho-gui/{máy}</c>: giữ nguyên, chỉ cảnh báo.</summary>
+    internal static bool HasLegacyPending(AgentPaths paths)
+    {
+        try
+        {
+            return Directory.Exists(paths.Pending)
+                && Directory.EnumerateDirectories(paths.Pending)
+                    .Where(d => !string.Equals(Path.GetFileName(d), Path.GetFileName(paths.PendingMessages), StringComparison.OrdinalIgnoreCase))
+                    .Any(d => Directory.EnumerateFiles(d, "*.json").Any());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Xoá <c>LisAgent.new.exe</c> sót lại cạnh tệp chạy sau một lần cập nhật dở; lỗi bỏ qua.</summary>
@@ -321,7 +351,7 @@ public sealed class AgentWorker(
     {
         var reports = _instruments
             .Select(i => manager.StatusOf(i.Id))
-            .Select(s => new InstrumentStatusReport(s.InstrumentId, s.State.ToString(), s.Text, s.LastResultAt, s.SamplesReceived, s.PendingToRetry))
+            .Select(s => new InstrumentStatusReport(s.InstrumentId, s.State.ToString(), s.Text, s.LastResultAt, s.SamplesReceived, rawQueue.Count(s.InstrumentId)))
             .ToList();
         await server.SendStatusAsync(reports, ct);
     }

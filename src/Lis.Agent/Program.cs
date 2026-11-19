@@ -163,6 +163,10 @@ static async Task<int> RunAsync(IConfiguration config, IConfiguration environmen
     builder.Services.AddSingleton(TimeProvider.System);
     builder.Services.AddSingleton(new ServerClient(ServerClient.CreateHttp(connection.ServerUrl, connection.AgentKey)));
     builder.Services.AddSingleton<LogUploader>();
+    builder.Services.AddSingleton(new Lis.Connections.RawMessages.RawMessageQueue(paths.PendingMessages));
+    builder.Services.AddSingleton(sp => new RawMessageUploader(
+        sp.GetRequiredService<Lis.Connections.RawMessages.RawMessageQueue>(), sp.GetRequiredService<ServerClient>(),
+        sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger("LisAgent.RawUploader")));
 
     // Kênh lệnh: các lệnh agent hiểu (task sau thêm quét cổng / cập nhật bằng cách đăng ký thêm IAgentCommandHandler).
     var runningAsService = WindowsServiceHelpers.IsWindowsService();

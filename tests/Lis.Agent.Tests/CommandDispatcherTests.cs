@@ -254,6 +254,12 @@ public sealed class CommandDispatcherTests : IDisposable
         lifetime.Restarts.ShouldBe(0); // ok=false nên ChannelClient không gọi AfterResult
     }
 
+    private sealed class OfflineHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new HttpRequestException("mất mạng");
+    }
+
     private static InstrumentInfo Instrument(Guid id, string workstation) =>
         new(id, "Máy Thử", "AU480", "beckman-au", null, null, workstation, true);
 
@@ -273,7 +279,18 @@ public sealed class CommandDispatcherTests : IDisposable
         reload!.Value.GetProperty("instruments").GetInt32().ShouldBe(1);
         manager.Reloads.ShouldBe(1);
 
-        var flush = await new FlushPendingHandler(runtime).RunAsync(null, TestContext.Current.CancellationToken);
+        // Hàng chờ bản tin thô có 3 bản tin, server không tới được: gửi ngay vẫn còn 3.
+        var queue = new Lis.Connections.RawMessages.RawMessageQueue(new AgentPaths(_root).PendingMessages);
+        for (var seq = 1; seq <= 3; seq++)
+        {
+            await queue.SaveAsync(
+                new Lis.Connections.RawMessages.RawMessage(Guid.CreateVersion7(), mine, seq, "p", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, [1], false),
+                TestContext.Current.CancellationToken);
+        }
+
+        var offline = new ServerClient(new HttpClient(new OfflineHandler()) { BaseAddress = new Uri("http://may-chu.thu/") });
+        var flush = await new FlushPendingHandler(new RawMessageUploader(queue, offline, TimeProvider.System, NullLogger.Instance))
+            .RunAsync(null, TestContext.Current.CancellationToken);
         flush!.Value.GetProperty("remaining").GetInt32().ShouldBe(3);
 
         var reconnect = new ReconnectInstrumentHandler(runtime);
