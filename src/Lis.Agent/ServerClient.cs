@@ -27,6 +27,9 @@ public sealed class ServerClient(HttpClient http)
     public const string KeyHeader = "X-Agent-Key";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>Tải thân tệp cài (HttpClient.Timeout chỉ tính tới khi có tiêu đề) tối đa chừng này.</summary>
+    internal static readonly TimeSpan BodyTimeout = TimeSpan.FromMinutes(5);
+
     public static HttpClient CreateHttp(string serverUrl, string agentKey)
     {
         var client = new HttpClient { BaseAddress = new Uri(serverUrl.TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(30) };
@@ -70,6 +73,9 @@ public sealed class ServerClient(HttpClient http)
         try
         {
             using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+            using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            bodyTimeout.CancelAfter(BodyTimeout);
+            ct = bodyTimeout.Token;
             await using (var file = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
             await using (var body = await response.Content.ReadAsStreamAsync(ct))
             {

@@ -30,22 +30,86 @@ public sealed class ProcessLauncher : IProcessLauncher
 
 /// <summary>
 /// Việc của tiến trình <c>LisAgent.new.exe apply-update &lt;commandId&gt;</c> (chạy tách rời, quyền SYSTEM, con của dịch vụ cũ):
-/// dừng dịch vụ → đổi <c>LisAgent.exe</c> thành <c>LisAgent.old.exe</c> → <b>chép</b> bản mới vào chỗ (không di chuyển: chính nó đang chạy từ
-/// <c>LisAgent.new.exe</c>) → bật dịch vụ → chờ bản mới ghi <c>ket-noi.json</c> (đúng phiên bản, sau lúc bắt đầu) tối đa
-/// <paramref name="connectTimeout"/>. Bất kỳ bước nào hỏng hoặc quá hạn: dừng dịch vụ (bỏ qua lỗi), trả <c>LisAgent.old.exe</c> về, bật lại dịch vụ.
-/// Kết quả ghi vào <c>cap-nhat.json</c> để agent gửi kèm <c>hello</c> lần nối sau.
+/// (1) <b>trước khi dừng dịch vụ</b> chép bản mới thành <c>LisAgent.tmp.exe</c> cạnh tệp cài và kiểm SHA-256 khớp bản mới;
+/// (2) dừng dịch vụ → hoán đổi gần như nguyên tử bằng <c>File.Replace(tmp, exe, old)</c> (lỗi thì hai lần đổi tên exe→old, tmp→exe);
+/// (3) bật dịch vụ → chờ bản mới ghi <c>ket-noi.json</c> (đúng phiên bản, sau lúc bắt đầu) tối đa <paramref name="connectTimeout"/>.
+/// Hỏng sau khi đã dừng/đổi: dừng dịch vụ (bỏ qua lỗi), trả <c>LisAgent.old.exe</c> về (thử lại tới ~30 giây vì Recovery của Windows có thể
+/// bật lại bản mới đang hỏng làm khoá tệp), <b>ghi <c>cap-nhat.json</c> rồi mới bật dịch vụ</b> để hello đầu tiên của bản cũ đã mang báo lỗi.
+/// Hỏng ở bước chuẩn bị (chưa đổi gì): ghi báo lỗi rồi dừng + bật lại dịch vụ để agent đang chạy nối lại và gửi báo lỗi.
 /// </summary>
 public sealed class UpdateApplier(
     string installedExe, string newExe, AgentPaths paths, IServiceControl service, TimeProvider clock, TimeSpan connectTimeout,
-    Action<string>? log = null, Action<string, string>? copyFile = null, Action<string>? deleteAfterExit = null, TimeSpan? pollInterval = null)
+    Action<string>? log = null, Action<string, string>? copyFile = null, Action<string>? deleteAfterExit = null, TimeSpan? pollInterval = null,
+    Action<string, string, string>? replaceFile = null)
 {
     public const string ConnectTimeoutMessage = "Bản mới không kết nối được máy chủ trong 2 phút — đã quay về bản cũ";
     public static readonly TimeSpan DefaultConnectTimeout = TimeSpan.FromMinutes(2);
+    public const string OldFileName = "LisAgent.old.exe";
+    public const string TempFileName = "LisAgent.tmp.exe";
+    private const int RestoreAttempts = 15;
+    private static readonly TimeSpan RestoreDelay = TimeSpan.FromSeconds(2);
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private readonly string _oldExe = Path.Combine(Path.GetDirectoryName(installedExe)!, "LisAgent.old.exe");
+    private readonly string _oldExe = Path.Combine(Path.GetDirectoryName(installedExe)!, OldFileName);
+    private readonly string _tmpExe = Path.Combine(Path.GetDirectoryName(installedExe)!, TempFileName);
     private readonly TimeSpan _poll = pollInterval ?? TimeSpan.FromSeconds(2);
     private readonly Action<string, string> _copy = copyFile ?? ((from, to) => File.Copy(from, to, overwrite: true));
+    private readonly Action<string, string, string> _replace = replaceFile ?? ((tmp, exe, old) => File.Replace(tmp, exe, old));
+
+    /// <summary>
+    /// Máy bị ngắt giữa lúc đổi tệp (có <c>LisAgent.old.exe</c> mà không có <c>LisAgent.exe</c>): trả bản cũ về. Gọi lúc cài / sửa và đầu <c>apply-update</c>.
+    /// </summary>
+    /// <returns>true nếu đã khôi phục.</returns>
+    public static bool RecoverMissingExe(string installedExe, Action<string>? log = null)
+    {
+        var old = Path.Combine(Path.GetDirectoryName(installedExe)!, OldFileName);
+        try
+        {
+            if (File.Exists(installedExe) || !File.Exists(old))
+            {
+                return false;
+            }
+
+            File.Move(old, installedExe);
+            log?.Invoke("Thiếu LisAgent.exe — đã trả LisAgent.old.exe về");
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log?.Invoke($"Không trả được LisAgent.old.exe về: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Lỗi trước khi đổi tệp: ghi <c>cap-nhat.json</c> rồi dừng + bật lại dịch vụ (lỗi bỏ qua) để agent đang chạy nối lại và gửi báo lỗi lên web.
+    /// Dùng được khi chưa dựng được <see cref="UpdateApplier"/> (vd không biết tệp cài của dịch vụ).
+    /// </summary>
+    public static UpdateReport FailEarly(Guid commandId, string error, AgentPaths paths, IServiceControl service, Action<string>? log = null)
+    {
+        log?.Invoke(error);
+        var report = new UpdateReport(commandId, false, null, error);
+        WriteReport(paths, report, log);
+        try
+        {
+            service.Stop();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            log?.Invoke($"Dừng dịch vụ để gửi báo lỗi lỗi (bỏ qua): {ex.Message}");
+        }
+
+        try
+        {
+            service.Start();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            log?.Invoke($"Bật lại dịch vụ lỗi: {ex.Message}");
+        }
+
+        return report;
+    }
 
     public async Task<UpdateReport> ApplyAsync(Guid commandId, string newVersion, CancellationToken ct)
     {
@@ -56,40 +120,53 @@ public sealed class UpdateApplier(
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            report = new UpdateReport(commandId, false, null, $"Cập nhật gặp lỗi không lường trước: {ex.Message}");
+            report = FailEarly(commandId, $"Cập nhật gặp lỗi không lường trước: {ex.Message}", paths, service, log);
         }
 
-        WriteReport(report);
+        WriteReport(paths, report, log);
         if (report.Ok)
         {
             TryDelete(_oldExe);
         }
 
+        TryDelete(_tmpExe);
         TryDeferDelete();
         return report;
     }
 
     private async Task<UpdateReport> ApplyCoreAsync(Guid commandId, string newVersion, CancellationToken ct)
     {
-        // Chưa đụng gì tới dịch vụ: thiếu tệp thì dừng ngay, bản cũ vẫn chạy.
+        RecoverMissingExe(installedExe, log);
         if (!File.Exists(installedExe) || !File.Exists(newExe))
         {
-            Log("Thiếu tệp cài hoặc tệp bản mới — không cập nhật");
-            return new UpdateReport(commandId, false, null, "Thiếu tệp cài hoặc tệp bản mới — không cập nhật");
+            return FailEarly(commandId, "Thiếu tệp cài hoặc tệp bản mới — không cập nhật", paths, service, log);
         }
 
-        var moved = false;
-        string? failure = null;
+        // Chuẩn bị khi dịch vụ còn chạy: bản chép tạm đã kiểm SHA nằm sẵn cạnh tệp cài, lúc dừng chỉ còn đổi tên.
+        try
+        {
+            TryDelete(_oldExe);
+            TryDelete(_tmpExe);
+            Log("Chép bản mới sang tệp tạm");
+            _copy(newExe, _tmpExe);
+            if (Sha256(_tmpExe) != Sha256(newExe))
+            {
+                throw new IOException("bản chép tạm không khớp bản mới");
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            TryDelete(_tmpExe);
+            return FailEarly(commandId, $"Chuẩn bị bản mới lỗi: {ex.Message} — giữ nguyên bản cũ", paths, service, log);
+        }
+
+        string failure;
         try
         {
             var startedAt = clock.GetUtcNow();
             Log("Dừng dịch vụ");
             service.Stop();
-            TryDelete(_oldExe);
-            File.Move(installedExe, _oldExe);
-            moved = true;
-            Log("Chép bản mới vào chỗ");
-            _copy(newExe, installedExe);
+            Swap();
             Log("Bật dịch vụ bản mới");
             service.Start();
 
@@ -110,8 +187,28 @@ public sealed class UpdateApplier(
         }
 
         Log("Quay về bản cũ");
-        var restoreError = await RollbackAsync(moved);
-        return new UpdateReport(commandId, false, null, restoreError is null ? failure : $"{failure}. Khôi phục bản cũ chưa xong: {restoreError}");
+        return await RollbackAsync(commandId, failure);
+    }
+
+    /// <summary>tmp → exe, exe cũ → old. <c>File.Replace</c> trước; lỗi thì hai lần đổi tên (exe→old rồi tmp→exe).</summary>
+    private void Swap()
+    {
+        try
+        {
+            _replace(_tmpExe, installedExe, _oldExe);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            Log($"File.Replace lỗi ({ex.Message}) — đổi tên hai bước");
+            File.Move(installedExe, _oldExe, overwrite: true);
+            File.Move(_tmpExe, installedExe);
+        }
+    }
+
+    private static string Sha256(string file)
+    {
+        using var stream = File.OpenRead(file);
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream));
     }
 
     private async Task<bool> WaitConnectedAsync(string version, DateTimeOffset startedAt, CancellationToken ct)
@@ -152,8 +249,8 @@ public sealed class UpdateApplier(
         }
     }
 
-    /// <summary>Trả bản cũ về và bật lại dịch vụ. Trả thông báo lỗi nếu việc khôi phục không trọn vẹn (vẫn cố bật dịch vụ).</summary>
-    private async Task<string?> RollbackAsync(bool moved)
+    /// <summary>Dừng dịch vụ, trả bản cũ về (nếu đã đổi), <b>ghi báo lỗi</b>, rồi mới bật lại dịch vụ.</summary>
+    private async Task<UpdateReport> RollbackAsync(Guid commandId, string failure)
     {
         string? error = null;
         try
@@ -165,10 +262,14 @@ public sealed class UpdateApplier(
             Log($"Dừng dịch vụ khi quay về lỗi (bỏ qua): {ex.Message}");
         }
 
-        if (moved)
+        if (File.Exists(_oldExe))
         {
             error = await RestoreOldAsync();
         }
+
+        TryDelete(_tmpExe);
+        var report = new UpdateReport(commandId, false, null, error is null ? failure : $"{failure}. Khôi phục bản cũ chưa xong: {error}");
+        WriteReport(paths, report, log);
 
         try
         {
@@ -177,16 +278,16 @@ public sealed class UpdateApplier(
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Log($"Bật lại dịch vụ lỗi: {ex.Message}");
-            error = error is null ? $"không bật lại được dịch vụ ({ex.Message})" : $"{error}; không bật lại được dịch vụ ({ex.Message})";
+            report = report with { Error = $"{report.Error}; không bật lại được dịch vụ ({ex.Message})" };
         }
 
-        return error;
+        return report;
     }
 
     private async Task<string?> RestoreOldAsync()
     {
         Exception? last = null;
-        for (var attempt = 0; attempt < 5; attempt++)
+        for (var attempt = 0; attempt < RestoreAttempts; attempt++)
         {
             try
             {
@@ -197,14 +298,14 @@ public sealed class UpdateApplier(
             {
                 last = ex;
                 Log($"Trả bản cũ lần {attempt + 1} lỗi: {ex.Message}");
-                await Task.Delay(TimeSpan.FromSeconds(1), clock);
+                await Task.Delay(RestoreDelay, clock);
             }
         }
 
-        return $"không trả được LisAgent.old.exe về ({last!.Message})";
+        return $"không trả được {OldFileName} về ({last!.Message})";
     }
 
-    private void WriteReport(UpdateReport report)
+    internal static void WriteReport(AgentPaths paths, UpdateReport report, Action<string>? log)
     {
         try
         {
@@ -215,7 +316,7 @@ public sealed class UpdateApplier(
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Log($"Không ghi được cap-nhat.json: {ex.Message}");
+            log?.Invoke($"Không ghi được cap-nhat.json: {ex.Message}");
         }
     }
 

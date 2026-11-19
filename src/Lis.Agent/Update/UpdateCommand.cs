@@ -18,7 +18,7 @@ public interface ICommandIdAware : IAgentCommandHandler
 /// <param name="installDir">Thư mục của tệp đang chạy.</param>
 public sealed class UpdateHandler(
     Func<string, CancellationToken, Task<(string Sha256, string? Version)>> download, string installDir, string currentVersion,
-    bool runningAsService, IProcessLauncher launcher, ILogger<UpdateHandler>? logger = null) : IAfterResultHandler, ICommandIdAware
+    bool runningAsService, IProcessLauncher launcher, AgentPaths paths, IAgentLifetime lifetime, ILogger<UpdateHandler>? logger = null) : IAfterResultHandler, ICommandIdAware
 {
     public const string NewFileName = "LisAgent.new.exe";
     public const string ShaMismatchMessage = "Tệp cập nhật sai mã kiểm tra — không cài";
@@ -81,7 +81,11 @@ public sealed class UpdateHandler(
         return CommandJson.Of(new { handedOver = true });
     }
 
-    /// <summary>Bật bộ áp cập nhật sau khi kết quả đã gửi. Không bật được thì xoá tệp mới (dịch vụ cũ vẫn chạy, chưa đụng gì).</summary>
+    /// <summary>
+    /// Bật bộ áp cập nhật sau khi kết quả đã gửi. Không bật được: xoá tệp mới (chưa đụng gì tới tệp chạy), ghi <c>cap-nhat.json</c> báo lỗi rồi
+    /// khởi động lại agent (<see cref="IAgentLifetime.RestartSoon"/>) — kênh đã gửi <c>handedOver</c> nên chỉ <c>hello</c> của lần nối sau
+    /// mới đưa được báo lỗi lên web; Windows Recovery bật lại dịch vụ sau vài giây.
+    /// </summary>
     public Task AfterResultAsync(CancellationToken ct)
     {
         (Guid CommandId, string NewExe)? taken;
@@ -107,6 +111,8 @@ public sealed class UpdateHandler(
         {
             logger?.LogError("Không bật được tiến trình cập nhật: {Message}", ex.Message);
             TryDelete(newExe);
+            UpdateApplier.WriteReport(paths, new UpdateReport(commandId, false, null, $"Không bật được tiến trình cập nhật: {ex.Message}"), null);
+            lifetime.RestartSoon();
         }
 
         return Task.CompletedTask;

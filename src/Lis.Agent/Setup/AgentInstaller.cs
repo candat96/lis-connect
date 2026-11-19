@@ -47,6 +47,8 @@ public sealed class AgentInstaller(
             // 0. Thư mục dữ liệu chỉ cho SYSTEM + quản trị viên ghi (người dùng thường không thả được kết quả giả vào cho-gui).
             Directory.CreateDirectory(paths.Root);
             (dataSecurity ?? NoDataDirSecurity.Instance).Secure(paths.Root);
+            // Máy bị ngắt giữa lúc cập nhật từ web (còn LisAgent.old.exe, mất LisAgent.exe): trả bản cũ về trước.
+            UpdateApplier.RecoverMissingExe(Target);
 
             // 1. Ghi nhớ trạng thái cũ, dừng dịch vụ đang chạy.
             var existed = service.Exists();

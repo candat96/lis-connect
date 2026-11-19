@@ -35,6 +35,8 @@ internal sealed class HookedServiceControl : IServiceControl
 
     public Exception? StopFails { get; set; }
 
+    public Action? OnStop { get; set; }
+
     public int Starts => Calls.Count(c => c == "Start");
 
     public bool Exists() => true;
@@ -56,6 +58,7 @@ internal sealed class HookedServiceControl : IServiceControl
     public void Stop()
     {
         Calls.Add("Stop");
+        OnStop?.Invoke();
         if (StopFails is not null)
         {
             throw StopFails;
@@ -91,6 +94,8 @@ public sealed class UpdateTests : IDisposable
 
     private string Old => Path.Combine(InstallDir, "LisAgent.old.exe");
 
+    private string Tmp => Path.Combine(InstallDir, "LisAgent.tmp.exe");
+
     private string New => Path.Combine(InstallDir, "LisAgent.new.exe");
 
     private AgentPaths Paths => new(DataDir);
@@ -114,7 +119,7 @@ public sealed class UpdateTests : IDisposable
 
     private static JsonElement Args(string version, string sha) => JsonSerializer.SerializeToElement(new { version, sha256 = sha });
 
-    private UpdateHandler Handler(string content, FakeLauncher launcher, bool service = true, string current = "0.2.0")
+    private UpdateHandler Handler(string content, FakeLauncher launcher, bool service = true, string current = "0.2.0", FakeLifetime? lifetime = null)
     {
         var body = content;
         return new UpdateHandler(
@@ -123,7 +128,7 @@ public sealed class UpdateTests : IDisposable
                 await File.WriteAllTextAsync(dest, body, ct);
                 return (Sha(body), "0.3.0");
             },
-            InstallDir, current, service, launcher);
+            InstallDir, current, service, launcher, Paths, lifetime ?? new FakeLifetime());
     }
 
     // ---- Handler (phía dịch vụ đang chạy) ----
@@ -165,7 +170,7 @@ public sealed class UpdateTests : IDisposable
     {
         var launcher = new FakeLauncher();
         var downloaded = false;
-        var handler = new UpdateHandler((_, _) => { downloaded = true; return Task.FromResult(("x", (string?)null)); }, InstallDir, "0.3.0", true, launcher);
+        var handler = new UpdateHandler((_, _) => { downloaded = true; return Task.FromResult(("x", (string?)null)); }, InstallDir, "0.3.0", true, launcher, Paths, new FakeLifetime());
 
         var data = await handler.RunAsync(_commandId, Args("0.3.0", "abc"), CancellationToken.None);
         data!.Value.GetProperty("alreadyCurrent").GetBoolean().ShouldBeTrue();
@@ -188,12 +193,15 @@ public sealed class UpdateTests : IDisposable
     {
         File.WriteAllText(Installed, "cu");
         var launcher = new FakeLauncher { Fails = new InvalidOperationException("không bật được") };
-        var handler = Handler("moi", launcher);
+        var lifetime = new FakeLifetime();
+        var handler = Handler("moi", launcher, lifetime: lifetime);
 
         await handler.RunAsync(_commandId, Args("0.3.0", Sha("moi")), CancellationToken.None);
         await handler.AfterResultAsync(CancellationToken.None);
         File.Exists(New).ShouldBeFalse();
         File.ReadAllText(Installed).ShouldBe("cu");
+        ReadReport().ShouldBe(new UpdateReport(_commandId, false, null, "Không bật được tiến trình cập nhật: không bật được"));
+        lifetime.Restarts.ShouldBe(1); // khởi động lại để hello kế tiếp mang báo lỗi lên web
     }
 
     [Fact]
@@ -319,33 +327,162 @@ public sealed class UpdateTests : IDisposable
     }
 
     [Fact]
-    public async Task Chep_ban_moi_loi_quay_ve()
+    public async Task Chep_tam_truoc_khi_dung_dich_vu()
+    {
+        Seed();
+        string? atStop = null;
+        var service = new HookedServiceControl { OnStop = () => atStop = File.Exists(Tmp) ? File.ReadAllText(Tmp) : null, OnStart = _ => WriteMarker("0.3.0", _clock.GetUtcNow()) };
+
+        (await Applier(service).ApplyAsync(_commandId, "0.3.0", CancellationToken.None)).Ok.ShouldBeTrue();
+        atStop.ShouldBe("moi"); // bản tạm đã nằm sẵn (đã kiểm SHA) lúc dừng dịch vụ
+        File.Exists(Tmp).ShouldBeFalse();
+        File.ReadAllText(Installed).ShouldBe("moi");
+    }
+
+    [Fact]
+    public async Task Chep_tam_loi_truoc_khi_dung_thi_khong_doi_tep_va_bao_loi()
     {
         Seed();
         var service = new HookedServiceControl();
+        service.OnStart = _ => File.Exists(Paths.UpdateReport).ShouldBeTrue();
 
-        var report = await Applier(service, copy: (_, _) => throw new IOException("đĩa đầy"))
+        var report = await Applier(service, copy: (_, to) => { File.WriteAllText(to, "ná"); throw new IOException("đĩa đầy"); })
             .ApplyAsync(_commandId, "0.3.0", CancellationToken.None);
 
         report.Ok.ShouldBeFalse();
         report.Error!.ShouldContain("đĩa đầy");
         File.ReadAllText(Installed).ShouldBe("cu");
         File.Exists(Old).ShouldBeFalse();
-        service.Calls.Last().ShouldBe("Start");
-        service.Starts.ShouldBe(1);
-        ReadReport().Ok.ShouldBeFalse();
+        File.Exists(Tmp).ShouldBeFalse();
+        // Không đổi tệp nào; dịch vụ chỉ được dừng + bật lại để agent đang chạy nối lại và gửi báo lỗi (báo lỗi đã nằm trên đĩa trước khi bật).
+        service.Calls.ShouldBe(["Stop", "Start"]);
+        ReadReport().ShouldBe(report);
     }
 
     [Fact]
-    public async Task Chep_do_dang_de_lai_tep_hong_thi_van_tra_ban_cu()
+    public async Task Ban_tam_sai_sha_thi_khong_cai()
     {
         Seed();
         var service = new HookedServiceControl();
 
-        var report = await Applier(service, copy: (_, to) => { File.WriteAllText(to, "ná"); throw new IOException("đứt"); })
-            .ApplyAsync(_commandId, "0.3.0", CancellationToken.None);
+        var report = await Applier(service, copy: (from, to) => File.WriteAllText(to, "khac")).ApplyAsync(_commandId, "0.3.0", CancellationToken.None);
 
         report.Ok.ShouldBeFalse();
+        File.ReadAllText(Installed).ShouldBe("cu");
+        File.Exists(Tmp).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Replace_loi_thi_doi_ten_hai_buoc()
+    {
+        Seed();
+        var service = new HookedServiceControl { OnStart = _ => WriteMarker("0.3.0", _clock.GetUtcNow()) };
+        var applier = new UpdateApplier(Installed, New, Paths, service, _clock, TimeSpan.FromMinutes(2), replaceFile: (_, _, _) => throw new IOException("replace lỗi"));
+
+        (await applier.ApplyAsync(_commandId, "0.3.0", CancellationToken.None)).Ok.ShouldBeTrue();
+        File.ReadAllText(Installed).ShouldBe("moi");
+        File.Exists(Old).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Doi_ten_hai_buoc_do_dang_van_tra_ban_cu()
+    {
+        Seed();
+        var service = new HookedServiceControl();
+        // Replace lỗi, rồi bước 2 (tmp → exe) cũng lỗi vì tệp tmp bị mất: exe đã sang .old, phải trả về.
+        var applier = new UpdateApplier(
+            Installed, New, Paths, service, _clock, TimeSpan.FromMinutes(2),
+            replaceFile: (tmp, _, _) => { File.Delete(tmp); throw new IOException("replace lỗi"); });
+
+        var report = await applier.ApplyAsync(_commandId, "0.3.0", CancellationToken.None);
+        report.Ok.ShouldBeFalse();
+        File.ReadAllText(Installed).ShouldBe("cu");
+        File.Exists(Old).ShouldBeFalse();
+        service.Starts.ShouldBe(1); // chưa kịp bật bản mới; chỉ bật lại bản cũ
+    }
+
+    [Fact]
+    public async Task Bao_loi_quay_ve_duoc_ghi_truoc_khi_bat_lai_dich_vu()
+    {
+        Seed();
+        var existsAtStart = new List<bool>();
+        var service = new HookedServiceControl { OnStart = _ => existsAtStart.Add(File.Exists(Paths.UpdateReport)) };
+        var task = Applier(service).ApplyAsync(_commandId, "0.3.0", CancellationToken.None);
+        for (var i = 0; i < 400 && !task.IsCompleted; i++)
+        {
+            _clock.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(2, TestContext.Current.CancellationToken);
+        }
+
+        await task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        existsAtStart.ShouldBe([false, true]); // lần bật bản mới chưa có báo lỗi; lần bật lại bản cũ đã có
+        ReadReport().Ok.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Co_old_ma_mat_exe_thi_tra_ve()
+    {
+        File.WriteAllText(Old, "cu");
+
+        UpdateApplier.RecoverMissingExe(Installed).ShouldBeTrue();
+        File.ReadAllText(Installed).ShouldBe("cu");
+        File.Exists(Old).ShouldBeFalse();
+
+        File.WriteAllText(Old, "khac");
+        UpdateApplier.RecoverMissingExe(Installed).ShouldBeFalse(); // exe còn → không đụng
+        File.ReadAllText(Installed).ShouldBe("cu");
+    }
+
+    [Fact]
+    public async Task Apply_update_tu_khoi_phuc_exe_mat_truoc_khi_lam()
+    {
+        File.WriteAllText(Old, "cu");
+        File.WriteAllText(New, "moi");
+        var service = new HookedServiceControl { OnStart = _ => WriteMarker("0.3.0", _clock.GetUtcNow()) };
+
+        (await Applier(service).ApplyAsync(_commandId, "0.3.0", CancellationToken.None)).Ok.ShouldBeTrue();
+        File.ReadAllText(Installed).ShouldBe("moi");
+    }
+
+    [Fact]
+    public async Task Cai_dat_trai_ve_exe_bi_mat_do_cap_nhat_do_dang()
+    {
+        var installDir = Path.Combine(_root, "ProgramFiles");
+        Directory.CreateDirectory(installDir);
+        File.WriteAllText(Path.Combine(installDir, "LisAgent.old.exe"), "cu");
+        var source = Path.Combine(_root, "src.exe");
+        File.WriteAllText(source, "moi");
+        var installer = new AgentInstaller(
+            Paths, installDir, new FakeServiceControl(), (_, _) => Task.FromResult(new PairingResult(TestCodes.State(), null)), TextWriter.Null);
+
+        await installer.InstallOrRepairAsync(source, TestCodes.Code(), CancellationToken.None);
+        File.Exists(Path.Combine(installDir, "LisAgent.exe")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Bao_loi_som_ghi_bao_cao_roi_khoi_dong_lai_dich_vu()
+    {
+        var service = new HookedServiceControl();
+        service.OnStart = _ => File.Exists(Paths.UpdateReport).ShouldBeTrue();
+
+        var report = UpdateApplier.FailEarly(_commandId, "lý do", Paths, service);
+
+        service.Calls.ShouldBe(["Stop", "Start"]);
+        ReadReport().ShouldBe(report);
+        report.Error.ShouldBe("lý do");
+    }
+
+    [Fact]
+    public async Task Thieu_tep_ban_moi_thi_bao_loi_va_khoi_dong_lai_dich_vu()
+    {
+        File.WriteAllText(Installed, "cu");
+        var service = new HookedServiceControl();
+
+        var report = await Applier(service).ApplyAsync(_commandId, "0.3.0", CancellationToken.None);
+
+        report.Ok.ShouldBeFalse();
+        service.Calls.ShouldBe(["Stop", "Start"]);
+        ReadReport().Ok.ShouldBeFalse();
         File.ReadAllText(Installed).ShouldBe("cu");
     }
 
@@ -375,19 +512,6 @@ public sealed class UpdateTests : IDisposable
         report.Ok.ShouldBeFalse();
         File.ReadAllText(Installed).ShouldBe("cu");
         service.Starts.ShouldBe(2);
-    }
-
-    [Fact]
-    public async Task Thieu_tep_ban_moi_thi_khong_dung_gi()
-    {
-        File.WriteAllText(Installed, "cu");
-        var service = new HookedServiceControl();
-
-        var report = await Applier(service).ApplyAsync(_commandId, "0.3.0", CancellationToken.None);
-
-        report.Ok.ShouldBeFalse();
-        service.Calls.ShouldBeEmpty();
-        File.ReadAllText(Installed).ShouldBe("cu");
     }
 
     [Fact]

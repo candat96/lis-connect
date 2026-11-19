@@ -98,7 +98,7 @@ static async Task<int> ApplyUpdateAsync(Guid commandId, AgentPaths paths)
     if (installed is null || !string.Equals(Path.GetDirectoryName(installed), Path.GetDirectoryName(newExe), StringComparison.OrdinalIgnoreCase)
         || !string.Equals(Path.GetFileName(newExe), UpdateHandler.NewFileName, StringComparison.OrdinalIgnoreCase))
     {
-        Log("Không xác định được tệp cài của dịch vụ cạnh tệp bản mới — không cập nhật");
+        UpdateApplier.FailEarly(commandId, "Không xác định được tệp cài của dịch vụ cạnh tệp bản mới — không cập nhật", paths, service, Log);
         return 2;
     }
 
@@ -167,7 +167,8 @@ static async Task<int> RunAsync(IConfiguration config, IConfiguration environmen
     builder.Services.AddSingleton<IProcessLauncher, ProcessLauncher>();
     builder.Services.AddSingleton<IAgentCommandHandler>(sp => new UpdateHandler(
         sp.GetRequiredService<ServerClient>().DownloadInstallerAsync, AppContext.BaseDirectory, AgentVersion.Current,
-        runningAsService, sp.GetRequiredService<IProcessLauncher>(), sp.GetRequiredService<ILogger<UpdateHandler>>()));
+        runningAsService, sp.GetRequiredService<IProcessLauncher>(), paths, sp.GetRequiredService<IAgentLifetime>(),
+        sp.GetRequiredService<ILogger<UpdateHandler>>()));
     builder.Services.AddSingleton<CommandDispatcher>();
     builder.Services.AddSingleton(sp => new ChannelClient(
         new Uri(connection.ServerUrl), connection.AgentKey, sp.GetRequiredService<CommandDispatcher>(), paths,
