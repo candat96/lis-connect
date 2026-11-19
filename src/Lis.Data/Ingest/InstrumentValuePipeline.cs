@@ -56,6 +56,8 @@ internal enum InstrumentWriteKind
 /// </summary>
 internal static class InstrumentValuePipeline
 {
+    private const string ReasonPendingDropped = "Máy gửi kết quả mới, bỏ giá trị chờ thay cũ";
+
     public static async Task<InstrumentWriteKind> WriteAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, ResultWriter writer, TimeProvider clock,
         ItemContext item, DateTimeOffset? sampleApprovedAt, ChannelMap? channel, Guid instrumentId, ReadingItem reading, string? rawRef,
@@ -174,6 +176,20 @@ internal static class InstrumentValuePipeline
                 connection, transaction, resultId, existing?.Value, computed.Value ?? "", adjusted, computed.Flag, instrumentId, rawRef,
                 reading.InstrumentFlag, pendingReason, actorId, now);
             return InstrumentWriteKind.PendingReplacement;
+        }
+
+        if (mode == ValueWriteMode.Live && existing is { PendingValue: not null })
+        {
+            // Mẫu chưa duyệt, máy gửi kết quả mới ghi thẳng làm giá trị chính: bản chờ thay cũ (vd do giải mã lại tạo) không còn đúng.
+            await connection.ExecuteAsync(
+                """
+                UPDATE result SET pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL,
+                    pending_instrument_flag = NULL, pending_flag = NULL
+                WHERE id = @resultId
+                """,
+                new { resultId = existing.Id }, transaction);
+            await ResultWriter.InsertHistoryAsync(
+                connection, transaction, existing.Id, "bo-thay-the", existing.PendingValue, existing.Value, ReasonPendingDropped, actorId: null, now);
         }
 
         await ResultWriter.WriteValueAsync(

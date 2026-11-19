@@ -405,12 +405,14 @@ public class RawMessageRedecodeTests(PostgresFixture fixture)
     public async Task Giai_ma_lai_dong_chua_ghep_da_xu_ly_khac_gia_tri_vao_resolvedMismatch()
     {
         var env = await RawEnv.CreateAsync(fixture);
+        var (_, _, items) = await env.NewSampleAsync();
         var id = await env.StoreAsync(RawEnv.Hl7(false, ("KHONGCO0031", "7.00", "100")));
         var rawRef = $"ban-tin:{id}";
         await env.Processor.DecodeAsync(id, Auto, null, Ct);
+        // Dòng "đã gán" (resolved_item_id có giá trị), khác với dòng chỉ bỏ qua.
         await ExecAsync(env,
-            "UPDATE unmatched_result SET value = '99.99', resolved_at = now(), resolved_by = @actor WHERE raw_ref = @rawRef AND channel_code = '6690-2'",
-            new { actor = env.Base.ActorId, rawRef });
+            "UPDATE unmatched_result SET value = '99.99', resolved_at = now(), resolved_by = @actor, resolved_item_id = @item WHERE raw_ref = @rawRef AND channel_code = '6690-2'",
+            new { actor = env.Base.ActorId, rawRef, item = items[env.WbcId] });
         await using var connection = await env.Db.OpenAsync(Ct);
         var oldId = await connection.ExecuteScalarAsync<Guid>("SELECT id FROM unmatched_result WHERE value = '99.99' AND raw_ref = @rawRef", new { rawRef });
 
@@ -427,6 +429,132 @@ public class RawMessageRedecodeTests(PostgresFixture fixture)
         row.DecodeResult.Value.GetProperty("warnings").GetArrayLength().ShouldBeGreaterThanOrEqualTo(1);
         // Không tạo dòng Chưa ghép mới trùng với dòng đã gán (kênh HGB vẫn có dòng mới).
         (await connection.ExecuteScalarAsync<int>("SELECT count(*) FROM unmatched_result WHERE raw_ref = @rawRef AND channel_code = '6690-2'", new { rawRef })).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Giai_ma_lai_ban_tin_chi_co_cau_hoi_ra_khong_co_ket_qua()
+    {
+        var env = await RawEnv.CreateAsync(fixture, family: "astm-e1394");
+        byte[] bytes = [0x05, .. AstmFrame(1, "H|\\^&|||Máy Thử\rQ|1|^2611030001||ALL||||||||O\rL|1|N\r"), 0x04];
+        var id = await env.StoreAsync(bytes);
+        (await env.Processor.DecodeAsync(id, Auto, null, Ct)).DecodeStatus.ShouldBe(RawMessageStatus.NoResult);
+
+        var row = await env.Processor.DecodeAsync(id, Redo, env.Base.ActorId, Ct);
+
+        row.DecodeStatus.ShouldBe(RawMessageStatus.NoResult);
+        row.DecodeResult!.Value.GetProperty("error").GetString().ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Giai_ma_lai_ban_tin_chi_CR_khong_co_dong_cu_ra_khong_co_ket_qua()
+    {
+        var env = await RawEnv.CreateAsync(fixture);
+        var id = await env.StoreAsync([0x0D]);
+        (await env.Processor.DecodeAsync(id, Auto, null, Ct)).DecodeStatus.ShouldBe(RawMessageStatus.NoResult);
+
+        var row = await env.Processor.DecodeAsync(id, Redo, env.Base.ActorId, Ct);
+
+        row.DecodeStatus.ShouldBe(RawMessageStatus.NoResult);
+    }
+
+    [Fact]
+    public async Task Giai_ma_lai_ra_0_ket_qua_khi_luot_truoc_da_giai_ma_thi_van_la_loi()
+    {
+        var env = await RawEnv.CreateAsync(fixture);
+        var (_, barcode, _) = await env.NewSampleAsync();
+        var id = await env.StoreAsync(RawEnv.Hl7(false, (barcode, "9.81", "132")));
+        await env.Processor.DecodeAsync(id, Auto, null, Ct);
+        await env.Processor.DecodeAsync(id, Redo, env.Base.ActorId, Ct);
+        await ExecAsync(env, "UPDATE raw_message SET bytes = @b WHERE id = @id", new { id, b = new byte[] { 0x0D } });
+
+        var row = await env.Processor.DecodeAsync(id, Redo, env.Base.ActorId, Ct);
+
+        row.DecodeStatus.ShouldBe(RawMessageStatus.Error);
+    }
+
+    [Fact]
+    public async Task Giai_ma_lai_tao_cho_thay_roi_may_gui_moi_thi_bo_cho_thay_cu()
+    {
+        var env = await RawEnv.CreateAsync(fixture);
+        var (_, barcode, items) = await env.NewSampleAsync();
+        var m1 = await StoreOrderedAsync(env, RawEnv.Hl7(false, (barcode, "5.00", "132")), 1);
+        var m2 = await StoreOrderedAsync(env, RawEnv.Hl7(false, (barcode, "7.00", "132")), 2);
+        await env.Processor.DecodeAsync(m1, Auto, null, Ct);
+        await env.Base.Results.SetManualAsync(items[env.WbcId], "6.00", env.Base.ActorId, "Sửa thử");
+        await env.Processor.DecodeAsync(m1, Redo, env.Base.ActorId, Ct);
+        (await StoredAsync(env.Db, items[env.WbcId])).PendingValue.ShouldBe("5.00");
+
+        await env.Processor.DecodeAsync(m2, Auto, null, Ct);
+
+        var wbc = await StoredAsync(env.Db, items[env.WbcId]);
+        wbc.Value.ShouldBe("7.00");
+        wbc.RawRef.ShouldBe($"ban-tin:{m2}");
+        wbc.PendingValue.ShouldBeNull();
+        wbc.PendingRawRef.ShouldBeNull();
+        var dropped = (await HistoryAsync(env.Db, items[env.WbcId])).Where(h => h.Action == "bo-thay-the").ToList();
+        dropped.Count.ShouldBe(1);
+        dropped[0].OldValue.ShouldBe("5.00");
+        dropped[0].Reason.ShouldBe("Máy gửi kết quả mới, bỏ giá trị chờ thay cũ");
+    }
+
+    private static async Task<Guid> TwoSameChannelMessageAsync(RawEnv env, string barcode)
+    {
+        var id = await env.StoreAsync(RawEnv.Hl7(false, (barcode, "7.00", "100"), (barcode, "8.00", "100")));
+        await env.Processor.DecodeAsync(id, Auto, null, Ct);
+        return id;
+    }
+
+    [Fact]
+    public async Task Giai_ma_lai_hai_item_cung_barcode_kenh_chi_tieu_mot_dong_da_gan()
+    {
+        var env = await RawEnv.CreateAsync(fixture);
+        var (_, _, items) = await env.NewSampleAsync();
+        var id = await TwoSameChannelMessageAsync(env, "KHONGCO0040");
+        var rawRef = $"ban-tin:{id}";
+        await ExecAsync(env,
+            "UPDATE unmatched_result SET resolved_at = now(), resolved_by = @actor, resolved_item_id = @item WHERE raw_ref = @rawRef AND channel_code = '6690-2' AND value = '7.00'",
+            new { actor = env.Base.ActorId, item = items[env.WbcId], rawRef });
+
+        await env.Processor.DecodeAsync(id, Redo, env.Base.ActorId, Ct);
+
+        (await env.CountAsync("SELECT count(*) FROM unmatched_result WHERE raw_ref = @rawRef AND channel_code = '6690-2'", new { rawRef })).ShouldBe(2);
+        (await env.CountAsync("SELECT count(*) FROM unmatched_result WHERE raw_ref = @rawRef AND channel_code = '6690-2' AND resolved_at IS NULL", new { rawRef })).ShouldBe(1);
+        (await env.CountAsync("SELECT count(*) FROM unmatched_result WHERE raw_ref = @rawRef AND channel_code = '6690-2' AND resolved_at IS NULL AND value = '8.00'", new { rawRef })).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Giai_ma_lai_dong_bo_qua_khac_gia_tri_tao_dong_chua_ghep_moi_khong_bao_lech()
+    {
+        var env = await RawEnv.CreateAsync(fixture);
+        var id = await env.StoreAsync(RawEnv.Hl7(false, ("KHONGCO0041", "7.00", "100")));
+        var rawRef = $"ban-tin:{id}";
+        await env.Processor.DecodeAsync(id, Auto, null, Ct);
+        await ExecAsync(env,
+            "UPDATE unmatched_result SET value = '99.99', resolved_at = now(), resolved_by = @actor, dismiss_reason = 'Thử' WHERE raw_ref = @rawRef AND channel_code = '6690-2'",
+            new { actor = env.Base.ActorId, rawRef });
+
+        var row = await env.Processor.DecodeAsync(id, Redo, env.Base.ActorId, Ct);
+
+        (await env.CountAsync("SELECT count(*) FROM unmatched_result WHERE raw_ref = @rawRef AND channel_code = '6690-2' AND resolved_at IS NULL AND value = '7.00'", new { rawRef })).ShouldBe(1);
+        (await env.CountAsync("SELECT count(*) FROM unmatched_result WHERE raw_ref = @rawRef AND channel_code = '6690-2' AND resolved_at IS NOT NULL", new { rawRef })).ShouldBe(1);
+        row.DecodeResult!.Value.GetProperty("resolvedMismatch").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Giai_ma_lai_dong_bo_qua_cung_gia_tri_thi_khong_tao_lai()
+    {
+        var env = await RawEnv.CreateAsync(fixture);
+        var id = await env.StoreAsync(RawEnv.Hl7(false, ("KHONGCO0042", "7.00", "100")));
+        var rawRef = $"ban-tin:{id}";
+        await env.Processor.DecodeAsync(id, Auto, null, Ct);
+        await ExecAsync(env,
+            "UPDATE unmatched_result SET value = ' 7.00 ', resolved_at = now(), resolved_by = @actor, dismiss_reason = 'Thử' WHERE raw_ref = @rawRef AND channel_code = '6690-2'",
+            new { actor = env.Base.ActorId, rawRef });
+
+        var row = await env.Processor.DecodeAsync(id, Redo, env.Base.ActorId, Ct);
+
+        (await env.CountAsync("SELECT count(*) FROM unmatched_result WHERE raw_ref = @rawRef AND channel_code = '6690-2'", new { rawRef })).ShouldBe(1);
+        row.DecodeResult!.Value.GetProperty("resolvedMismatch").GetArrayLength().ShouldBe(0);
     }
 
     [Fact]

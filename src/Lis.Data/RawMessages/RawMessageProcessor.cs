@@ -78,7 +78,7 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
                 try
                 {
                     var summary = await db.InTransactionAsync(
-                        (connection, transaction) => RunAsync(message, claim.ClaimedAt, kind, actorId, state, connection, transaction), ct);
+                        (connection, transaction) => RunAsync(message, claim.PreviousStatus, claim.ClaimedAt, kind, actorId, state, connection, transaction), ct);
                     if (kind == KindAuto && summary.Unmatched > 0 && learning is not null)
                     {
                         await TryLearnAsync(message.InstrumentId);
@@ -214,7 +214,8 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
 
     /// <summary>Một lượt thử của giao dịch chính: hàng rào → khoá mẫu theo thứ tự → (giải mã lại: thay dòng QC/Chưa ghép) → ingest → kết thúc.</summary>
     private async Task<Summary> RunAsync(
-        RawMessageRow message, DateTime claimedAt, string kind, Guid? actorId, RunState state, NpgsqlConnection connection, NpgsqlTransaction transaction)
+        RawMessageRow message, string? previousStatus, DateTime claimedAt, string kind, Guid? actorId, RunState state, NpgsqlConnection connection,
+        NpgsqlTransaction transaction)
     {
         var locked = await connection.ExecuteScalarAsync<Guid?>(
             "SELECT id FROM raw_message WHERE id = @id AND decode_status = 'dang-giai-ma' AND decode_started_at = @claimedAt FOR UPDATE",
@@ -242,9 +243,12 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
         var rawRef = $"ban-tin:{message.Id}";
         var totals = new Totals();
 
-        if (kind == KindRedo && decoded.Readings.Count == 0)
+        if (kind == KindRedo && decoded.Readings.Sum(r => r.Items.Count) == 0 && await HasSomethingToKeepAsync(
+                connection, transaction, message.InstrumentId, rawRef, previousStatus))
         {
-            // Giải mã lại không ra kết quả nào (cấu hình máy sai, bộ giải mã lỗi…): không xoá gì, không ingest — giữ dòng Chưa ghép / QC cũ.
+            // Giải mã lại không ra kết quả nào mà có thứ cần giữ (dòng Chưa ghép chưa xử lý / QC của lượt trước, hoặc lượt trước đã
+            // ra kết quả) — cấu hình máy sai, bộ giải mã lỗi…: không xoá gì, không ingest, báo loi. Bản tin vốn không có kết quả
+            // (chỉ câu hỏi chỉ định, byte rời) thì đi đường tính trạng thái thường bên dưới.
             var emptyJson = Json(0, totals, decoded.QueryBarcodes, decoded.Notes, decoded.Abandoned, decoded.Discarded, RedecodeEmptyNote);
             await FinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, config, RawMessageStatus.Error, emptyJson);
             return new Summary(RawMessageStatus.Error, 0);
@@ -277,11 +281,12 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
         }
 
         var mode = kind == KindRedo ? ValueWriteMode.Redecode : ValueWriteMode.Live;
+        var usedResolved = new HashSet<Guid>();
         var index = 0;
         foreach (var r in decoded.Readings)
         {
             var outcome = await ingest.IngestDetailedAsync(
-                new InstrumentReading(message.InstrumentId, r.Barcode, r.IsQc, message.CompletedAt, rawRef, r.Items), connection, transaction, mode);
+                new InstrumentReading(message.InstrumentId, r.Barcode, r.IsQc, message.CompletedAt, rawRef, r.Items), connection, transaction, mode, usedResolved);
             totals.Add(outcome);
 
             index++;
@@ -318,6 +323,17 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
         await FinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, config, status, resultJson);
         return new Summary(status, totals.Unmatched);
     }
+
+    /// <summary>Có dòng <c>unmatched_result</c> chưa xử lý hoặc <c>qc_result</c> cùng (máy, raw_ref), hoặc lượt trước là <c>da-giai-ma</c>.</summary>
+    private static async Task<bool> HasSomethingToKeepAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, Guid instrumentId, string rawRef, string? previousStatus) =>
+        previousStatus == RawMessageStatus.Decoded
+        || await connection.ExecuteScalarAsync<bool>(
+            """
+            SELECT EXISTS (SELECT 1 FROM unmatched_result WHERE instrument_id = @instrumentId AND raw_ref = @rawRef AND resolved_at IS NULL)
+                OR EXISTS (SELECT 1 FROM qc_result WHERE instrument_id = @instrumentId AND raw_ref = @rawRef)
+            """,
+            new { instrumentId, rawRef }, transaction);
 
     /// <summary>Bản tin chỉ gồm khoảng trắng / ký tự điều khiển (kể cả FS, CR, LF, ENQ, EOT…) — không có nội dung nào để giải mã.</summary>
     private static bool OnlyLooseBytes(byte[] bytes) => bytes.All(b => b <= 0x20 || b == 0x7F);

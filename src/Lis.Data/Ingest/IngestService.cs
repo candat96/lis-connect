@@ -68,9 +68,15 @@ public sealed class IngestService(Db db, TimeProvider clock)
     public async Task<IngestOutcome> IngestAsync(InstrumentReading reading, NpgsqlConnection connection, NpgsqlTransaction transaction, ValueWriteMode mode) =>
         (await IngestDetailedAsync(reading, connection, transaction, mode)).ToOutcome();
 
+    /// <param name="usedResolved">
+    /// Giải mã lại: tập id dòng Chưa ghép đã xử lý đã được item trước (cùng bản tin, kể cả reading khác) "tiêu"; bên gọi truyền
+    /// chung một tập cho cả bản tin (không truyền thì chỉ tính trong reading này).
+    /// </param>
     internal async Task<IngestDetail> IngestDetailedAsync(
-        InstrumentReading reading, NpgsqlConnection connection, NpgsqlTransaction transaction, ValueWriteMode mode)
+        InstrumentReading reading, NpgsqlConnection connection, NpgsqlTransaction transaction, ValueWriteMode mode,
+        HashSet<Guid>? usedResolved = null)
     {
+        usedResolved ??= [];
         // Driver có thể gửi ReceivedAt theo giờ máy (offset +07:00); timestamptz chỉ nhận UTC.
         if (reading.IsQc)
         {
@@ -114,7 +120,7 @@ public sealed class IngestService(Db db, TimeProvider clock)
             var noBarcodeMismatches = new List<ResolvedMismatch>();
             foreach (var item in reading.Items)
             {
-                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.NoBarcode, mode, noBarcodeMismatches))
+                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.NoBarcode, mode, noBarcodeMismatches, usedResolved))
                 {
                     noBarcode++;
                 }
@@ -138,7 +144,7 @@ public sealed class IngestService(Db db, TimeProvider clock)
             var channel = await InstrumentStore.FindChannelAsync(connection, transaction, reading.InstrumentId, channelCode);
             if (channel is null)
             {
-                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.ChannelUnmapped, mode, mismatches))
+                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.ChannelUnmapped, mode, mismatches, usedResolved))
                 {
                     unmatched++;
                 }
@@ -156,7 +162,7 @@ public sealed class IngestService(Db db, TimeProvider clock)
 
             if (context is null)
             {
-                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.NotOrdered, mode, mismatches))
+                if (await InsertUnmatchedAsync(connection, transaction, reading, barcode, item, UnmatchedReason.NotOrdered, mode, mismatches, usedResolved))
                 {
                     unmatched++;
                 }
@@ -201,31 +207,43 @@ public sealed class IngestService(Db db, TimeProvider clock)
     }
 
     /// <summary>
-    /// Chèn một dòng Chưa ghép; trả false khi bỏ qua. Chỉ ở chế độ giải mã lại: đã có dòng ĐÃ XỬ LÝ cùng (máy, raw_ref, barcode, kênh)
-    /// thì không tạo dòng mới — dòng đã xử lý được giữ nguyên; nếu giá trị khác thì ghi vào <paramref name="mismatches"/> để báo.
+    /// Chèn một dòng Chưa ghép; trả false khi bỏ qua. Chỉ ở chế độ giải mã lại: còn dòng ĐÃ XỬ LÝ chưa dùng cùng (máy, raw_ref, barcode, kênh)
+    /// khớp thì không tạo dòng mới (xem chú thích bên trong; <paramref name="usedResolved"/> là các dòng đã được item khác tiêu).
     /// </summary>
     private static async Task<bool> InsertUnmatchedAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, InstrumentReading reading, string barcode, ReadingItem item, string reason,
-        ValueWriteMode mode, List<ResolvedMismatch> mismatches)
+        ValueWriteMode mode, List<ResolvedMismatch> mismatches, HashSet<Guid> usedResolved)
     {
         var channelCode = item.ChannelCode.Trim();
         if (mode == ValueWriteMode.Redecode)
         {
             var resolved = (await connection.QueryAsync<ResolvedRow>(
                 """
-                SELECT id, value FROM unmatched_result
+                SELECT id, value, resolved_item_id AS ResolvedItemId FROM unmatched_result
                 WHERE instrument_id = @instrumentId AND raw_ref = @rawRef AND barcode = @barcode AND channel_code = @channelCode
                   AND resolved_at IS NOT NULL
                 ORDER BY received_at, id
                 """,
-                new { instrumentId = reading.InstrumentId, rawRef = reading.RawRef, barcode, channelCode }, transaction)).ToList();
-            if (resolved.Count > 0)
-            {
-                if (!resolved.Any(r => r.Value == item.RawValue))
-                {
-                    mismatches.Add(new ResolvedMismatch(resolved[0].Id, barcode, channelCode, resolved[0].Value, item.RawValue));
-                }
+                new { instrumentId = reading.InstrumentId, rawRef = reading.RawRef, barcode, channelCode }, transaction))
+                .Where(r => !usedResolved.Contains(r.Id)).ToList();
 
+            // Mỗi item chỉ "tiêu" một dòng đã xử lý (item dư thì chèn dòng mới). Ưu tiên dòng cùng giá trị (sau Trim, ưu tiên dòng đã gán);
+            // không có thì dòng ĐÃ GÁN khác giá trị (giữ nguyên, báo resolvedMismatch). Dòng chỉ "bỏ qua" mà khác giá trị không
+            // chặn: người dùng bỏ qua giá trị cũ, giá trị mới vẫn cần xem.
+            var newValue = item.RawValue.Trim();
+            var match = resolved.FirstOrDefault(r => r.ResolvedItemId is not null && r.Value?.Trim() == newValue)
+                ?? resolved.FirstOrDefault(r => r.Value?.Trim() == newValue);
+            if (match is not null)
+            {
+                usedResolved.Add(match.Id);
+                return false;
+            }
+
+            var assigned = resolved.FirstOrDefault(r => r.ResolvedItemId is not null);
+            if (assigned is not null)
+            {
+                usedResolved.Add(assigned.Id);
+                mismatches.Add(new ResolvedMismatch(assigned.Id, barcode, channelCode, assigned.Value, item.RawValue));
                 return false;
             }
         }
@@ -255,6 +273,7 @@ public sealed class IngestService(Db db, TimeProvider clock)
     {
         public Guid Id { get; init; }
         public string? Value { get; init; }
+        public Guid? ResolvedItemId { get; init; }
     }
 
     private sealed record SampleLockRow
