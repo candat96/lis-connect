@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Lis.Connections;
 using Lis.Core.Instruments;
+using Microsoft.Extensions.Logging;
 
 namespace Lis.Agent;
 
@@ -23,11 +24,11 @@ public sealed class SerialPortProbe : IPortProbe
             port.Open();
             return false;
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException and not (FileNotFoundException or DirectoryNotFoundException))
         {
             return true;
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or FileNotFoundException or DirectoryNotFoundException)
         {
             // Tên cổng không hợp lệ / cổng không dùng được: không phải do bị chiếm.
             return false;
@@ -40,7 +41,7 @@ public sealed class SerialPortProbe : IPortProbe
 /// <c>usedBy</c> = tên máy xét nghiệm của agent đang dùng cổng (cấu hình COM, đang hoạt động) — cổng đó <b>không</b> bị thử mở (<c>busy=false</c>);
 /// cổng khác hỏi <see cref="IPortProbe"/>. <c>description</c>, <c>usedBy</c> là <c>null</c> khi không có.
 /// </summary>
-public sealed class ScanPortsHandler(AgentRuntime runtime, ISerialPortService serial, IPortProbe probe) : IAgentCommandHandler
+public sealed class ScanPortsHandler(AgentRuntime runtime, ISerialPortService serial, IPortProbe probe, ILogger<ScanPortsHandler>? logger = null) : IAgentCommandHandler
 {
     public string Name => "scan-ports";
 
@@ -50,7 +51,7 @@ public sealed class ScanPortsHandler(AgentRuntime runtime, ISerialPortService se
         foreach (var instrument in runtime.Owned().Where(i => i.Active))
         {
             var settings = ConnectionSettings.Parse(instrument.ConnectionJson);
-            if (settings.Kind == ConnectionKind.Serial && settings.PortName is { } port)
+            if (settings.Kind == ConnectionKind.Serial && settings.Validate() is null && settings.PortName is { } port)
             {
                 usedBy.TryAdd(port, instrument.Name);
             }
@@ -61,11 +62,25 @@ public sealed class ScanPortsHandler(AgentRuntime runtime, ISerialPortService se
         {
             ct.ThrowIfCancellationRequested();
             var owner = usedBy.GetValueOrDefault(entry.PortName);
-            var busy = owner is null && probe.IsBusy(entry.PortName);
+            var busy = owner is null && ProbeSafely(entry.PortName);
             ports.Add(new { name = entry.PortName, description = entry.Description, usedBy = owner, busy });
         }
 
         return Task.FromResult(CommandJson.Of(new { ports }));
+    }
+
+    /// <summary>Một cổng thăm dò lỗi lạ không được làm hỏng cả lượt quét: coi như không bận.</summary>
+    private bool ProbeSafely(string portName)
+    {
+        try
+        {
+            return probe.IsBusy(portName);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogDebug("Thăm dò {Port} lỗi: {Message}", portName, ex.Message);
+            return false;
+        }
     }
 }
 

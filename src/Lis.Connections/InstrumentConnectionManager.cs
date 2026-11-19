@@ -72,6 +72,7 @@ public sealed class InstrumentConnectionManager(
     public const string BorrowedStatusText = "Đang nhường cổng cho lệnh thử cổng";
 
     private readonly Dictionary<Guid, (InstrumentRunner Runner, string Signature, string Name, string? Port)> _runners = [];
+    private IReadOnlyList<InstrumentInfo>? _lastInstruments;
     private readonly Dictionary<string, int> _borrowed = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<Guid, InstrumentConnectionStatus> _idle = [];
     private readonly SemaphoreSlim _lock = new(1, 1);
@@ -102,6 +103,19 @@ public sealed class InstrumentConnectionManager(
         try
         {
             var instruments = await listInstruments();
+            _lastInstruments = instruments;
+            await ReconcileAsync(instruments);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    /// <summary>Đưa các runner khớp danh sách máy (gọi khi đang giữ <c>_lock</c>).</summary>
+    private async Task ReconcileAsync(IReadOnlyList<InstrumentInfo> instruments)
+    {
+        {
             var wanted = new Dictionary<Guid, (InstrumentInfo Instrument, ConnectionSettings Settings, string Signature)>();
             foreach (var instrument in instruments)
             {
@@ -136,10 +150,6 @@ public sealed class InstrumentConnectionManager(
                     StartRunner(want.Instrument, want.Settings, want.Signature);
                 }
             }
-        }
-        finally
-        {
-            _lock.Release();
         }
     }
 
@@ -193,26 +203,21 @@ public sealed class InstrumentConnectionManager(
         }
     }
 
+    /// <summary>Trả cổng: mở lại máy từ danh sách máy đã nhớ lần nạp cuối — không gọi server (có thể treo tới hết timeout HTTP).</summary>
     private async Task ReleasePortAsync(string portName)
     {
         await _lock.WaitAsync();
         try
         {
             Unregister(portName);
+            if (_lastInstruments is { } cached)
+            {
+                await ReconcileAsync(cached);
+            }
         }
         finally
         {
             _lock.Release();
-        }
-
-        try
-        {
-            await ReloadAsync();
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Mất server khi nạp lại: không để việc trả cổng lỗi theo; vòng nạp định kỳ sẽ mở lại các máy đã nhường cổng.
-            System.Diagnostics.Debug.WriteLine($"Nạp lại sau khi trả cổng lỗi: {ex.Message}");
         }
     }
 

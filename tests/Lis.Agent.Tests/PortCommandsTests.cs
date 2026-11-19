@@ -245,6 +245,63 @@ public sealed class PortCommandsTests : IDisposable
         probe.Probed.ShouldBe(["COM5", "COM7"]);
     }
 
+    private sealed class ThrowingProbe : IPortProbe
+    {
+        public bool IsBusy(string portName) =>
+            portName == "COM5" ? throw new PlatformNotSupportedException("hỏng") : portName == "COM7";
+    }
+
+    [Fact]
+    public async Task Quet_cong_mot_cong_tham_do_loi_khong_lam_hong_ca_luot()
+    {
+        var rig = await StartAsync();
+        var serial = new FakeSerial { Ports = { new("COM5", null), new("COM7", null) } };
+
+        var result = await new ScanPortsHandler(rig.Runtime, serial, new ThrowingProbe()).RunAsync(null, Ct);
+
+        var ports = result!.Value.GetProperty("ports").EnumerateArray().ToList();
+        ports.Select(p => p.GetProperty("busy").GetBoolean()).ShouldBe([false, true]);
+    }
+
+    [Fact]
+    public async Task Quet_cong_chi_tinh_may_co_cau_hinh_hop_le()
+    {
+        var bad = Machine("Máy Thử Sai", "COM3") with { ConnectionJson = """{"type":"serial","port":"COM3","dataBits":4}""" };
+        var rig = await StartAsync(bad);
+        var serial = new FakeSerial { Ports = { new("COM3", null) } };
+
+        var result = await new ScanPortsHandler(rig.Runtime, serial, new FakeProbe()).RunAsync(null, Ct);
+
+        result!.Value.GetProperty("ports")[0].GetProperty("usedBy").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Tra_cong_khong_cho_server_khi_nap_danh_sach_treo()
+    {
+        var machine = Machine("Máy Thử", "COM3");
+        var calls = 0;
+        var hang = new TaskCompletionSource<IReadOnlyList<InstrumentInfo>>();
+        var links = 0;
+        var manager = new InstrumentConnectionManager(
+            () => ++calls == 1 ? Task.FromResult<IReadOnlyList<InstrumentInfo>>([machine]) : hang.Task, "WS1",
+            new RawLogStore(Path.Combine(_root, "raw")), new NoSink(), new NoQueries(), Path.Combine(_root, "pending"), TimeProvider.System,
+            _ =>
+            {
+                Interlocked.Increment(ref links);
+                return new IdleLink();
+            });
+        _managers.Add(manager);
+        await manager.ReloadAsync();
+        await Eventually(() => links == 1);
+        var runtime = new AgentRuntime { Manager = manager, WorkstationCode = "WS1", Instruments = [machine] };
+
+        var result = await new TestPortHandler(runtime, new FakeSerial()).RunAsync(Args(), Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct);
+
+        result!.Value.GetProperty("opened").GetBoolean().ShouldBeTrue();
+        await Eventually(() => links == 2);
+        calls.ShouldBe(1);
+    }
+
     [Fact]
     public async Task Thu_cong_tra_hex_toi_da_64KB()
     {
