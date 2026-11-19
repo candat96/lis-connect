@@ -36,6 +36,8 @@ public sealed class ApiHost : IAsyncDisposable
             builder.UseSetting("Master:ConnectionString", fixture.MasterConnection);
             builder.UseSetting("Tenants:ConnectionTemplate", fixture.TenantTemplate);
             builder.UseSetting("Jwt:Secret", TestSecret);
+            // Mặc định tắt vòng nền bản tin thô: nó không được vớt bản tin của test khác (test worker bật lại qua settings).
+            builder.UseSetting("RawMessages:WorkerEnabled", "false");
             builder.ConfigureServices(services =>
             {
                 services.AddTransient<IStartupFilter, TestRoutes>();
@@ -106,6 +108,10 @@ public sealed class ApiHost : IAsyncDisposable
     public Lis.Server.AgentApi.AgentChannelHub Hub => _factory.Services.GetRequiredService<Lis.Server.AgentApi.AgentChannelHub>();
 
     public Lis.Server.RawMessages.RawMessageWorker RawWorker => _factory.Services.GetRequiredService<Lis.Server.RawMessages.RawMessageWorker>();
+
+    /// <summary>Worker mới (không phải worker của host — host test tắt nó) với đồng hồ và logger do test đặt; test tự Start/Stop.</summary>
+    public Lis.Server.RawMessages.RawMessageWorker NewRawWorker(TimeProvider clock, Microsoft.Extensions.Logging.ILogger<Lis.Server.RawMessages.RawMessageWorker> logger) =>
+        new(_master, _factory.Services.GetRequiredService<TenantRegistry>(), Provisioner, clock, logger);
 
     public Lis.Server.AgentApi.AgentCommandSweeper Sweeper => _factory.Services.GetRequiredService<Lis.Server.AgentApi.AgentCommandSweeper>();
 

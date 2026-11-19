@@ -55,7 +55,12 @@ builder.Services.AddSingleton(sp =>
 });
 // Bản tin thô: phục hồi khi khởi động và mỗi 60 giây, dọn bản tin quá 90 ngày mỗi giờ.
 builder.Services.AddSingleton<RawMessageWorker>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<RawMessageWorker>());
+// RawMessages:WorkerEnabled=false tắt vòng nền (test: worker không được vớt bản tin của test khác); mặc định bật.
+if (builder.Configuration.GetValue("RawMessages:WorkerEnabled", true))
+{
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<RawMessageWorker>());
+}
+
 builder.Services.AddSingleton<ClinicProvisioner>();
 builder.Services.AddSingleton(new SetupGuard(options.SetupKey));
 

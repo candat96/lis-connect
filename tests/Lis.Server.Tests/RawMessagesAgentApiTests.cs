@@ -204,4 +204,103 @@ public sealed class RawMessagesAgentApiTests(ServerFixture fixture) : IClassFixt
         await using var connection = new NpgsqlConnection(env.Fixture.MasterConnection);
         (await connection.ExecuteScalarAsync<bool>("SELECT to_regclass('public.agent_reading') IS NULL")).ShouldBeTrue();
     }
+
+    private const string FailTrigger =
+        """
+        CREATE FUNCTION raw_message_thu() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF NEW.session = 'loi-vinh-vien' THEN RAISE EXCEPTION 'thu' USING ERRCODE = '22001';
+            ELSIF NEW.session = 'rang-buoc' THEN RAISE EXCEPTION 'thu' USING ERRCODE = '23514';
+            ELSIF NEW.session = 'loi-tam' THEN RAISE EXCEPTION 'thu' USING ERRCODE = '40001';
+            END IF;
+            RETURN NEW;
+        END $$;
+        CREATE TRIGGER raw_message_thu_trg BEFORE INSERT ON raw_message FOR EACH ROW EXECUTE FUNCTION raw_message_thu();
+        """;
+
+    [Fact]
+    public async Task Lo_vuot_16MB_413_va_khong_luu_ban_tin_nao()
+    {
+        await using var env = await RawEnv.CreateAsync(fixture, "bt10");
+        // 5 bản tin 4 MB hợp lệ từng cái, tổng 20 MB: phải bị từ chối TRƯỚC khi lưu cái nào.
+        var messages = Enumerable.Range(1, 5).Select(i => env.AgentMessage(Guid.NewGuid(), new byte[4 * 1024 * 1024], seq: i)).ToArray();
+
+        var response = await env.PostAgentAsync(null, messages);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.RequestEntityTooLarge);
+        (await env.Scalar<int>("SELECT count(*)::int FROM raw_message")).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Session_co_NUL_khong_hop_le_khong_ket_lo()
+    {
+        await using var env = await RawEnv.CreateAsync(fixture, "bt11");
+        var ok = Guid.NewGuid();
+
+        var response = await env.PostAgentAsync(null, env.AgentMessage(Guid.NewGuid(), session: "pha\0in"), env.AgentMessage(ok, seq: 2));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await RawEnv.JsonOf(response);
+        Result(body).GetProperty("status").GetString().ShouldBe("khong-hop-le");
+        Result(body, 1).GetProperty("status").GetString().ShouldBe("da-luu");
+        (await env.Scalar<int>("SELECT count(*)::int FROM raw_message")).ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("loi-vinh-vien")]
+    [InlineData("rang-buoc")]
+    public async Task Loi_du_lieu_hoac_rang_buoc_cua_mot_ban_tin_khong_ket_ca_lo(string session)
+    {
+        await using var env = await RawEnv.CreateAsync(fixture, "bt12" + session[..3]);
+        await env.Exec(FailTrigger);
+        var bad = Guid.NewGuid();
+        var ok = Guid.NewGuid();
+
+        var response = await env.PostAgentAsync(null, env.AgentMessage(bad, session: session), env.AgentMessage(ok, seq: 2));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await RawEnv.JsonOf(response);
+        Result(body).GetProperty("status").GetString().ShouldBe("khong-hop-le");
+        Result(body, 1).GetProperty("status").GetString().ShouldBe("da-luu");
+        (await env.Scalar<int>("SELECT count(*)::int FROM raw_message WHERE id = @bad", new { bad })).ShouldBe(0);
+        (await env.Scalar<int>("SELECT count(*)::int FROM raw_message WHERE id = @ok", new { ok })).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Loi_tam_khi_luu_503_cho_ca_lo_gui_lai_duoc()
+    {
+        await using var env = await RawEnv.CreateAsync(fixture, "bt13");
+        await env.Exec(FailTrigger);
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+
+        var response = await env.PostAgentAsync(null, env.AgentMessage(first), env.AgentMessage(second, seq: 2, session: "loi-tam"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+
+        // Hết lỗi tạm: gửi lại cả lô → bản tin đã lưu lần trước báo trùng, bản tin kia được lưu.
+        await env.Exec("DROP TRIGGER raw_message_thu_trg ON raw_message");
+        var again = await env.PostAgentAsync(null, env.AgentMessage(first), env.AgentMessage(second, seq: 2, session: "loi-tam"));
+        again.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await RawEnv.JsonOf(again);
+        Result(body).GetProperty("status").GetString().ShouldBe("trung");
+        Result(body, 1).GetProperty("status").GetString().ShouldBe("da-luu");
+    }
+
+    [Fact]
+    public async Task Trung_id_khac_may_cua_cung_agent_khong_hop_le_khong_lo_trang_thai()
+    {
+        await using var env = await RawEnv.CreateAsync(fixture, "bt14");
+        var secondInstrument = await env.Tenant.Instruments.SaveAsync(
+            new Lis.Data.Instruments.InstrumentInfo(Guid.Empty, "Máy thứ hai", "BC-5380", "hl7-mllp", null, null, "XN-01", true));
+        var id = Guid.NewGuid();
+        (await env.PostAgentAsync(null, env.AgentMessage(id))).EnsureSuccessStatusCode();
+
+        var response = await env.PostAgentAsync(null, env.AgentMessage(id, instrumentId: secondInstrument));
+
+        var result = Result(await RawEnv.JsonOf(response));
+        result.GetProperty("status").GetString().ShouldBe("khong-hop-le");
+        result.GetProperty("decodeStatus").ValueKind.ShouldBe(JsonValueKind.Null);
+        (await env.Scalar<Guid>("SELECT instrument_id FROM raw_message WHERE id = @id", new { id })).ShouldBe(env.InstrumentId);
+    }
 }

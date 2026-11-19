@@ -217,4 +217,96 @@ public sealed class RawMessagesApiTests(ServerFixture fixture) : IClassFixture<S
         big.GetProperty("size").GetInt32().ShouldBe(300 * 1024);
         big.GetProperty("hexTruncated").GetBoolean().ShouldBeTrue();
     }
+
+    [Fact]
+    public async Task Tiep_nhan_bi_403_o_danh_sach_va_chi_tiet()
+    {
+        await using var env = await RawEnv.CreateAsync(fixture, "ba7");
+        var id = await env.StoreAsync();
+        var client = await env.LoginAsync("tiepnhan");
+
+        (await client.GetAsync("/api/raw-messages", Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await client.GetAsync($"/api/raw-messages/{id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Token_phong_kham_A_khong_thay_ban_tin_phong_kham_B()
+    {
+        await using var a = await RawEnv.CreateAsync(fixture, "ba8a");
+        await using var b = await RawEnv.CreateAsync(fixture, "ba8b", a.Host);
+        var idOfA = await a.StoreAsync();
+        var clientB = await b.LoginAsync("admin");
+
+        (await clientB.GetFromJsonAsync<JsonElement>("/api/raw-messages", Ct)).GetArrayLength().ShouldBe(0);
+        (await clientB.GetAsync($"/api/raw-messages/{idOfA}", Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await clientB.PostAsJsonAsync($"/api/raw-messages/{idOfA}/preview", new { }, Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await clientB.PostAsJsonAsync("/api/raw-messages/redecode", new { ids = new[] { idOfA } }, Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await a.Scalar<string>("SELECT decode_status FROM raw_message WHERE id = @idOfA", new { idOfA })).ShouldBe("cho-giai-ma");
+    }
+
+    [Fact]
+    public async Task Con_tro_before_khong_bo_sot_hai_ban_tin_cung_mili_giay()
+    {
+        await using var env = await RawEnv.CreateAsync(fixture, "ba9");
+        var lower = Guid.NewGuid();
+        var upper = Guid.NewGuid();
+        // Cùng mili giây (…123), khác micro giây.
+        await env.Exec(
+            """
+            INSERT INTO raw_message (id, instrument_id, seq, session, started_at, completed_at, bytes, partial, decode_status) VALUES
+              (@lower, @instrument, 1, 's', '2026-11-19 01:00:00+00', '2026-11-19 01:30:00.123100+00', '\x00'::bytea, false, 'chi-luu'),
+              (@upper, @instrument, 2, 's', '2026-11-19 01:00:00+00', '2026-11-19 01:30:00.123900+00', '\x00'::bytea, false, 'chi-luu')
+            """,
+            new { lower, upper, instrument = env.InstrumentId });
+        var ktv = await env.LoginAsync("ktv");
+
+        var page1 = await ktv.GetFromJsonAsync<JsonElement>("/api/raw-messages?limit=1", Ct);
+        page1.EnumerateArray().Select(r => r.GetProperty("id").GetGuid()).ShouldBe([upper]);
+        var cursor = Uri.EscapeDataString(page1[0].GetProperty("cursor").GetString()!);
+        var page2 = await ktv.GetFromJsonAsync<JsonElement>($"/api/raw-messages?limit=1&before={cursor}", Ct);
+
+        page2.EnumerateArray().Select(r => r.GetProperty("id").GetGuid()).ShouldBe([lower]);
+    }
+
+    [Fact]
+    public async Task Redecode_chay_moi_truoc_cu_sau_va_bao_olderThanCurrent()
+    {
+        await using var env = await RawEnv.CreateAsync(fixture, "ba10");
+        var older = await env.StoreAsync(RawEnv.Hl7(env.Barcode, wbc: "5.00"), RawEnv.CompletedAt, seq: 1);
+        var newer = await env.StoreAsync(RawEnv.Hl7(env.Barcode, wbc: "9.81"), RawEnv.CompletedAt.AddMinutes(1), seq: 2);
+        var admin = await env.LoginAsync("admin");
+
+        // Gửi id theo thứ tự cũ → mới: server vẫn phải chạy mới → cũ.
+        var response = await admin.PostAsJsonAsync("/api/raw-messages/redecode", new { ids = new[] { older, newer } }, Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await RawEnv.JsonOf(response);
+        body.GetProperty("count").GetInt32().ShouldBe(2);
+        body.GetProperty("errors").GetInt32().ShouldBe(0);
+        body.GetProperty("olderThanCurrent").GetInt32().ShouldBeGreaterThan(0);
+        (await env.ValueOfAsync(env.WbcItemId)).ShouldBe("9.81");
+        var order = (await env.Scalar<string>(
+            "SELECT string_agg(raw_message_id::text, ',' ORDER BY at, id) FROM raw_message_decode")).Split(',');
+        order.ShouldBe([newer.ToString(), older.ToString()]);
+    }
+
+    [Fact]
+    public async Task Redecode_dem_resolvedMismatch_trong_phan_hoi()
+    {
+        await using var env = await RawEnv.CreateAsync(fixture, "ba11");
+        var id = await env.StoreAsync(RawEnv.Hl7("KHONGCO0031", "7.00", "100"));
+        await env.Tenant.RawProcessor.DecodeAsync(id, "tu-dong", null, Ct);
+        var actor = await env.UserIdAsync("admin");
+        // Dòng Chưa ghép của kênh WBC được gán tay với giá trị khác lần giải mã lại.
+        await env.Exec(
+            "UPDATE unmatched_result SET value = '99.99', resolved_at = now(), resolved_by = @actor, resolved_item_id = @item WHERE raw_ref = @rawRef AND channel_code = '6690-2'",
+            new { actor, item = env.WbcItemId, rawRef = $"ban-tin:{id}" });
+        var admin = await env.LoginAsync("admin");
+
+        var response = await admin.PostAsJsonAsync("/api/raw-messages/redecode", new { ids = new[] { id } }, Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await RawEnv.JsonOf(response);
+        body.GetProperty("resolvedMismatch").GetInt32().ShouldBe(1);
+    }
 }

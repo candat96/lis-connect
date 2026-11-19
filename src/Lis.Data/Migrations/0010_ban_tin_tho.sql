@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS raw_message (
     decoded_at timestamptz NULL
 );
 CREATE INDEX IF NOT EXISTS raw_message_instrument_idx ON raw_message (instrument_id, completed_at DESC);
+-- Danh sách /api/raw-messages không lọc máy: ORDER BY completed_at DESC, id DESC.
+CREATE INDEX IF NOT EXISTS raw_message_completed_idx ON raw_message (completed_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS raw_message_status_idx ON raw_message (decode_status);
 CREATE INDEX IF NOT EXISTS raw_message_stored_idx ON raw_message (stored_at);
 

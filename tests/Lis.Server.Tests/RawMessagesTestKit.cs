@@ -118,12 +118,12 @@ internal sealed class RawEnv : IAsyncDisposable
         return [0x0B, .. Encoding.UTF8.GetBytes(text.ToString()), 0x1C, 0x0D];
     }
 
-    public object AgentMessage(Guid id, byte[]? bytes = null, Guid? instrumentId = null, long seq = 1) => new
+    public object AgentMessage(Guid id, byte[]? bytes = null, Guid? instrumentId = null, long seq = 1, string session = "phien-thu") => new
     {
         id,
         instrumentId = instrumentId ?? InstrumentId,
         seq,
-        session = "phien-thu",
+        session,
         startedAt = CompletedAt.AddSeconds(-5),
         completedAt = CompletedAt.AddSeconds(seq),
         bytes = Convert.ToBase64String(bytes ?? Hl7(Barcode)),

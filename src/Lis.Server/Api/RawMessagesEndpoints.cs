@@ -32,7 +32,7 @@ public static class RawMessagesEndpoints
 
     /// <summary>Các trường của <c>decode_result</c> giữ lại trong <c>summary</c> của danh sách.</summary>
     private static readonly string[] SummaryFields =
-        ["readings", "stored", "pendingReplacement", "unmatched", "qc", "unchanged", "conflicts", "olderThanCurrent", "error", "note", "interrupted"];
+        ["readings", "stored", "pendingReplacement", "unmatched", "qc", "unchanged", "conflicts", "olderThanCurrent", "resolvedMismatch", "error", "note", "interrupted"];
 
     public static void MapRawMessagesApi(this RouteGroupBuilder api)
     {
@@ -99,7 +99,7 @@ public static class RawMessagesEndpoints
 
         if (Text(query, "before") is { } before)
         {
-            // Con trỏ: "{completedAt}|{id}" của dòng cuối trang trước; chỉ có thời điểm thì lấy các bản tin hoàn tất sớm hơn.
+            // Con trỏ (trường cursor của dòng cuối trang trước): "{completedAt đủ micro giây}|{id}"; chỉ có thời điểm thì lấy các bản tin hoàn tất sớm hơn.
             var parts = before.Split('|', 2);
             parameters.Add("beforeAt", ParseTime(parts[0], "before không hợp lệ").UtcDateTime);
             if (parts.Length == 2)
@@ -145,6 +145,8 @@ public static class RawMessagesEndpoints
         {
             r.Id, r.InstrumentId, r.InstrumentName, r.Seq, r.Session,
             StartedAt = ApiFormat.Iso(r.StartedAt), CompletedAt = ApiFormat.Iso(r.CompletedAt),
+            // Con trỏ trang sau: completedAt đủ micro giây ("O"), vì completedAt hiển thị chỉ tới mili giây sẽ bỏ sót dòng cùng mili giây.
+            Cursor = $"{r.CompletedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)}|{r.Id}",
             r.Partial, r.Size, r.DecodeStatus, r.DecoderVersion, Summary = Summarize(r.DecodeResultJson),
         }));
     }
@@ -231,6 +233,16 @@ public static class RawMessagesEndpoints
     {
         ctx.RequireRedecoder();
         var id = ApiFormat.ParseId(idText);
+        await using (var connection = await ctx.Tenant.Db.OpenAsync())
+        {
+            // raw_message.instrument_id có khoá ngoại nên "bản tin có mà máy mất" không xảy ra; chỉ cần kiểm bản tin. InvalidOperationException
+            // (vi phạm bất biến đó) cứ để thành 500 thay vì bị nuốt thành 404.
+            if (!await connection.ExecuteScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM raw_message WHERE id = @id)", new { id }))
+            {
+                throw ApiException.NotFound(NotFound);
+            }
+        }
+
         try
         {
             var result = await ctx.Tenant.RawProcessor.PreviewAsync(id);
@@ -250,10 +262,6 @@ public static class RawMessagesEndpoints
         {
             throw ApiException.NotFound(NotFound);
         }
-        catch (InvalidOperationException ex)
-        {
-            throw ApiException.NotFound(ex.Message);
-        }
         catch (ArgumentException ex)
         {
             // Cấu hình driver của máy hỏng.
@@ -263,7 +271,7 @@ public static class RawMessagesEndpoints
 
     private sealed class Totals
     {
-        public int Count, Stored, PendingReplacement, Unmatched, Qc, Unchanged, Conflicts, OlderThanCurrent, Busy, Errors;
+        public int Count, Stored, PendingReplacement, Unmatched, Qc, Unchanged, Conflicts, OlderThanCurrent, ResolvedMismatch, Busy, Errors;
 
         public void Add(JsonElement? result)
         {
@@ -279,6 +287,8 @@ public static class RawMessagesEndpoints
             Unchanged += Int(r, "unchanged");
             Conflicts += Int(r, "conflicts");
             OlderThanCurrent += Int(r, "olderThanCurrent");
+            // resolvedMismatch là MẢNG (dòng Chưa ghép đã gán mà giải mã lại ra giá trị khác): đếm số phần tử.
+            ResolvedMismatch += r.TryGetProperty("resolvedMismatch", out var mismatch) && mismatch.ValueKind == JsonValueKind.Array ? mismatch.GetArrayLength() : 0;
         }
 
         private static int Int(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.TryGetInt32(out var n) ? n : 0;
@@ -334,7 +344,7 @@ public static class RawMessagesEndpoints
         return Results.Ok(new
         {
             totals.Count, totals.Stored, totals.PendingReplacement, totals.Unmatched, totals.Qc,
-            totals.Unchanged, totals.Conflicts, totals.OlderThanCurrent, totals.Busy, totals.Errors,
+            totals.Unchanged, totals.Conflicts, totals.OlderThanCurrent, totals.ResolvedMismatch, totals.Busy, totals.Errors,
         });
     }
 

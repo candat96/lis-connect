@@ -66,9 +66,9 @@ public sealed class RawMessageWorker(
     {
         try
         {
-            await RecoverSafelyAsync(stoppingToken);
             var lastPurge = DateTimeOffset.MinValue;
             using var timer = new PeriodicTimer(RecoverPeriod, clock);
+            // Lượt đầu chạy ngay lúc khởi động (phục hồi đúng một lần), các lượt sau mỗi RecoverPeriod.
             do
             {
                 if (clock.GetUtcNow() - lastPurge >= PurgePeriod)

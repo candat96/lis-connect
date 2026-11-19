@@ -1,6 +1,8 @@
+using Dapper;
 using Lis.Data.RawMessages;
 using Lis.Server.Tenancy;
 using Microsoft.AspNetCore.Mvc;
+using Npgsql;
 
 namespace Lis.Server.AgentApi;
 
@@ -17,7 +19,7 @@ public sealed record RawMessagesResponse(IReadOnlyList<RawMessageResult> Results
 
 /// <summary>
 /// <c>POST /agent/v1/raw-messages</c>: agent đẩy bản tin thô (đã cắt theo lượt truyền). Server lưu rồi giải mã ngay ở đây;
-/// giải mã lỗi không ảnh hưởng việc đã lưu — chỉ lỗi CSDL khi LƯU mới trả 5xx cho cả lô để agent gửi lại (id do agent sinh nên gửi lại không trùng).
+/// giải mã lỗi không ảnh hưởng việc đã lưu — chỉ lỗi CSDL tạm thời khi LƯU mới trả 5xx cho cả lô (lỗi dữ liệu / ràng buộc của một bản tin chỉ làm hỏng bản tin đó) để agent gửi lại (id do agent sinh nên gửi lại không trùng).
 /// </summary>
 public static class RawMessagesEndpoint
 {
@@ -62,8 +64,20 @@ public static class RawMessagesEndpoint
         // Giải mã dùng token dừng của host, không dùng RequestAborted: HTTP ngắt giữa chừng không được huỷ lượt giải mã đang chạy.
         var stopping = lifetime.ApplicationStopping;
 
+        // Kiểm tổng kích thước TRƯỚC khi lưu bất kỳ bản nào: 413 sau khi đã lưu một phần sẽ khiến agent gửi lại cả lô vô ích.
+        // Ước từ độ dài base64 (3 byte / 4 ký tự) — không cần giải mã trước.
+        long estimatedBytes = 0;
+        foreach (var item in messages)
+        {
+            estimatedBytes += (item?.Bytes?.Length ?? 0) / 4L * 3;
+        }
+
+        if (estimatedBytes > MaxBatchBytes)
+        {
+            return Results.Problem($"Mỗi lô tối đa {MaxBatchBytes / 1024 / 1024} MB", statusCode: StatusCodes.Status413PayloadTooLarge);
+        }
+
         var results = new List<RawMessageResult>(messages.Count);
-        long totalBytes = 0;
         foreach (var item in messages)
         {
             if (item is null || item.Id is not { } messageId || messageId == Guid.Empty)
@@ -85,42 +99,77 @@ public static class RawMessagesEndpoint
                 continue;
             }
 
-            totalBytes += bytes.Length;
-            if (totalBytes > MaxBatchBytes)
-            {
-                return Results.Problem($"Mỗi lô tối đa {MaxBatchBytes / 1024 / 1024} MB", statusCode: StatusCodes.Status413PayloadTooLarge);
-            }
-
-            RawMessageRow? inserted;
+            Stored stored;
             try
             {
-                inserted = await tenant.RawMessages.InsertIfAbsentAsync(
-                    new RawMessageInsert(
-                        messageId, instrumentId, id.Agent.Id, item.Seq!.Value, item.Session!, item.StartedAt!.Value, item.CompletedAt!.Value, bytes,
-                        item.Partial ?? false),
-                    http.RequestAborted);
+                stored = await StoreAsync(tenant, id.Agent.Id, item, messageId, instrumentId, bytes, http.RequestAborted, log);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Lưu thất bại: không có xác nhận nào cho bản tin này — cả lô trả 5xx, agent giữ trên đĩa và gửi lại sau.
-                log.LogError(ex, "Không lưu được bản tin thô {MessageId}", messageId);
+                // Lưu thất bại tạm thời: không có xác nhận nào cho bản tin này — cả lô trả 5xx, agent giữ trên đĩa và gửi lại sau.
+                // Chỉ ghi mã lỗi + thông điệp (không ex.ToString(), không Detail: có thể chứa dữ liệu người bệnh).
+                log.LogError("Không lưu được bản tin thô {MessageId}: {Error}", messageId, Describe(ex));
                 return Results.Problem("Không lưu được bản tin — gửi lại sau", statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
-            if (inserted is null)
-            {
-                var existing = await tenant.RawMessages.FindAsync(messageId);
-                // Cùng id nhưng của máy khác: không để lộ trạng thái, coi như không hợp lệ.
-                results.Add(existing is null || existing.InstrumentId != instrumentId
-                    ? new RawMessageResult(messageId, Invalid, null)
-                    : new RawMessageResult(messageId, Duplicate, existing.DecodeStatus));
-                continue;
-            }
-
-            results.Add(new RawMessageResult(messageId, Saved, await DecodeAsync(tenant, messageId, log, stopping)));
+            results.Add(stored.Inserted
+                ? new RawMessageResult(messageId, Saved, await DecodeAsync(tenant, messageId, log, stopping))
+                : stored.Result!);
         }
 
         return Results.Ok(new RawMessagesResponse(results));
+    }
+
+    /// <summary>Kết quả lưu một bản tin: vừa chèn (cần giải mã) hoặc đã có kết quả báo ngay (trùng / không hợp lệ).</summary>
+    private readonly record struct Stored(bool Inserted, RawMessageResult? Result);
+
+    private sealed class ExistingRow
+    {
+        public Guid InstrumentId { get; init; }
+        public string DecodeStatus { get; init; } = "";
+    }
+
+    private static string Describe(Exception ex) =>
+        ex is PostgresException pg ? $"{pg.SqlState} {pg.MessageText}" : $"{ex.GetType().Name} {ex.Message}";
+
+    /// <summary>Lỗi dữ liệu (lớp 22) hoặc ràng buộc (lớp 23) là vĩnh viễn: gửi lại vẫn lỗi, nên chỉ bản tin đó khong-hop-le.</summary>
+    private static bool IsPermanent(PostgresException ex) => ex.SqlState.StartsWith("22", StringComparison.Ordinal) || ex.SqlState.StartsWith("23", StringComparison.Ordinal);
+
+    private static async Task<Stored> StoreAsync(
+        TenantServices tenant, Guid agentId, RawMessageItem item, Guid messageId, Guid instrumentId, byte[] bytes, CancellationToken ct, ILogger log)
+    {
+        var insert = new RawMessageInsert(
+            messageId, instrumentId, agentId, item.Seq!.Value, item.Session!, item.StartedAt!.Value, item.CompletedAt!.Value, bytes, item.Partial ?? false);
+        // Lần 2 chỉ khi dòng trùng vừa bị dọn giữa hai lệnh.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                if (await tenant.RawMessages.InsertIfAbsentAsync(insert, ct) is not null)
+                {
+                    return new Stored(true, null);
+                }
+            }
+            catch (PostgresException ex) when (IsPermanent(ex))
+            {
+                log.LogWarning("Bản tin thô {MessageId} bị CSDL từ chối vĩnh viễn: {Error}", messageId, Describe(ex));
+                return new Stored(false, new RawMessageResult(messageId, Invalid, null));
+            }
+
+            // Truy vấn nhẹ: không kéo cột bytes (tới 4 MB).
+            await using var connection = await tenant.Db.OpenAsync(ct);
+            var existing = await connection.QuerySingleOrDefaultAsync<ExistingRow>(
+                "SELECT instrument_id AS InstrumentId, decode_status AS DecodeStatus FROM raw_message WHERE id = @messageId", new { messageId });
+            if (existing is not null)
+            {
+                // Cùng id nhưng của máy khác: không để lộ trạng thái, coi như không hợp lệ.
+                return new Stored(false, existing.InstrumentId != instrumentId
+                    ? new RawMessageResult(messageId, Invalid, null)
+                    : new RawMessageResult(messageId, Duplicate, existing.DecodeStatus));
+            }
+        }
+
+        return new Stored(false, new RawMessageResult(messageId, Invalid, null));
     }
 
     /// <summary>Giải mã ngay; lỗi nào cũng không làm mất việc đã lưu (bản tin còn <c>cho-giai-ma</c> thì worker vớt lại).</summary>
@@ -146,6 +195,8 @@ public static class RawMessagesEndpoint
     {
         if (item.Seq is null || item.StartedAt is null || item.CompletedAt is null
             || string.IsNullOrWhiteSpace(item.Session) || item.Session.Length > MaxSessionLength
+            // PostgreSQL không lưu được NUL trong text (22021): từ chối ngay, khỏi để lỗi này kẹt cả lô. Bytes là base64 nên NUL tự hỏng ở dưới.
+            || item.Session.Contains('\0')
             || string.IsNullOrEmpty(item.Bytes))
         {
             return null;
