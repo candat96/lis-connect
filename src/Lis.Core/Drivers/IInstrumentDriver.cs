@@ -40,7 +40,13 @@ public sealed class DriverOutput
     /// </summary>
     public List<DriverBoundary> Boundaries { get; } = [];
 
-    public bool IsEmpty => Send.Count == 0 && Readings.Count == 0 && Queries.Count == 0 && Notes.Count == 0 && Boundaries.Count == 0;
+    /// <summary>
+    /// Mỗi lần driver BỎ dữ liệu máy đã gửi (sai checksum/BCC, khung dở bị bỏ, quá cỡ, hết giờ, bắt đầu lại giữa chừng…)
+    /// thì thêm một lý do ngắn. Chỉ để cảnh báo; không ảnh hưởng luồng xử lý.
+    /// </summary>
+    public List<string> Discarded { get; } = [];
+
+    public bool IsEmpty => Send.Count == 0 && Readings.Count == 0 && Queries.Count == 0 && Notes.Count == 0 && Boundaries.Count == 0 && Discarded.Count == 0;
 }
 
 /// <summary>
@@ -54,6 +60,12 @@ public interface IInstrumentDriver
 {
     /// <summary>Họ giao thức, trùng giá trị <c>instrument.protocol_family</c> (vd "astm-e1394").</summary>
     string Family { get; }
+
+    /// <summary>
+    /// Phía nhận đang có dữ liệu dở (khung dở, khối dở hoặc phiên đang mở): đúng trạng thái mà
+    /// <see cref="DriverOutput.Boundaries"/> chuyển sang "rảnh". Rảnh thì byte đến mà không mở lượt mới là byte rời.
+    /// </summary>
+    bool IsReceiving { get; }
 
     /// <summary>Byte mới nhận từ máy (có thể là nửa khung, nhiều khung, rác giữa các khung).</summary>
     DriverOutput Receive(ReadOnlySpan<byte> data, DateTimeOffset now);

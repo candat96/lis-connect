@@ -20,6 +20,8 @@ public class RawMessageEquivalenceTests
 
     private const int RandomPlans = 50;
 
+    private const int GapPlans = 30;
+
     public static IEnumerable<object[]> Streams() => DriverCorpus.All().Select(s => new object[] { s.Name });
 
     private static CorpusStream Get(string name) => DriverCorpus.All().Single(s => s.Name == name);
@@ -66,6 +68,28 @@ public class RawMessageEquivalenceTests
         hl7.Sends.Count(s => s.Length > 1).ShouldBeGreaterThanOrEqualTo(2, "HL7: ORR + ACK cho kết quả");
     }
 
+    [Fact]
+    public void Au_classA_nhieu_khoi_hong_ghi_lai_hanh_vi_hien_co_ca_hai_duong_nhu_nhau()
+    {
+        // Rủi ro AN TOÀN NGƯỜI BỆNH đã biết, có từ trước, KHÔNG sửa ở task này (chỉ ghi lại để task sau không bất ngờ).
+        // 1) Class A tắt BCC, mất hẳn khối giữa: driver không kiểm thứ tự khối nên vẫn phát reading THIẾU kênh, không phát hiện được.
+        var lost = Replay(Get("au-classA-nhieu-khoi-mat-khoi-giua"));
+        lost.Readings.ShouldHaveSingleItem().Items.Count.ShouldBeLessThan(55);
+        lost.Discarded.ShouldBeEmpty("không phát hiện được: đây là rủi ro đã biết");
+
+        // 2) Khối giữa bị cắt ngắn: mẫu bị bỏ (Discarded không rỗng) nhưng khối E đến sau mở lại mẫu và phát reading chỉ có kênh khối E.
+        var broken = Replay(Get("au-classA-nhieu-khoi-khoi-giua-hong"));
+        broken.Discarded.ShouldNotBeEmpty();
+        broken.Readings.ShouldHaveSingleItem().Items.Count.ShouldBeLessThan(55);
+
+        foreach (var name in new[] { "au-classA-nhieu-khoi-mat-khoi-giua", "au-classA-nhieu-khoi-khoi-giua-hong" })
+        {
+            var stream = Get(name);
+            var steps = WholeStream(stream);
+            Describe(ReplayNew(stream, steps, name).Readings).ShouldBe(Describe(Replay(stream, steps).Readings), name);
+        }
+    }
+
     [Theory]
     [MemberData(nameof(Streams))]
     public void Duong_cu_bang_duong_moi_voi_moi_cach_chia_khuc(string name)
@@ -73,37 +97,73 @@ public class RawMessageEquivalenceTests
         var stream = Get(name);
         var index = DriverCorpus.All().ToList().FindIndex(s => s.Name == name);
 
-        foreach (var (planName, seed, chunks) in Plans(stream.InBytes, index, stream.SyncPoints))
+        foreach (var (planName, seed, steps) in Plans(stream.InBytes, index, stream.SyncPoints))
         {
-            var context = $"dòng '{name}', cách chia '{planName}', seed {seed}, khúc [{string.Join(",", chunks.Select(c => c.Length))}]";
+            var context = $"dòng '{name}', cách chia '{planName}', seed {seed}, khúc [{string.Join(",", steps.Select(c => (c.Gap > TimeSpan.Zero ? $"+{c.Gap.TotalSeconds:0}s:" : "") + c.Bytes.Length))}]";
+            var hasGaps = steps.Any(c => c.Gap > TimeSpan.Zero);
 
-            var oldPath = Replay(stream, chunks);
-            var newPath = ReplayNew(stream, chunks, context);
+            var oldPath = Replay(stream, steps);
+            var newPath = ReplayNew(stream, steps, context);
+
+            // 4. Nối các bản tin lại = đúng dòng byte vào, không bản tin rỗng.
+            newPath.Messages.SelectMany(m => m).ToArray().ShouldBe(stream.InBytes, $"{context}: nối các bản tin phải bằng dòng byte vào");
+
+            if (hasGaps && stream.Family == "beckman-au")
+            {
+                // Beckman AU hết giờ giữa lượt: đường mới ĐỦ HƠN đường cũ. Lỗi có từ trước của driver (hết giờ tính từ khối
+                // đầu của mẫu; Tick bỏ khung dở khi đang gom) làm đường cũ mất kết quả mà byte vẫn có đủ trên dây. Không sửa
+                // driver ở task này, nên chỉ đòi: mọi reading đường cũ đều có trong đường mới (cùng barcode, item cũ là tập
+                // con item mới, giá trị bằng nhau) và đường mới không có barcode lạ.
+                AssertAuSubset(oldPath.Readings, newPath.Readings, stream.InBytes, context);
+                continue;
+            }
 
             // 3. Readings của hai đường bằng nhau theo thứ tự, so đủ trường.
             Describe(newPath.Readings).ShouldBe(Describe(oldPath.Readings), context);
-            oldPath.Readings.Count.ShouldBe(stream.ExpectedReadings, $"{context}: đường cũ");
-            newPath.Readings.Count.ShouldBe(stream.ExpectedReadings, $"{context}: đường mới");
+            newPath.QueryBarcodes.ShouldBe(oldPath.QueryBarcodes, $"{context}: câu hỏi chỉ định hai đường");
+            if (!hasGaps)
+            {
+                oldPath.Readings.Count.ShouldBe(stream.ExpectedReadings, $"{context}: đường cũ");
+                newPath.Readings.Count.ShouldBe(stream.ExpectedReadings, $"{context}: đường mới");
+            }
+        }
+    }
 
-            // 4. Nối các bản tin lại = đúng dòng byte vào.
-            newPath.Messages.SelectMany(m => m).ToArray().ShouldBe(stream.InBytes, $"{context}: nối các bản tin phải bằng dòng byte vào");
+    private static void AssertAuSubset(List<DriverReading> oldReadings, List<DriverReading> newReadings, byte[] inBytes, string context)
+    {
+        var text = System.Text.Encoding.Latin1.GetString(inBytes);
+        foreach (var reading in newReadings)
+        {
+            text.ShouldContain(reading.Barcode, Case.Sensitive, $"{context}: đường mới có barcode lạ '{reading.Barcode}'");
+        }
+
+        foreach (var old in oldReadings)
+        {
+            var found = newReadings.Any(n => n.Barcode == old.Barcode && n.IsQc == old.IsQc
+                && old.Items.All(oi => n.Items.Contains(oi)));
+            found.ShouldBeTrue($"{context}: reading đường cũ '{old.Barcode}' không có (đủ item) trong đường mới");
         }
     }
 
     // ------------------------------------------------------------------ Hai đường
 
-    private sealed record OldResult(List<DriverReading> Readings, List<byte[]> Sends);
+    /// <summary>Một khúc byte; <see cref="Gap"/> là khoảng lặng TRƯỚC khúc (có Tick ở cuối khoảng lặng).</summary>
+    private sealed record Step(byte[] Bytes, TimeSpan Gap);
 
-    private sealed record NewResult(List<DriverReading> Readings, List<byte[]> Messages);
+    private sealed record OldResult(List<DriverReading> Readings, List<byte[]> Sends, List<string> QueryBarcodes, List<string> Discarded);
 
-    private static IReadOnlyList<byte[]> WholeStream(CorpusStream s) => [s.InBytes];
+    private sealed record NewResult(List<DriverReading> Readings, List<byte[]> Messages, List<string> QueryBarcodes);
+
+    private static IReadOnlyList<Step> WholeStream(CorpusStream s) => [new Step(s.InBytes, TimeSpan.Zero)];
 
     /// <summary>Đường cũ: đúng cách InstrumentRunner gọi driver — Receive từng khúc, Tick mỗi khúc, câu hỏi trả bằng kênh rỗng, Tick cuối +5 phút.</summary>
-    private static OldResult Replay(CorpusStream stream, IReadOnlyList<byte[]>? chunks = null)
+    private static OldResult Replay(CorpusStream stream, IReadOnlyList<Step>? steps = null)
     {
         var driver = DriverRegistry.Create(stream.Family, stream.Model, stream.DriverConfigJson)!;
         var readings = new List<DriverReading>();
         var sends = new List<byte[]>();
+        var queries = new List<string>();
+        var discarded = new List<string>();
         var now = T0;
 
         void Absorb(DriverOutput first)
@@ -114,30 +174,38 @@ public class RawMessageEquivalenceTests
             {
                 readings.AddRange(output.Readings);
                 sends.AddRange(output.Send);
+                discarded.AddRange(output.Discarded);
                 foreach (var query in output.Queries)
                 {
+                    queries.Add(query.Barcode);
                     queue.Enqueue(driver.AnswerQuery(query, [], now));
                 }
             }
         }
 
-        foreach (var chunk in chunks ?? WholeStream(stream))
+        foreach (var step in steps ?? WholeStream(stream))
         {
+            if (step.Gap > TimeSpan.Zero)
+            {
+                now += step.Gap;
+                Absorb(driver.Tick(now));
+            }
+
             now = now.AddMilliseconds(10);
-            Absorb(driver.Receive(chunk, now));
+            Absorb(driver.Receive(step.Bytes, now));
             Absorb(driver.Tick(now));
         }
 
         Absorb(driver.Tick(now.AddMinutes(5)));
-        return new OldResult(readings, sends);
+        return new OldResult(readings, sends, queries, discarded);
     }
 
     /// <summary>
-    /// Đường mới: một driver sống nhận cùng các khúc để lấy ranh giới; cắt dòng byte theo đúng quy tắc của
+    /// Đường mới: một driver sống nhận cùng các khúc (cùng khoảng lặng) để lấy ranh giới; cắt dòng byte theo đúng quy tắc của
     /// RawMessageCollector (ranh giới từ Receive: vị trí tuyệt đối = đầu khúc + Offset; từ Tick: mọi byte đã nhận;
     /// phần dư sau ranh giới cuối là bản tin partial cuối); mỗi bản tin giải mã bằng driver mới tinh.
     /// </summary>
-    private static NewResult ReplayNew(CorpusStream stream, IReadOnlyList<byte[]> chunks, string context)
+    private static NewResult ReplayNew(CorpusStream stream, IReadOnlyList<Step> steps, string context)
     {
         var live = DriverRegistry.Create(stream.Family, stream.Model, stream.DriverConfigJson)!;
         var cuts = new List<int>();
@@ -152,22 +220,27 @@ public class RawMessageEquivalenceTests
                 var cut = fromReceive ? position + boundary.Offset : position;
                 if (cuts.Count > 0)
                 {
-                    cut.ShouldBeGreaterThanOrEqualTo(cuts[^1], $"{context}: ranh giới đi lùi");
+                    cut.ShouldBeGreaterThan(cuts[^1], $"{context}: ranh giới phải tăng nghiêm ngặt (không đi lùi, không trùng)");
                 }
 
                 cuts.Add(cut);
             }
         }
 
-        foreach (var chunk in chunks)
+        foreach (var step in steps)
         {
+            if (step.Gap > TimeSpan.Zero)
+            {
+                now += step.Gap;
+                Collect(live.Tick(now), received, 0, fromReceive: false);
+            }
+
             now = now.AddMilliseconds(10);
             var start = received;
-            var output = live.Receive(chunk, now);
-            received += chunk.Length;
-            Collect(output, start, chunk.Length, fromReceive: true);
+            var output = live.Receive(step.Bytes, now);
+            received += step.Bytes.Length;
+            Collect(output, start, step.Bytes.Length, fromReceive: true);
 
-            // Câu hỏi chỉ định được trả (đường cũ làm thế); kết quả/ranh giới của AnswerQuery không có nhưng vẫn gom cho chắc.
             foreach (var query in output.Queries)
             {
                 var answer = live.AnswerQuery(query, [], now);
@@ -181,23 +254,34 @@ public class RawMessageEquivalenceTests
 
         var messages = new List<byte[]>();
         var from = 0;
-        foreach (var cut in cuts.Append(stream.InBytes.Length))
+        foreach (var cut in cuts)
         {
-            if (cut > from)
-            {
-                messages.Add(stream.InBytes[from..cut]);
-                from = cut;
-            }
+            cut.ShouldBeLessThanOrEqualTo(stream.InBytes.Length, $"{context}: ranh giới vượt dòng byte");
+            messages.Add(stream.InBytes[from..cut]);
+            from = cut;
+        }
+
+        if (from < stream.InBytes.Length)
+        {
+            messages.Add(stream.InBytes[from..]); // phần dư sau ranh giới cuối: bản tin partial cuối
+        }
+
+        if (stream.InBytes.Length > 0)
+        {
+            messages.ShouldAllBe(m => m.Length > 0, $"{context}: có bản tin rỗng");
         }
 
         var readings = new List<DriverReading>();
+        var queries = new List<string>();
         foreach (var message in messages)
         {
             var driver = DriverRegistry.Create(stream.Family, stream.Model, stream.DriverConfigJson)!;
-            readings.AddRange(RawMessageDecoder.Decode(driver, message, T0).Readings);
+            var decoded = RawMessageDecoder.Decode(driver, message, T0);
+            readings.AddRange(decoded.Readings);
+            queries.AddRange(decoded.QueryBarcodes);
         }
 
-        return new NewResult(readings, messages);
+        return new NewResult(readings, messages, queries);
     }
 
     private static List<string> Describe(IEnumerable<DriverReading> readings) =>
@@ -206,7 +290,7 @@ public class RawMessageEquivalenceTests
 
     // ------------------------------------------------------------------ Cách chia khúc
 
-    private static IEnumerable<(string Name, int Seed, IReadOnlyList<byte[]> Chunks)> Plans(byte[] data, int streamIndex, IReadOnlyList<int>? sync)
+    private static IEnumerable<(string Name, int Seed, IReadOnlyList<Step> Steps)> Plans(byte[] data, int streamIndex, IReadOnlyList<int>? sync)
     {
         // Khúc không vắt qua điểm đồng bộ (máy chờ LIS trả lời rồi mới gửi tiếp).
         var syncs = (sync ?? []).Where(p => p > 0 && p < data.Length).Distinct().Order().ToList();
@@ -218,27 +302,48 @@ public class RawMessageEquivalenceTests
             last = point;
         }
 
-        yield return ("nguyên khối", 0, [.. segments.Select(g => data[g.From..g.To])]);
-        yield return ("từng byte", 0, [.. data.Select(b => new[] { b })]);
+        IReadOnlyList<Step> Whole() => [.. segments.Where(g => g.To > g.From).Select(g => new Step(data[g.From..g.To], TimeSpan.Zero))];
+
+        yield return ("nguyên khối", 0, Whole());
+        yield return ("từng byte", 0, [.. data.Select(b => new Step([b], TimeSpan.Zero))]);
 
         for (var plan = 0; plan < RandomPlans; plan++)
         {
             var seed = BaseSeed + (1000 * streamIndex) + plan;
-            var random = new Random(seed);
             var maxChunk = plan % 3 == 0 ? 3 : plan % 3 == 1 ? 12 : 60;
-            var chunks = new List<byte[]>();
+            yield return ($"ngẫu nhiên tối đa {maxChunk} byte", seed, RandomSteps(seed, maxChunk, withGaps: false));
+        }
+
+        // Có khoảng lặng: giữa các khúc ngẫu nhiên chèn Tick +4 s hoặc +31 s (ranh giới hết giờ cũng xuất hiện).
+        for (var plan = 0; plan < GapPlans; plan++)
+        {
+            var seed = BaseSeed + (1000 * streamIndex) + 500 + plan;
+            var maxChunk = plan % 3 == 0 ? 5 : plan % 3 == 1 ? 20 : 80;
+            yield return ($"khoảng lặng, khúc tối đa {maxChunk} byte", seed, RandomSteps(seed, maxChunk, withGaps: true));
+        }
+
+        IReadOnlyList<Step> RandomSteps(int seed, int maxChunk, bool withGaps)
+        {
+            var random = new Random(seed);
+            var steps = new List<Step>();
             foreach (var (from, to) in segments)
             {
                 var pos = from;
                 while (pos < to)
                 {
                     var length = Math.Min(random.Next(1, maxChunk + 1), to - pos);
-                    chunks.Add(data[pos..(pos + length)]);
+                    var gap = TimeSpan.Zero;
+                    if (withGaps && random.Next(6) == 0)
+                    {
+                        gap = TimeSpan.FromSeconds(random.Next(2) == 0 ? 4 : 31);
+                    }
+
+                    steps.Add(new Step(data[pos..(pos + length)], gap));
                     pos += length;
                 }
             }
 
-            yield return ($"ngẫu nhiên tối đa {maxChunk} byte", seed, chunks);
+            return steps;
         }
     }
 }

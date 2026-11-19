@@ -69,6 +69,9 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
     private int _frameRetries;
     private DateTimeOffset? _notBefore;
 
+    /// <summary>Đang trong một phiên nhận (từ ENQ của máy tới EOT).</summary>
+    public bool IsReceiving => _state == State.Receiving;
+
     /// <summary>Đang có tin chờ gửi hoặc đang gửi.</summary>
     public bool HasPendingSend => _current is not null || _queue.Count > 0;
 
@@ -81,6 +84,9 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
         public List<IReadOnlyList<string>> Messages { get; } = [];
 
         public List<string> Notes { get; } = [];
+
+        /// <summary>Lý do mỗi lần bỏ dữ liệu máy đã gửi.</summary>
+        public List<string> Discarded { get; } = [];
 
         /// <summary>Ranh giới các phiên nhận vừa kết thúc (xem <see cref="DriverBoundary"/>).</summary>
         public List<DriverBoundary> Boundaries { get; } = [];
@@ -203,6 +209,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
         {
             case State.Receiving when now >= _deadline:
                 result.Notes.Add($"Máy im quá {_timeouts.ReceiverFrame.TotalSeconds:0} giây giữa phiên — bỏ tin dở ({_sessionRecords.Count} record)");
+                result.Discarded.Add($"Máy im quá {_timeouts.ReceiverFrame.TotalSeconds:0} giây giữa phiên: bỏ tin dở ({_sessionRecords.Count} record)");
                 result.Boundaries.Add(new DriverBoundary(0, Abandoned: true));
                 ResetReceive();
                 _state = State.Idle;
@@ -264,6 +271,11 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
                         result.Messages.Add(_sessionRecords.ToList());
                     }
 
+                    if (_recordText.Count > 0)
+                    {
+                        result.Discarded.Add("EOT khi record còn dở: bỏ phần dở của record cuối");
+                    }
+
                     // Hết phiên nhận: ranh giới ngay sau EOT (dở dang nếu record còn dở).
                     result.Boundaries.Add(new DriverBoundary(index + 1, Abandoned: _recordText.Count > 0));
                     ResetReceive();
@@ -275,6 +287,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
 
                 case AstmFraming.Enq:
                     result.Notes.Add("ENQ giữa phiên — máy mở lại phiên, bỏ phần đã nhận");
+                    result.Discarded.Add($"ENQ giữa phiên: bỏ phần đã nhận ({_sessionRecords.Count} record)");
                     result.Boundaries.Add(new DriverBoundary(index, Abandoned: true)); // trước ENQ mới
                     BeginReceive(now, result);
                     break;
@@ -288,6 +301,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
         if (b == AstmFraming.Stx)
         {
             result.Notes.Add("STX giữa frame — bỏ frame dở, bắt đầu frame mới");
+            result.Discarded.Add("STX giữa frame: bỏ frame dở");
             _frame.Clear();
             _trailerNeeded = 0;
             return;
@@ -313,6 +327,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
         {
             // Quá dài mà chưa thấy ETX/ETB: frame hỏng (mất ký tự kết thúc).
             result.Notes.Add("Frame quá dài, không thấy ETX/ETB — NAK");
+            result.Discarded.Add("Frame quá dài không thấy ETX/ETB: bỏ");
             _inFrame = false;
             _frame.Clear();
             result.Send.Add([AstmFraming.Nak]);
@@ -334,6 +349,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
         if (!string.Equals(expected, received, StringComparison.OrdinalIgnoreCase))
         {
             result.Notes.Add($"Checksum sai frame {(char)fnChar} (nhận {received}, tính {expected}) — NAK");
+            result.Discarded.Add($"Frame {(char)fnChar} sai checksum: bỏ");
             result.Send.Add([AstmFraming.Nak]);
             return;
         }
@@ -341,6 +357,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
         if (fnChar < '0' || fnChar > '7')
         {
             result.Notes.Add($"Số frame không hợp lệ '{(char)fnChar}' — NAK");
+            result.Discarded.Add($"Frame có số không hợp lệ '{(char)fnChar}': bỏ");
             result.Send.Add([AstmFraming.Nak]);
             return;
         }
@@ -357,6 +374,7 @@ public sealed class AstmLink(AstmTimeouts? timeouts = null)
         if (fn != _expectedFn)
         {
             result.Notes.Add($"Sai số frame (nhận {fn}, chờ {_expectedFn}) — NAK");
+            result.Discarded.Add($"Frame sai số (nhận {fn}, chờ {_expectedFn}): bỏ");
             result.Send.Add([AstmFraming.Nak]);
             return;
         }

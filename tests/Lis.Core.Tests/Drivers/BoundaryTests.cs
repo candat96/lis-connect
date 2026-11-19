@@ -462,3 +462,254 @@ public class RawMessageDecoderTests
         RawMessageDecoder.Decode(driver, full, T0).Readings.ShouldHaveSingleItem();
     }
 }
+
+/// <summary>
+/// <see cref="IInstrumentDriver.IsReceiving"/> (false lúc mới Reset, true giữa lượt, false sau ranh giới) và
+/// <see cref="DriverOutput.Discarded"/> (mỗi lần driver bỏ dữ liệu máy đã gửi thì có một lý do tiếng Việt).
+/// </summary>
+public class DriverStateSignalTests
+{
+    private static readonly DateTimeOffset T0 = new(2026, 11, 8, 9, 0, 0, TimeSpan.FromHours(7));
+
+    private const byte Enq = 0x05, Eot = 0x04;
+
+    private static byte[] Cat(params byte[][] parts) => [.. parts.SelectMany(p => p)];
+
+    private static readonly string[] Records =
+    [
+        @"H|\^&|||SIM|||||LIS||P|1|20261108093000",
+        "P|1",
+        "O|1|2611080001||^^^WBC|R|20261108093000||||||||||||||||||N",
+        "R|1|^^^WBC|7.5|||||F",
+        "L|1|N",
+    ];
+
+    private static List<byte[]> AstmFrames()
+    {
+        var frames = new List<byte[]>();
+        var fn = 1;
+        foreach (var record in Records)
+        {
+            frames.AddRange(AstmFraming.BuildFrames(record, fn, out fn));
+        }
+
+        return frames;
+    }
+
+    private static readonly BeckmanAuOptions AuOptions = BeckmanAuOptions.Au480 with { ClassB = true, Bcc = true, TextLength = 256 };
+
+    private static IReadOnlyList<byte[]> AuFrames(int items) =>
+        AuMessageBuilder.BuildResultFrames(AuOptions, "2611030001", [.. Enumerable.Range(1, items).Select(i => new SimResult(i.ToString("00"), $"{i}.5"))], false);
+
+    // ---------------------------------------------------------------- IsReceiving
+
+    [Fact]
+    public void Hl7_IsReceiving_theo_khung()
+    {
+        var driver = new Hl7MllpDriver();
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive([0x41, 0x0D], T0);
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive(Cat([0x0B], Encoding.ASCII.GetBytes("MSH|^~\\&|A")), T0);
+        driver.IsReceiving.ShouldBeTrue();
+
+        driver.Receive(Encoding.ASCII.GetBytes("|M\r\u001c"), T0);
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive([0x0B, 0x41], T0);
+        driver.IsReceiving.ShouldBeTrue();
+        driver.Reset();
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive([0x0B, 0x41], T0);
+        driver.Tick(T0.AddSeconds(31));
+        driver.IsReceiving.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Astm_IsReceiving_theo_phien_nhan()
+    {
+        var driver = new AstmDriver(AstmDriverOptions.Generic);
+        var frames = AstmFrames();
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive([0x11, 0x0D], T0);
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive([Enq], T0);
+        driver.IsReceiving.ShouldBeTrue();
+        driver.Receive(frames[0], T0);
+        driver.IsReceiving.ShouldBeTrue();
+        driver.Receive([Eot], T0);
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive([Enq], T0);
+        driver.Reset();
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive([Enq], T0);
+        driver.Tick(T0.AddSeconds(31));
+        driver.IsReceiving.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Astm_IsReceiving_false_khi_LIS_dang_gui_cho_may()
+    {
+        var driver = new AstmDriver(AstmDriverOptions.Generic);
+        var queryFrames = new List<byte[]>();
+        var fn = 1;
+        foreach (var record in new[] { "H|\\^&|||SIM|||||LIS||P|1|20261108093000", "Q|1|^2611080001||||||||||O", "L|1|N" })
+        {
+            queryFrames.AddRange(AstmFraming.BuildFrames(record, fn, out fn));
+        }
+
+        var query = Cat([Enq], Cat([.. queryFrames]), [Eot]);
+        var output = driver.Receive(query, T0);
+        driver.AnswerQuery(output.Queries[0], [], T0);
+
+        // LIS đã gửi ENQ, chờ máy ACK: phía NHẬN vẫn rảnh.
+        driver.IsReceiving.ShouldBeFalse();
+        driver.Receive([0x06], T0);
+        driver.IsReceiving.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Au_IsReceiving_theo_khung_va_khoi()
+    {
+        var driver = new BeckmanAuDriver(AuOptions);
+        var frames = AuFrames(55); // DB, D0, D1, E, DE
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive(frames[0], T0);
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive(frames[1][..10], T0);
+        driver.IsReceiving.ShouldBeTrue();
+        driver.Receive(frames[1][10..], T0);
+        driver.IsReceiving.ShouldBeTrue(); // khối 0 đủ, đang gom
+        driver.Receive(frames[2], T0);
+        driver.IsReceiving.ShouldBeTrue();
+        driver.Receive(frames[3], T0);
+        driver.IsReceiving.ShouldBeFalse();
+
+        driver.Receive(frames[1], T0);
+        driver.Reset();
+        driver.IsReceiving.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ListenOnly_IsReceiving_luon_false()
+    {
+        var driver = new ListenOnlyDriver();
+        driver.Receive([0x0B, Enq, 0x02], T0);
+        driver.IsReceiving.ShouldBeFalse();
+    }
+
+    // ---------------------------------------------------------------- Discarded
+
+    [Fact]
+    public void Hl7_Discarded_VT_giua_khung_va_het_gio_nhung_khung_tron_thi_khong()
+    {
+        var driver = new Hl7MllpDriver();
+        var ok = driver.Receive(Hl7ResultBuilder.Frame("MSH|^~\\&|A|M|||1||ORU^R01|1|P|2.3.1\rOBR|1||BC1\r"), T0);
+        ok.Discarded.ShouldBeEmpty();
+
+        var restart = driver.Receive([0x0B, 0x41, 0x0B], T0);
+        restart.Discarded.ShouldHaveSingleItem().ShouldContain("VT");
+
+        driver.Tick(T0.AddSeconds(31)).Discarded.ShouldHaveSingleItem().ShouldContain("30");
+    }
+
+    [Fact]
+    public void Hl7_Discarded_khung_qua_2MB()
+    {
+        var output = new Hl7MllpDriver().Receive(Cat([0x0B], new byte[2 * 1024 * 1024 + 10]), T0);
+
+        output.Discarded.ShouldHaveSingleItem().ShouldContain("MB");
+    }
+
+    [Fact]
+    public void Astm_Discarded_checksum_ENQ_giua_phien_het_gio_EOT_do()
+    {
+        var frames = AstmFrames();
+        var driver = new AstmDriver(AstmDriverOptions.Generic);
+
+        // Phiên bình thường: không bỏ gì.
+        driver.Receive(Cat([Enq], Cat([.. frames]), [Eot]), T0).Discarded.ShouldBeEmpty();
+
+        // Sai checksum.
+        var corrupt = (byte[])frames[1].Clone();
+        corrupt[^4] = corrupt[^4] == (byte)'0' ? (byte)'1' : (byte)'0';
+        var bad = driver.Receive(Cat([Enq], frames[0], corrupt), T0);
+        bad.Discarded.ShouldHaveSingleItem().ShouldContain("checksum");
+
+        // ENQ giữa phiên.
+        driver.Receive([Enq], T0).Discarded.ShouldHaveSingleItem().ShouldContain("ENQ");
+
+        // Hết giờ.
+        driver.Tick(T0.AddSeconds(31)).Discarded.ShouldHaveSingleItem().ShouldContain("30");
+
+        // EOT khi record còn dở.
+        driver.Receive(Cat([Enq], frames[0], AstmFraming.BuildFrame(2, Encoding.ASCII.GetBytes("R|1|^^^WBC|7."), last: false), [Eot]), T0)
+            .Discarded.ShouldHaveSingleItem().ShouldContain("EOT");
+    }
+
+    [Fact]
+    public void Au_Discarded_BCC_sai_STX_moi_khoi_khong_co_khoi_dau_va_het_gio()
+    {
+        var frames = AuFrames(55);
+
+        // Phiên bình thường: không bỏ gì.
+        var ok = new BeckmanAuDriver(AuOptions);
+        foreach (var f in frames)
+        {
+            ok.Receive(f, T0).Discarded.ShouldBeEmpty();
+        }
+
+        // BCC sai.
+        var bad = (byte[])frames[1].Clone();
+        bad[^1] ^= 0x01;
+        new BeckmanAuDriver(AuOptions).Receive(bad, T0).Discarded.ShouldHaveSingleItem().ShouldContain("BCC");
+
+        // STX mới giữa khung.
+        new BeckmanAuDriver(AuOptions).Receive(Cat(frames[1][..10], frames[1]), T0).Discarded.ShouldHaveSingleItem().ShouldContain("khung dở");
+
+        // Khối giữa đến khi chưa có khối đầu.
+        new BeckmanAuDriver(AuOptions).Receive(frames[2], T0).Discarded.ShouldHaveSingleItem().ShouldContain("chưa có khối đầu");
+
+        // Hết giờ: khung dở (3 s) và phần gom dở (30 s).
+        var d1 = new BeckmanAuDriver(AuOptions);
+        d1.Receive(frames[1][..10], T0);
+        d1.Tick(T0.AddSeconds(4)).Discarded.ShouldHaveSingleItem().ShouldContain("khung");
+        var d2 = new BeckmanAuDriver(AuOptions);
+        d2.Receive(frames[1], T0);
+        d2.Tick(T0.AddSeconds(31)).Discarded.ShouldHaveSingleItem().ShouldContain("khối cuối");
+    }
+
+    [Fact]
+    public void IsEmpty_tinh_ca_Discarded()
+    {
+        var output = new DriverOutput();
+        output.Discarded.Add("x");
+        output.IsEmpty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ListenOnly_khong_bao_gio_co_Discarded()
+    {
+        new ListenOnlyDriver().Receive([0x0B, Enq, 0x02, 0x03], T0).Discarded.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Decoder_gom_Discarded_tu_moi_buoc()
+    {
+        // Bản tin HL7 dở: Tick cuối của decoder bỏ phần dở, lý do vào Discarded.
+        var half = Encoding.ASCII.GetBytes("\u000BMSH|^~\\&|A|M|||1||ORU^R01|1|P|2.3.1\r");
+        RawMessageDecoder.Decode(new Hl7MllpDriver(), half, T0).Discarded.ShouldHaveSingleItem();
+
+        var full = Hl7ResultBuilder.Frame("MSH|^~\\&|A|M|||1||ORU^R01|1|P|2.3.1\rOBR|1||BC1\r");
+        RawMessageDecoder.Decode(new Hl7MllpDriver(), full, T0).Discarded.ShouldBeEmpty();
+    }
+}

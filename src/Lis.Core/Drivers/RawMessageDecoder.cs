@@ -3,12 +3,22 @@ using System.Reflection;
 namespace Lis.Core.Drivers;
 
 /// <summary>Kết quả giải mã một bản tin thô: các bản tin kết quả, mã vạch câu hỏi chỉ định, ghi chú của driver và cờ bỏ dở.</summary>
+/// <param name="Discarded">Lý do mỗi lần driver bỏ dữ liệu khi giải mã bản tin này (xem <see cref="DriverOutput.Discarded"/>).</param>
 /// <param name="Abandoned">Có ít nhất một ranh giới "bỏ dở" (hết giờ, bắt đầu lại giữa chừng, khung quá cỡ…).</param>
 public sealed record RawMessageDecodeResult(
     IReadOnlyList<DriverReading> Readings,
     IReadOnlyList<string> QueryBarcodes,
     IReadOnlyList<string> Notes,
-    bool Abandoned);
+    bool Abandoned,
+    IReadOnlyList<string> Discarded)
+{
+    /// <summary>Kết quả không có dữ liệu bị bỏ (dùng cho bản tin chỉ lưu, không giải mã).</summary>
+    public RawMessageDecodeResult(
+        IReadOnlyList<DriverReading> readings, IReadOnlyList<string> queryBarcodes, IReadOnlyList<string> notes, bool abandoned)
+        : this(readings, queryBarcodes, notes, abandoned, [])
+    {
+    }
+}
 
 /// <summary>
 /// Giải mã MỘT bản tin thô (một lượt truyền đã được agent cắt theo <see cref="DriverBoundary"/>) bằng một
@@ -39,6 +49,7 @@ public static class RawMessageDecoder
         var queries = new List<string>();
         var notes = new List<string>();
         var abandoned = false;
+        var discarded = new List<string>();
 
         void Absorb(DriverOutput output)
         {
@@ -48,6 +59,7 @@ public static class RawMessageDecoder
             {
                 readings.AddRange(current.Readings);
                 notes.AddRange(current.Notes);
+                discarded.AddRange(current.Discarded);
                 abandoned |= current.Boundaries.Any(b => b.Abandoned);
                 foreach (var query in current.Queries)
                 {
@@ -60,6 +72,6 @@ public static class RawMessageDecoder
         freshDriver.Reset();
         Absorb(freshDriver.Receive(bytes, receivedAt));
         Absorb(freshDriver.Tick(receivedAt + FinalTick));
-        return new RawMessageDecodeResult(readings, queries, notes, abandoned);
+        return new RawMessageDecodeResult(readings, queries, notes, abandoned, discarded);
     }
 }

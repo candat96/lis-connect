@@ -86,7 +86,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
     }
 
     /// <summary>Phía nhận đang có dữ liệu dở: khung dở hoặc kết quả nhiều khối chưa đủ khối cuối.</summary>
-    private bool IsReceiving => _inFrame || _awaitBcc || _pending is not null;
+    public bool IsReceiving => _inFrame || _awaitBcc || _pending is not null;
 
     private void ReceiveByte(byte b, DriverOutput output, DateTimeOffset now)
     {
@@ -123,6 +123,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         if (b == _options.StartCode)
         {
             output.Notes.Add($"Bỏ khung dở {_frame.Count} byte: gặp mã bắt đầu mới trước mã kết thúc");
+            output.Discarded.Add($"Bỏ khung dở {_frame.Count} byte: gặp mã bắt đầu mới trước mã kết thúc");
             _frame.Clear();
             _frameStart = now;
         }
@@ -141,6 +142,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         else if (_frame.Count >= _options.TextLength + 16)
         {
             output.Notes.Add($"Bỏ khung dài quá {_options.TextLength} byte (thiếu mã kết thúc?)");
+            output.Discarded.Add($"Bỏ khung dài quá {_options.TextLength} byte (thiếu mã kết thúc?)");
             _inFrame = false;
             _frame.Clear();
         }
@@ -157,6 +159,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         if ((_inFrame || _awaitBcc) && now - _frameStart > _options.FrameTimeout)
         {
             output.Notes.Add($"Bỏ khung nhận dở {_frame.Count} byte: quá {_options.FrameTimeout.TotalSeconds:0.#} s không thấy mã kết thúc");
+            output.Discarded.Add($"Bỏ khung nhận dở {_frame.Count} byte: quá {_options.FrameTimeout.TotalSeconds:0.#} s không thấy mã kết thúc");
             _inFrame = false;
             _awaitBcc = false;
             _frame.Clear();
@@ -165,6 +168,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         if (_pending is not null && now - _pending.StartedAt > _options.MultiBlockTimeout)
         {
             output.Notes.Add($"Bỏ kết quả mẫu {_pending.Describe()}: không nhận được khối cuối (E)");
+            output.Discarded.Add($"Bỏ kết quả mẫu {_pending.Describe()}: không nhận được khối cuối (E)");
             _pending = null;
         }
 
@@ -276,6 +280,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         if (!bccOk)
         {
             output.Notes.Add($"BCC sai (nhận {receivedBcc:X2}, tính {expectedBcc:X2}) — bỏ bản tin \"{Shorten(text)}\"{(_options.ClassB ? ", đã NAK" : "")}");
+            output.Discarded.Add($"BCC sai (nhận {receivedBcc:X2}, tính {expectedBcc:X2}) — bỏ bản tin \"{Shorten(text)}\"{(_options.ClassB ? ", đã NAK" : "")}");
             if (_options.ClassB)
             {
                 output.Send.Add([Nak]);
@@ -334,6 +339,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         if (text.Length < 2)
         {
             output.Notes.Add($"Bản tin quá ngắn: \"{Shorten(text)}\"");
+            output.Discarded.Add($"Bản tin quá ngắn: \"{Shorten(text)}\"");
             return;
         }
 
@@ -345,6 +351,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
                 if (_pending is not null)
                 {
                     output.Notes.Add($"Bỏ kết quả mẫu {_pending.Describe()}: phiên {code} khi chưa nhận khối cuối (E)");
+                    output.Discarded.Add($"Bỏ kết quả mẫu {_pending.Describe()}: phiên {code} khi chưa nhận khối cuối (E)");
                     _pending = null;
                 }
 
@@ -384,6 +391,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         if (text.Length < fixedLength)
         {
             output.Notes.Add($"Bản tin {code.Trim()} ngắn hơn phần cố định theo cấu hình ({text.Length} < {fixedLength}) — kiểm tra Rack/Sample ID digits: \"{Shorten(text)}\"");
+            output.Discarded.Add($"Bản tin {code.Trim()} ngắn hơn phần cố định theo cấu hình ({text.Length} < {fixedLength}) — kiểm tra Rack/Sample ID digits: \"{Shorten(text)}\"");
             return;
         }
 
@@ -402,6 +410,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         if (block is not ((>= '0' and <= '9') or 'E'))
         {
             output.Notes.Add($"Data classification No. '{block}' không hợp lệ — cấu hình độ dài trường có thể sai: \"{Shorten(text)}\"");
+            output.Discarded.Add($"Data classification No. '{block}' không hợp lệ — cấu hình độ dài trường có thể sai: \"{Shorten(text)}\"");
             _pending = null;
             return;
         }
@@ -413,12 +422,14 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
             if (_pending is not null)
             {
                 output.Notes.Add($"Bỏ kết quả mẫu {_pending.Describe()}: chưa nhận khối cuối (E) đã sang mẫu khác");
+                output.Discarded.Add($"Bỏ kết quả mẫu {_pending.Describe()}: chưa nhận khối cuối (E) đã sang mẫu khác");
                 _pending = null;
             }
 
             if (block is not ('0' or 'E'))
             {
                 output.Notes.Add($"Khối {block} đến khi chưa có khối đầu — bỏ: \"{Shorten(text)}\"");
+                output.Discarded.Add($"Khối {block} đến khi chưa có khối đầu — bỏ: \"{Shorten(text)}\"");
                 return;
             }
 
@@ -445,6 +456,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
             if (variable.Length < prefix)
             {
                 output.Notes.Add($"Phần biến đổi ngắn hơn thông tin BN theo cấu hình — bỏ: \"{Shorten(text)}\"");
+                output.Discarded.Add($"Phần biến đổi ngắn hơn thông tin BN theo cấu hình — bỏ: \"{Shorten(text)}\"");
                 _pending = null;
                 return;
             }
@@ -455,6 +467,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
         if (variable.Length % o.ItemLength != 0)
         {
             output.Notes.Add($"Độ dài phần kết quả {variable.Length} không chia hết cho {o.ItemLength} (mã XN {o.TestNoDigits} + thuốc thử {o.ReagentInfoLength} + kết quả {o.ResultDigits} + cờ {o.FlagLength}) — cấu hình không khớp máy, bỏ cả mẫu {_pending.Describe()}");
+            output.Discarded.Add($"Độ dài phần kết quả {variable.Length} không chia hết cho {o.ItemLength} (mã XN {o.TestNoDigits} + thuốc thử {o.ReagentInfoLength} + kết quả {o.ResultDigits} + cờ {o.FlagLength}) — cấu hình không khớp máy, bỏ cả mẫu {_pending.Describe()}");
             _pending = null;
             return;
         }
@@ -468,6 +481,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
             if (!testNo.All(char.IsAsciiDigit))
             {
                 output.Notes.Add($"Online Test No. '{testNo}' không phải số — cấu hình không khớp máy, bỏ cả mẫu {_pending.Describe()}");
+                output.Discarded.Add($"Online Test No. '{testNo}' không phải số — cấu hình không khớp máy, bỏ cả mẫu {_pending.Describe()}");
                 _pending = null;
                 return;
             }
@@ -488,6 +502,7 @@ public sealed class BeckmanAuDriver : IInstrumentDriver
             if (result == new string('9', o.ResultDigits))
             {
                 output.Notes.Add($"Mẫu {_pending.Describe()} kênh {testNo}: giá trị '{result}' vượt số chữ số (digit over) — bỏ, cần nhập tay");
+                output.Discarded.Add($"Mẫu {_pending.Describe()} kênh {testNo}: giá trị '{result}' vượt số chữ số (digit over) — bỏ, cần nhập tay");
                 continue;
             }
 

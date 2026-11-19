@@ -42,6 +42,8 @@ public sealed class Hl7MllpDriver : IInstrumentDriver
 
     public string Family => "hl7-mllp";
 
+    public bool IsReceiving => _inFrame;
+
     public DriverOutput Receive(ReadOnlySpan<byte> data, DateTimeOffset now)
     {
         var output = new DriverOutput();
@@ -69,6 +71,7 @@ public sealed class Hl7MllpDriver : IInstrumentDriver
             {
                 // VT giữa chừng: máy bắt đầu lại bản tin (vd mất ACK rồi gửi bản sau) — bỏ phần dở.
                 output.Notes.Add($"Bỏ bản tin dở {_frame.Count} byte (gặp VT mới trước FS)");
+                output.Discarded.Add($"Bản tin dở {_frame.Count} byte bị bỏ: gặp VT mới trước FS");
                 output.Boundaries.Add(new DriverBoundary(index, Abandoned: true)); // trước VT mới
                 _frame.Clear();
                 _frameStarted = now;
@@ -88,6 +91,7 @@ public sealed class Hl7MllpDriver : IInstrumentDriver
             if (_frame.Count >= MaxFrameBytes)
             {
                 output.Notes.Add($"Bản tin vượt {MaxFrameBytes / 1024 / 1024} MB — bỏ");
+                output.Discarded.Add($"Bản tin vượt {MaxFrameBytes / 1024 / 1024} MB bị bỏ");
                 output.Boundaries.Add(new DriverBoundary(index + 1, Abandoned: true));
                 _frame.Clear();
                 _inFrame = false;
@@ -111,6 +115,7 @@ public sealed class Hl7MllpDriver : IInstrumentDriver
         if (_inFrame && now - _frameStarted > StaleFrame)
         {
             output.Notes.Add($"Bỏ bản tin dở {_frame.Count} byte (quá {StaleFrame.TotalSeconds:0} giây không thấy FS)");
+            output.Discarded.Add($"Bản tin dở {_frame.Count} byte bị bỏ: quá {StaleFrame.TotalSeconds:0} giây không thấy FS");
             output.Boundaries.Add(new DriverBoundary(0, Abandoned: true));
             _frame.Clear();
             _inFrame = false;

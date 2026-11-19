@@ -15,6 +15,8 @@ public sealed class ListenOnlyDriver : IInstrumentDriver
 
     public string Family => FamilyCode;
 
+    public bool IsReceiving => false;
+
     public DriverOutput Receive(ReadOnlySpan<byte> data, DateTimeOffset now) => new();
 
     public DriverOutput Tick(DateTimeOffset now) => new();

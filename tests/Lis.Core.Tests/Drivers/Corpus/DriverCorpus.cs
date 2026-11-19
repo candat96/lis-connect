@@ -25,6 +25,7 @@ public static class DriverCorpus
     private static readonly DateTimeOffset Stamp = new(2026, 11, 8, 9, 30, 0, TimeSpan.FromHours(7));
 
     public const string AuClassBBcc = """{"classB":true,"bcc":true}""";
+    public const string AuClassASmall = """{"textLength":256}""";
     public const string AuSmallText = """{"classB":true,"bcc":true,"textLength":256}""";
 
     private static byte[] Cat(params byte[][] parts) => [.. parts.SelectMany(p => p)];
@@ -186,6 +187,13 @@ public static class DriverCorpus
         // Máy NAK một frame của LIS (LIS gửi lại), rồi ACK tiếp; một ACK thừa ở cuối.
         yield return Causal("astm-cau-hoi-nak-frame-roi-ack", f, null, null, 2,
             Session(query), Sync, [Ack, Nak, Ack, Ack, Ack], Session(one), Session(two));
+        // Tranh chấp đường truyền KHÔNG đồng bộ: máy gửi ENQ đúng lúc LIS đang chờ trả lời ENQ của mình (tuỳ chỗ chia khúc,
+        // ENQ tới lúc LIS còn rảnh hoặc đã chờ; cả hai cách đều phải ra đúng một kết quả). Xem AstmLink: ENQ ở WaitEnqReply.
+        yield return new("astm-tranh-chap-ENQ-khong-dong-bo", f, null, null, Cat(Session(query), Session(two)), 1);
+        // Máy gửi lại ENQ sau tranh chấp (tưởng ENQ đầu chưa được ACK): lượt bỏ dở chỉ có 1 byte ENQ.
+        yield return new("astm-ENQ-gui-lai-sau-tranh-chap-bo-do-1-byte", f, null, null, Cat(Session(query), [Enq], Session(two)), 1);
+        // ENQ rồi EOT ngay: thăm dò đường truyền, phiên rỗng.
+        yield return new("astm-ENQ-EOT-rong", f, null, null, Cat([Enq, Eot], Session(one), [Enq, Eot]), 1);
         // Máy NAK ENQ của LIS (bận): LIS lùi 10 s, máy gửi tiếp kết quả của nó.
         yield return Causal("astm-cau-hoi-nak-ENQ-may-gui-tiep", f, null, null, 2,
             Session(query), Sync, [Nak], Session(one), Session(two));
@@ -257,6 +265,13 @@ public static class DriverCorpus
     private static byte[] AuSample(BeckmanAuOptions o, string barcode, bool qc, params SimResult[] results) =>
         Cat([.. AuMessageBuilder.BuildResultFrames(o, barcode, results, qc)]);
 
+    /// <summary>Dựng lại khung Class A (không BCC) với văn bản bị cắt 3 ký tự cuối: độ dài phần kết quả không chia hết cho độ dài một kênh.</summary>
+    public static byte[] ShortenAuFrame(BeckmanAuOptions o, byte[] frame)
+    {
+        var text = Encoding.ASCII.GetString(frame, 1, frame.Length - 2);
+        return AuMessageBuilder.BuildFrame(o, text[..^3]);
+    }
+
     private static IEnumerable<CorpusStream> Au()
     {
         const string f = "beckman-au";
@@ -298,9 +313,18 @@ public static class DriverCorpus
         bad[^1] ^= 0x01;
         var good = AuMessageBuilder.BuildResultFrames(ClassBBcc, "2611030017", three, false);
         yield return new("au-sai-BCC-roi-gui-lai", f, null, AuClassBBcc,
-            Cat(good[0], bad, [0x15, 0x15], good[1], good[2]), 1);
+            Cat(good[0], bad, good[1], good[2]), 1); // NAK do LIS gửi (Send), không có trong dòng byte máy gửi vào
         yield return new("au-sai-BCC-khong-gui-lai", f, null, AuClassBBcc,
             Cat(good[0], bad, good[2], AuSample(ClassBBcc, "2611030018", false, three)), 1);
+
+        // Class A (tắt BCC), mẫu nhiều khối bị hỏng giữa chừng. Ghi lại hành vi HIỆN CÓ (rủi ro đã biết, không đổi ở task này):
+        // 1) mất hẳn khối giữa: driver không kiểm thứ tự khối nên vẫn phát reading THIẾU kênh và không phát hiện được gì;
+        // 2) khối giữa bị cắt ngắn: cả mẫu bị bỏ (Discarded) nhưng khối E đến sau vẫn mở lại mẫu và phát reading chỉ có kênh của khối E.
+        // Cả hai đường cho cùng kết quả (phép thử đối chiếu). Test riêng: RawMessageEquivalenceTests.Au_classA_nhieu_khoi_hong_*.
+        var classA = BeckmanAuOptions.Au480 with { TextLength = 256 };
+        var aFrames = AuMessageBuilder.BuildResultFrames(classA, "2611030021", many, false);
+        yield return new("au-classA-nhieu-khoi-mat-khoi-giua", f, null, AuClassASmall, Cat(aFrames[0], aFrames[1], aFrames[3], aFrames[4]), 1);
+        yield return new("au-classA-nhieu-khoi-khoi-giua-hong", f, null, AuClassASmall, Cat(aFrames[0], aFrames[1], ShortenAuFrame(classA, aFrames[2]), aFrames[3], aFrames[4]), 1);
 
         // Rác trước lượt đầu và giữa các mẫu.
         yield return new("au-rac-truoc-luot-dau", f, null, AuClassBBcc,

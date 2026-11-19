@@ -20,6 +20,8 @@ public sealed class AstmDriver : IInstrumentDriver
 
     public string Family => "astm-e1394";
 
+    public bool IsReceiving => _link.IsReceiving;
+
     public DriverOutput Receive(ReadOnlySpan<byte> data, DateTimeOffset now) => Convert(_link.Receive(data, now));
 
     public DriverOutput Tick(DateTimeOffset now) => Convert(_link.Tick(now));
@@ -74,6 +76,7 @@ public sealed class AstmDriver : IInstrumentDriver
         output.Send.AddRange(result.Send);
         output.Notes.AddRange(result.Notes);
         output.Boundaries.AddRange(result.Boundaries);
+        output.Discarded.AddRange(result.Discarded);
         foreach (var message in result.Messages)
         {
             Interpret(message, output);
