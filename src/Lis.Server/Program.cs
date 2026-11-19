@@ -68,6 +68,18 @@ await app.Services.GetRequiredService<AgentCommandStore>().MarkUnfinishedUnknown
 // Kênh lệnh agent: ping 20 giây, mất ping 60 giây thì coi là đứt.
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20), KeepAliveTimeout = TimeSpan.FromSeconds(60) });
 
+// Sau khi agent quét cổng COM xong (scan-ports → done) thì lưu danh sách để web hiện.
+var channelHub = app.Services.GetRequiredService<AgentChannelHub>();
+var timeProvider = app.Services.GetRequiredService<TimeProvider>();
+channelHub.ResultObserver = async (agentId, row, result) =>
+{
+    if (row is { Name: "scan-ports", Status: "done" } && result.Data is { ValueKind: System.Text.Json.JsonValueKind.Object } data
+        && data.TryGetProperty("ports", out var ports) && ports.ValueKind == System.Text.Json.JsonValueKind.Array)
+    {
+        await master.SavePortsAsync(agentId, ports.GetRawText(), timeProvider.GetUtcNow());
+    }
+};
+
 app.MapGet("/healthz", () => Results.Ok(new { ok = true }));
 app.MapAgentApi();
 var api = app.MapApiGroup();

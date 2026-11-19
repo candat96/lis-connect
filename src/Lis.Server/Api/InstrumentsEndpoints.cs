@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Lis.Core.Drivers;
 using Lis.Core.Instruments;
 using Lis.Data.Instruments;
+using Lis.Server.AgentApi;
 using Lis.Server.Tenancy;
 
 namespace Lis.Server.Api;
@@ -62,9 +63,9 @@ public static class InstrumentsEndpoints
     {
         var instruments = api.MapGroup("/instruments").RequireSession();
         instruments.MapGet("", (HttpContext http, MasterStore master, TimeProvider clock) => ListAsync(http.Ctx(), master, clock));
-        instruments.MapPost("", (HttpContext http, MasterStore master, TimeProvider clock, InstrumentBody body) => CreateAsync(http.Ctx(), master, clock, body));
-        instruments.MapPut("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, string id, InstrumentBody body) => UpdateAsync(http.Ctx(), master, clock, id, body));
-        instruments.MapDelete("/{id}", (HttpContext http, string id) => DeleteAsync(http.Ctx(), id));
+        instruments.MapPost("", (HttpContext http, MasterStore master, TimeProvider clock, AgentChannelHub hub, InstrumentBody body) => CreateAsync(http.Ctx(), master, clock, hub, body));
+        instruments.MapPut("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, AgentChannelHub hub, string id, InstrumentBody body) => UpdateAsync(http.Ctx(), master, clock, hub, id, body));
+        instruments.MapDelete("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, AgentChannelHub hub, string id) => DeleteAsync(http.Ctx(), master, clock, hub, id));
         instruments.MapGet("/{id}/channels", (HttpContext http, string id) => ChannelsAsync(http.Ctx(), id));
         instruments.MapPost("/{id}/channels", (HttpContext http, string id, InstrumentChannelBody body) => AddChannelAsync(http.Ctx(), id, body));
         instruments.MapPut("/{id}/channels/{channelId}",
@@ -104,17 +105,18 @@ public static class InstrumentsEndpoints
         return Results.Ok(views);
     }
 
-    private static async Task<IResult> CreateAsync(RequestContext ctx, MasterStore master, TimeProvider clock, InstrumentBody body)
+    private static async Task<IResult> CreateAsync(RequestContext ctx, MasterStore master, TimeProvider clock, AgentChannelHub hub, InstrumentBody body)
     {
         var input = Check(body);
         ctx.RequireAdmin();
         var info = await BuildAsync(ctx, master, clock, Guid.Empty, null, input);
         var id = await ctx.Tenant.Instruments.SaveAsync(info);
+        await NotifyAgentsAsync(ctx, master, clock, hub, info.WorkstationCode);
         return Results.Json(new { id }, statusCode: StatusCodes.Status201Created);
     }
 
     /// <summary>Sửa máy. Agent tự nhận cấu hình mới trong vòng 30 giây và mở lại kết nối nếu cấu hình đổi.</summary>
-    private static async Task<IResult> UpdateAsync(RequestContext ctx, MasterStore master, TimeProvider clock, string id, InstrumentBody body)
+    private static async Task<IResult> UpdateAsync(RequestContext ctx, MasterStore master, TimeProvider clock, AgentChannelHub hub, string id, InstrumentBody body)
     {
         var instrumentId = ApiFormat.ParseId(id);
         var input = Check(body);
@@ -130,19 +132,35 @@ public static class InstrumentsEndpoints
             throw Translate(ex);
         }
 
+        // Agent cũ (nếu máy đổi máy trạm) và agent mới đều cần nạp lại cấu hình.
+        await NotifyAgentsAsync(ctx, master, clock, hub, existing.WorkstationCode, info.WorkstationCode);
         return Results.NoContent();
     }
 
-    private static async Task<IResult> DeleteAsync(RequestContext ctx, string id)
+    private static async Task<IResult> DeleteAsync(RequestContext ctx, MasterStore master, TimeProvider clock, AgentChannelHub hub, string id)
     {
         var instrumentId = ApiFormat.ParseId(id);
         ctx.RequireAdmin();
-        return await ctx.Tenant.Instruments.DeleteAsync(instrumentId) switch
+        var workstationCode = (await ctx.Tenant.Instruments.ListAsync()).FirstOrDefault(i => i.Id == instrumentId)?.WorkstationCode;
+        var result = await ctx.Tenant.Instruments.DeleteAsync(instrumentId);
+        if (result == InstrumentDeleteResult.Deleted) await NotifyAgentsAsync(ctx, master, clock, hub, workstationCode);
+        return result switch
         {
             InstrumentDeleteResult.Deleted => Results.NoContent(),
             InstrumentDeleteResult.NotFound => throw ApiException.NotFound(InstrumentNotFound),
             _ => throw ApiException.Conflict("Máy đã có kết quả xét nghiệm gắn với nó nên không xoá được — hãy chuyển sang \"Ngừng dùng\""),
         };
+    }
+
+    /// <summary>Báo các agent phụ trách các mã máy trạm đã cho (đang có kênh) nạp lại cấu hình. Agent chưa nối thì tự đọc khi nối.</summary>
+    private static async Task NotifyAgentsAsync(RequestContext ctx, MasterStore master, TimeProvider clock, AgentChannelHub hub, params string?[] workstationCodes)
+    {
+        var codes = workstationCodes.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c!.Trim()).ToList();
+        if (codes.Count == 0) return;
+        var agents = await master.AgentsOfAsync(ctx.Clinic.Id, clock.GetUtcNow());
+        await hub.NotifyConfigChangedAsync(agents
+            .Where(a => codes.Any(c => string.Equals(c, a.Agent.WorkstationCode, StringComparison.OrdinalIgnoreCase)))
+            .Select(a => a.Agent.Id));
     }
 
     /// <summary>Bảng map kênh của một máy: kênh đã map trước, rồi dịch vụ đã khai đang chờ dò mã kênh.</summary>

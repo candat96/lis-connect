@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Dapper;
 using Lis.Core.Agents;
+using Lis.Server.AgentApi;
 using Lis.Server.Tenancy;
 
 namespace Lis.Server.Api;
@@ -13,11 +14,13 @@ public sealed record AgentBody(string? Name);
 public sealed record AgentInstrumentView(Guid Id, string Name, JsonElement? Status);
 
 /// <summary>
-/// Một agent trong danh sách. <see cref="Paired"/> = đã đổi mã ghép nối lấy khoá; <see cref="PairingExpiresAt"/> có giá trị khi còn một mã chưa dùng và chưa hết hạn.
+/// Một agent trong danh sách. <see cref="Channel"/> = đang có kênh lệnh (<see cref="Online"/> cũng đúng khi có kênh); <see cref="Ports"/> = cổng COM quét lần cuối.
+/// <see cref="Paired"/> = đã đổi mã ghép nối lấy khoá; <see cref="PairingExpiresAt"/> có giá trị khi còn một mã chưa dùng và chưa hết hạn.
 /// </summary>
 public sealed record AgentView(
     Guid Id, string Name, string WorkstationCode, string? LastSeenAt, bool Online, IReadOnlyList<AgentInstrumentView> Instruments,
-    bool Paired, string? PairedAt, string? MachineName, string? Version, string? PairingExpiresAt);
+    bool Paired, string? PairedAt, string? MachineName, string? Version, string? PairingExpiresAt,
+    bool Channel, JsonElement? Ports, string? PortsScannedAt);
 
 public sealed record AgentLogView(
     string Id, string At, Guid AgentId, Guid? InstrumentId, string? InstrumentName, string Direction, string? Session, string? Hex, string? Note);
@@ -43,13 +46,14 @@ public static class AgentsEndpoints
     public static void MapAgentsApi(this RouteGroupBuilder api)
     {
         var agents = api.MapGroup("/agents").RequireSession();
-        agents.MapGet("", (HttpContext http, MasterStore master, TimeProvider clock) => ListAsync(http.Ctx(), master, clock));
+        agents.MapGet("", (HttpContext http, MasterStore master, TimeProvider clock, AgentChannelHub hub) => ListAsync(http.Ctx(), master, clock, hub));
         agents.MapPost("", (HttpContext http, MasterStore master, TimeProvider clock, ServerOptions options, AgentBody body) =>
             CreateAsync(http, master, clock, options, body));
         agents.MapPatch("/{id}", (HttpContext http, MasterStore master, string id, AgentBody body) => UpdateAsync(http.Ctx(), master, id, body));
         agents.MapPost("/{id}/pairing", (HttpContext http, MasterStore master, TimeProvider clock, ServerOptions options, string id) =>
             PairingAsync(http, master, clock, options, id));
         agents.MapDelete("/{id}", (HttpContext http, MasterStore master, TimeProvider clock, string id) => DeleteAsync(http.Ctx(), master, clock, id));
+        agents.MapAgentCommandsApi();
         // Tệp cài agent: chỉ Quản trị. Route tĩnh /installer không vướng /{id} vì /{id} chỉ có PATCH và DELETE.
         agents.MapGet("/installer/info", (HttpContext http, AgentDistribution distribution) => InstallerInfo(http.Ctx(), distribution));
         agents.MapGet("/installer", (HttpContext http, AgentDistribution distribution) => InstallerFile(http, distribution));
@@ -58,7 +62,7 @@ public static class AgentsEndpoints
         api.MapGroup("/agent-logs").RequireSession().MapGet("", (Delegate)((HttpContext http) => LogsAsync(http.Ctx(), http.Request.Query)));
     }
 
-    private static async Task<IResult> ListAsync(RequestContext ctx, MasterStore master, TimeProvider clock)
+    private static async Task<IResult> ListAsync(RequestContext ctx, MasterStore master, TimeProvider clock, AgentChannelHub hub)
     {
         ctx.RequireLabStaff();
         var now = clock.GetUtcNow();
@@ -67,7 +71,8 @@ public static class AgentsEndpoints
 
         return Results.Ok(agents.Select(a =>
         {
-            var online = a.Agent.LastSeenAt is { } seen && now - seen < OnlineWindow;
+            var channel = hub.IsConnected(a.Agent.Id);
+            var online = channel || (a.Agent.LastSeenAt is { } seen && now - seen < OnlineWindow);
             var mine = instruments
                 .Where(i => string.Equals(i.WorkstationCode ?? "", a.Agent.WorkstationCode, StringComparison.OrdinalIgnoreCase))
                 .Select(i => new AgentInstrumentView(i.Id, i.Name, online ? InstrumentsEndpoints.StatusOf(a.LastStatusJson, i.Id) : null))
@@ -75,8 +80,23 @@ public static class AgentsEndpoints
             return new AgentView(
                 a.Agent.Id, a.Agent.Name, a.Agent.WorkstationCode, a.Agent.LastSeenAt is { } last ? ApiFormat.Iso(last) : null, online, mine,
                 a.PairedAt is not null, a.PairedAt is { } paired ? ApiFormat.Iso(paired) : null, a.MachineName, a.AgentVersion,
-                a.PairingExpiresAt is { } expires ? ApiFormat.Iso(expires) : null);
+                a.PairingExpiresAt is { } expires ? ApiFormat.Iso(expires) : null,
+                channel, PortsOf(a.LastPortsJson), a.LastPortsAt is { } scanned ? ApiFormat.Iso(scanned) : null);
         }));
+    }
+
+    private static JsonElement? PortsOf(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

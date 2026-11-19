@@ -75,6 +75,21 @@ public static class AgentEndpoints
 
         group.MapAgentChannel();
 
+        // Tệp cài agent cho lệnh update: chỉ tải từ chính server đã ghép nối; agent so SHA-256 với giá trị trong lệnh.
+        group.MapGet("/installer", (HttpContext http, AgentDistribution distribution) =>
+        {
+            var package = distribution.Current();
+            if (package is null)
+            {
+                return Results.Problem("Máy chủ chưa có tệp cài agent", statusCode: StatusCodes.Status404NotFound);
+            }
+
+            http.Response.Headers["Content-Disposition"] = "attachment; filename=\"LisAgent.exe\"";
+            http.Response.Headers["X-Agent-Sha256"] = package.Sha256;
+            if (package.Version is not null) http.Response.Headers["X-Agent-Version"] = package.Version;
+            return Results.File(package.Path, "application/vnd.microsoft.portable-executable", enableRangeProcessing: false);
+        });
+
         group.MapGet("/me", (HttpContext http) =>
         {
             var id = Identity(http);
