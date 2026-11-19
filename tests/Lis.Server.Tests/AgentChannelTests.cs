@@ -105,10 +105,10 @@ public sealed class AgentChannelTests(ServerFixture fixture) : IClassFixture<Ser
     {
         var (host, clinic, agent, key, _) = await StartAsync(fixture, "kenhnoi");
         await using var _h = host;
-        var observed = new List<(Guid AgentId, ChannelEnvelope Result)>();
-        host.Hub.ResultObserver = (agentId, result) =>
+        var observed = new System.Collections.Concurrent.ConcurrentQueue<(Guid AgentId, AgentCommandRow Row, ChannelEnvelope Result)>();
+        host.Hub.ResultObserver = (agentId, row, result) =>
         {
-            observed.Add((agentId, result));
+            observed.Enqueue((agentId, row, result));
             return Task.CompletedTask;
         };
 
@@ -136,9 +136,12 @@ public sealed class AgentChannelTests(ServerFixture fixture) : IClassFixture<Ser
         done.Result!.Value.GetProperty("ports").GetArrayLength().ShouldBe(0);
         done.Error.ShouldBeNull();
         host.Hub.IsConnected(agent.Id).ShouldBeTrue();
-        observed.Count.ShouldBe(1);
-        observed[0].AgentId.ShouldBe(agent.Id);
-        observed[0].Result.Id.ShouldBe(row.Id);
+        await WaitUntilAsync(() => Task.FromResult(observed.Count == 1));
+        var seen = observed.Single();
+        seen.AgentId.ShouldBe(agent.Id);
+        seen.Row.Name.ShouldBe("scan-ports");
+        seen.Row.Status.ShouldBe("done");
+        seen.Result.Id.ShouldBe(row.Id);
 
         // hello cập nhật phiên bản / tên máy
         var info = (await host.Master.AgentsOfAsync(clinic.Id, host.Clock.GetUtcNow())).Single();
@@ -260,11 +263,80 @@ public sealed class AgentChannelTests(ServerFixture fixture) : IClassFixture<Ser
         row.Status.ShouldBe("sent");
         (await ReceiveAsync(b))!.Id.ShouldBe(row.Id);
 
-        // A hoàn tất đóng (client trả khung đóng) — không được làm lệnh của B thành unknown
-        await a.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "đóng", CancellationToken.None);
-        await Task.Delay(300, TestContext.Current.CancellationToken);
+        // Kết quả từ B được áp dụng; A đóng nốt không làm lệnh của B thành unknown.
+        await SendAsync(b, new ChannelEnvelope(ChannelProtocol.Started, row.Id));
+        await a.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "đóng", TestContext.Current.CancellationToken);
+        await SendAsync(b, new ChannelEnvelope(ChannelProtocol.Result, row.Id, Ok: true));
+        await WaitUntilAsync(async () => (await RowAsync(host, clinic, row.Id))!.Status == "done");
         host.Hub.IsConnected(agent.Id).ShouldBeTrue();
-        (await RowAsync(host, clinic, row.Id))!.Status.ShouldBe("sent");
+    }
+
+    [Fact]
+    public async Task Lenh_gui_vao_ket_noi_cu_truoc_khi_thay_thanh_unknown()
+    {
+        var (host, clinic, agent, key, _) = await StartAsync(fixture, "kenhcu");
+        await using var _h = host;
+        using var a = await ConnectAsync(host, key);
+        var row = await host.Hub.SubmitAsync(clinic.Id, agent.Id, "scan-ports", null, null, null);
+        (await ReceiveAsync(a))!.Id.ShouldBe(row.Id);
+
+        using var b = await ConnectAsync(host, key);
+        await WaitUntilAsync(async () => (await RowAsync(host, clinic, row.Id))!.Status == "unknown");
+        (await RowAsync(host, clinic, row.Id))!.Error.ShouldBe("Agent mất kết nối giữa chừng");
+        host.Hub.IsConnected(agent.Id).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Tin_nhan_chia_nhieu_khung_duoc_ghep_lai()
+    {
+        var (host, clinic, agent, key, _) = await StartAsync(fixture, "kenhghep");
+        await using var _h = host;
+        using var socket = await ConnectAsync(host, key);
+        var row = await host.Hub.SubmitAsync(clinic.Id, agent.Id, "scan-ports", null, null, null);
+        (await ReceiveAsync(socket))!.Id.ShouldBe(row.Id);
+
+        var bytes = Encoding.UTF8.GetBytes(ChannelProtocol.Serialize(new ChannelEnvelope(
+            ChannelProtocol.Result, row.Id, Ok: true, Data: JsonDocument.Parse("""{"ports":["COM3"]}""").RootElement)));
+        var cut1 = bytes.Length / 3;
+        var cut2 = 2 * bytes.Length / 3;
+        var ct = TestContext.Current.CancellationToken;
+        await socket.SendAsync(bytes.AsMemory(0, cut1), WebSocketMessageType.Text, false, ct);
+        await socket.SendAsync(bytes.AsMemory(cut1, cut2 - cut1), WebSocketMessageType.Text, false, ct);
+        await socket.SendAsync(bytes.AsMemory(cut2), WebSocketMessageType.Text, true, ct);
+
+        await WaitUntilAsync(async () => (await RowAsync(host, clinic, row.Id))!.Status == "done");
+        (await RowAsync(host, clinic, row.Id))!.Result!.Value.GetProperty("ports")[0].GetString().ShouldBe("COM3");
+    }
+
+    [Fact]
+    public async Task Khung_nhi_phan_bi_dong()
+    {
+        var (host, _, agent, key, _) = await StartAsync(fixture, "kenhnhiphan");
+        await using var _h = host;
+        using var socket = await ConnectAsync(host, key);
+        await socket.SendAsync(new byte[] { 1, 2, 3 }, WebSocketMessageType.Binary, true, TestContext.Current.CancellationToken);
+
+        (await ReceiveAsync(socket)).ShouldBeNull();
+        socket.CloseStatus.ShouldBe(WebSocketCloseStatus.PolicyViolation);
+        await WaitUntilAsync(() => Task.FromResult(!host.Hub.IsConnected(agent.Id)));
+    }
+
+    [Fact]
+    public async Task Lenh_gui_sau_khi_noi_truoc_hello_chi_giao_mot_lan()
+    {
+        var (host, clinic, agent, key, _) = await StartAsync(fixture, "kenhtruochello");
+        await using var _h = host;
+        using var socket = await ConnectAsync(host, key);
+        var row = await host.Hub.SubmitAsync(clinic.Id, agent.Id, "reload-config", null, null, null);
+        row.Status.ShouldBe("sent");
+
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello));
+        var after = await host.Hub.SubmitAsync(clinic.Id, agent.Id, "restart", null, null, null);
+
+        // Khung kế tiếp phải là lệnh sau, không có bản giao lần hai của lệnh đầu.
+        (await ReceiveAsync(socket))!.Id.ShouldBe(row.Id);
+        (await ReceiveAsync(socket))!.Id.ShouldBe(after.Id);
+        (await host.AgentCommands.ListAsync(clinic.Id, agent.Id, 50)).Count.ShouldBe(2);
     }
 
     [Fact]

@@ -18,15 +18,17 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
     private const string ReplacedReason = "Có kết nối mới hơn";
     private const int MaxMachineName = 100;
     private const int MaxAgentVersion = 50;
+    private const int MaxError = 2000;
 
     private readonly ConcurrentDictionary<Guid, ChannelConnection> _connections = new();
-    private readonly SemaphoreSlim _registerLock = new(1, 1);
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _registerLocks = new();
 
     /// <summary>
-    /// Gọi sau khi một <c>result</c> đã ghi vào lịch sử lệnh (cho task lưu kết quả riêng, vd cổng COM sau <c>scan-ports</c>).
-    /// Lỗi trong hàm này được ghi log và bỏ qua, không làm đứt kênh.
+    /// Gọi sau khi một <c>result</c> đã ghi vào lịch sử lệnh (cho task lưu kết quả riêng, vd cổng COM sau <c>scan-ports</c>):
+    /// tham số là agent, dòng lệnh (đã có trạng thái mới, có <c>Name</c>) và phong bì kết quả. Kết quả tới sau khi lệnh đã sang
+    /// <c>unknown</c>/<c>expired</c> bị bỏ, không gọi hàm này. Lỗi trong hàm được ghi log và bỏ qua, không làm đứt kênh.
     /// </summary>
-    public Func<Guid, ChannelEnvelope, Task>? ResultObserver { get; set; }
+    public Func<Guid, AgentCommandRow, ChannelEnvelope, Task>? ResultObserver { get; set; }
 
     public bool IsConnected(Guid agentId) => _connections.ContainsKey(agentId);
 
@@ -106,21 +108,23 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
 
     private async Task RegisterAsync(Guid agentId, ChannelConnection connection)
     {
-        await _registerLock.WaitAsync();
+        var gate = _registerLocks.GetOrAdd(agentId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
         try
         {
             if (_connections.TryRemove(agentId, out var old))
             {
-                // Lệnh đã gửi vào kênh cũ không còn ai trả lời. Làm trước khi kênh mới nhận lệnh nào nên không đụng lệnh mới.
-                await MarkDisconnectedSafeAsync(agentId);
+                // Thứ tự quan trọng: (1) khoá kênh cũ — từ đây mọi lần gửi vào nó trả false, SubmitAsync tự đánh dấu unknown;
+                // (2) đóng; (3) đánh dấu các lệnh đã gửi vào kênh cũ. Làm trước khi kênh mới nhận lệnh nào nên không đụng lệnh mới.
                 await old.CloseAsync(WebSocketCloseStatus.NormalClosure, ReplacedReason);
+                await MarkDisconnectedSafeAsync(agentId);
             }
 
             _connections[agentId] = connection;
         }
         finally
         {
-            _registerLock.Release();
+            gate.Release();
         }
     }
 
@@ -198,14 +202,14 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
                         agentId, null, AgentEndpoints.Clean(envelope.MachineName, MaxMachineName), AgentEndpoints.Clean(envelope.Version, MaxAgentVersion));
                     await DeliverQueuedAsync(connection, agentId);
                     break;
-                case ChannelProtocol.Started when envelope.Id is { } id && await OwnsAsync(identity, id):
+                case ChannelProtocol.Started when envelope.Id is { } id && await OwnsAsync(identity, id) is not null:
                     await commands.TransitionAsync(id, ["sent"], "running", clock.GetUtcNow());
                     break;
-                case ChannelProtocol.Result when envelope.Id is { } id && await OwnsAsync(identity, id):
-                    await FinishAsync(agentId, id, envelope);
+                case ChannelProtocol.Result when envelope.Id is { } id && await OwnsAsync(identity, id) is { } row:
+                    await FinishAsync(identity, row, envelope);
                     break;
                 default:
-                    logger.LogWarning("Agent {AgentId} gửi khung {Type} không dùng được", agentId, envelope.Type);
+                    logger.LogWarning("Agent {AgentId} gửi khung không dùng được (loại {Type})", agentId, Truncate(envelope.Type, 40));
                     break;
             }
         }
@@ -216,29 +220,33 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
         }
     }
 
-    private async Task FinishAsync(Guid agentId, Guid id, ChannelEnvelope envelope)
+    private async Task FinishAsync(AgentIdentity identity, AgentCommandRow row, ChannelEnvelope envelope)
     {
         var ok = envelope.Ok == true;
-        var error = ok ? null : string.IsNullOrWhiteSpace(envelope.Error) ? "Lệnh không thành công" : envelope.Error;
+        var status = ok ? "done" : "failed";
+        var error = ok ? null : string.IsNullOrWhiteSpace(envelope.Error) ? "Lệnh không thành công" : Truncate(envelope.Error, MaxError);
         var changed = await commands.TransitionAsync(
-            id, ["sent", "running"], ok ? "done" : "failed", clock.GetUtcNow(), envelope.Data?.GetRawText(), error);
-        logger.LogInformation("Lệnh {CommandId} của agent {AgentId} kết thúc: {Status}", id, agentId, ok ? "done" : "failed");
+            row.Id, ["sent", "running"], status, clock.GetUtcNow(), envelope.Data?.GetRawText(), error);
+        logger.LogInformation("Lệnh {CommandId} của agent {AgentId} kết thúc: {Status}", row.Id, identity.Agent.Id, changed ? status : "bỏ qua");
         if (changed && ResultObserver is { } observer)
         {
             try
             {
-                await observer(agentId, envelope);
+                var updated = await commands.FindAsync(identity.Clinic.Id, row.Id) ?? row with { Status = status };
+                await observer(identity.Agent.Id, updated, envelope);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Xử lý kết quả lệnh {CommandId} thất bại", id);
+                logger.LogError(ex, "Xử lý kết quả lệnh {CommandId} thất bại", row.Id);
             }
         }
     }
 
-    /// <summary>Lệnh có thuộc agent này không (chặn agent đổi trạng thái lệnh của agent khác bằng cách đoán mã).</summary>
-    private async Task<bool> OwnsAsync(AgentIdentity identity, Guid commandId) =>
-        await commands.FindAsync(identity.Clinic.Id, commandId) is { } row && row.AgentId == identity.Agent.Id;
+    private static string Truncate(string text, int max) => text.Length <= max ? text : text[..max];
+
+    /// <summary>Dòng lệnh nếu nó thuộc agent này, ngược lại null (chặn agent đổi trạng thái lệnh của agent khác bằng cách đoán mã).</summary>
+    private async Task<AgentCommandRow?> OwnsAsync(AgentIdentity identity, Guid commandId) =>
+        await commands.FindAsync(identity.Clinic.Id, commandId) is { } row && row.AgentId == identity.Agent.Id ? row : null;
 
     private async Task DeliverQueuedAsync(ChannelConnection connection, Guid agentId)
     {
@@ -270,6 +278,7 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
     {
         private static readonly TimeSpan CloseGrace = TimeSpan.FromSeconds(5);
         private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private volatile bool _closing;
 
         public WebSocket Socket { get; } = socket;
 
@@ -283,7 +292,7 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
                 await _sendLock.WaitAsync(timeout.Token);
                 try
                 {
-                    if (Socket.State != WebSocketState.Open)
+                    if (_closing || Socket.State != WebSocketState.Open)
                     {
                         return false;
                     }
@@ -311,6 +320,8 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
                 await _sendLock.WaitAsync(timeout.Token);
                 try
                 {
+                    // Từ lúc này mọi lần gửi trả false (SendAsync kiểm tra cờ trong cùng khoá).
+                    _closing = true;
                     if (Socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
                     {
                         await Socket.CloseOutputAsync(status, reason, timeout.Token);
