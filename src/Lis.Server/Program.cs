@@ -41,6 +41,8 @@ builder.Services.AddSingleton(new AgentDistribution(options.AgentDistDir));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(sp => new SessionTokens(options.JwtSecret, sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(master);
+// Lệnh gửi cho agent (bảng agent_command trên CSDL master) — cùng CSDL với MasterStore.
+builder.Services.AddSingleton(new AgentCommandStore(masterConnection));
 // Đồng hồ lấy từ DI (test thay được); TenantRegistry bọc nó thành giờ phòng khám cho mọi dịch vụ chia ngày / tính tuổi.
 builder.Services.AddSingleton(sp => new TenantRegistry(tenantTemplate, sp.GetRequiredService<TimeProvider>(), localUtcOffset));
 builder.Services.AddSingleton<ClinicProvisioner>();
