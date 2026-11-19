@@ -751,4 +751,78 @@ public class IngestServiceTests(PostgresFixture fixture)
 
         (await StoredAsync(env.Db, items[hgbId])).Value.ShouldNotBeNull();
     }
+
+    [Fact]
+    public async Task Ingest_BanTin_QcVaChuaGhep_KhongChenTrungKhiGiaiMaLai_RawRefKhacVanChen()
+    {
+        var env = await CreateEnvAsync();
+        var rawRef = $"ban-tin:{Guid.NewGuid()}";
+        var qc = new InstrumentReading(env.InstrumentId, "QC-THU", IsQc: true, ReceivedAt, rawRef, [Item("HGB", "131"), Item("WBC", "6.1")]);
+        var orphan = new InstrumentReading(env.InstrumentId, "KHONGCO01", IsQc: false, ReceivedAt, rawRef, [Item("HGB", "100"), Item("WBC", "5.5")]);
+
+        (await env.Ingest.IngestAsync(qc)).Qc.ShouldBe(2);
+        (await env.Ingest.IngestAsync(orphan)).Unmatched.ShouldBe(2);
+
+        // Giải mã lại cùng bản tin: không chèn thêm và không đếm.
+        (await env.Ingest.IngestAsync(qc)).Qc.ShouldBe(0);
+        (await env.Ingest.IngestAsync(orphan)).Unmatched.ShouldBe(0);
+
+        await using (var connection = await env.Db.OpenAsync(TestContext.Current.CancellationToken))
+        {
+            (await connection.ExecuteScalarAsync<int>("SELECT count(*) FROM qc_result")).ShouldBe(2);
+            (await connection.ExecuteScalarAsync<int>("SELECT count(*) FROM unmatched_result")).ShouldBe(2);
+        }
+
+        // Bản tin khác (raw_ref khác) hoặc raw_ref không phải bản tin thô (đường cũ) vẫn chèn bình thường.
+        (await env.Ingest.IngestAsync(qc with { RawRef = $"ban-tin:{Guid.NewGuid()}" })).Qc.ShouldBe(2);
+        (await env.Ingest.IngestAsync(qc with { RawRef = "MSG-001" })).Qc.ShouldBe(2);
+        (await env.Ingest.IngestAsync(qc with { RawRef = "MSG-001" })).Qc.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Ingest_BanTin_CungKhoaTrongMotBanTinVanGhiDuHaiDong()
+    {
+        // Một bản tin có hai kết quả cùng mẫu + kênh (máy gửi lại/điều chỉnh): lần giải mã đầu không được mất dòng nào.
+        var env = await CreateEnvAsync();
+        var rawRef = $"ban-tin:{Guid.NewGuid()}";
+        var first = new InstrumentReading(env.InstrumentId, "KHONGCO02", IsQc: false, ReceivedAt, rawRef, [Item("HGB", "100")]);
+        var second = first with { Items = [Item("HGB", "101")] };
+
+        await env.Db.InTransactionAsync(async (connection, transaction) =>
+        {
+            (await env.Ingest.IngestAsync(first, connection, transaction)).Unmatched.ShouldBe(1);
+            (await env.Ingest.IngestAsync(second, connection, transaction)).Unmatched.ShouldBe(1);
+            return 0;
+        }, TestContext.Current.CancellationToken);
+
+        (await UnmatchedRowsAsync(env.Db)).Count.ShouldBe(2);
+
+        // Giải mã lại: cả hai dòng đã có từ trước nên không chèn thêm.
+        await env.Db.InTransactionAsync(async (connection, transaction) =>
+        {
+            (await env.Ingest.IngestAsync(first, connection, transaction)).Unmatched.ShouldBe(0);
+            (await env.Ingest.IngestAsync(second, connection, transaction)).Unmatched.ShouldBe(0);
+            return 0;
+        }, TestContext.Current.CancellationToken);
+
+        (await UnmatchedRowsAsync(env.Db)).Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Ingest_OverloadGiaoDichNgoai_RollbackThiKhongGhiGi()
+    {
+        var env = await CreateEnvAsync();
+        var hgbId = await SaveServiceAsync(env.Base.Catalog, "HGB", "Huyết sắc tố", env.Base.EdtaId, decimals: 0, unit: "g/L");
+        await MapAsync(env, "HGB", hgbId);
+        var (sampleId, items) = await CreateSampleAsync(env.Base, FemaleAdult(), hgbId);
+        var barcode = await BarcodeAsync(env.Db, sampleId);
+
+        await Should.ThrowAsync<InvalidOperationException>(() => env.Db.InTransactionAsync<int>(async (connection, transaction) =>
+        {
+            (await env.Ingest.IngestAsync(Reading(env.InstrumentId, barcode, Item("HGB", "132")), connection, transaction)).Stored.ShouldBe(1);
+            throw new InvalidOperationException("Hỏng thử");
+        }, TestContext.Current.CancellationToken));
+
+        (await StoredOrNullAsync(env.Db, items[hgbId])).ShouldBeNull();
+    }
 }
