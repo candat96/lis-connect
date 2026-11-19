@@ -179,4 +179,31 @@ public class RawMessageCollectorTests
         b.Seq.ShouldBe(a.Seq + 1);
         a.Id.Version.ShouldBe(7);
     }
+
+    [Fact]
+    public void Collector_Seq_khoi_dong_lai_tiep_tuc_du_dong_ho_lui()
+    {
+        var clock = new FakeTimeProvider(T0);
+        var last = T0.ToUnixTimeMilliseconds() * 1000 + 5000; // lần chạy trước ghi tới đây, giờ máy sau đó bị chỉnh lùi
+        var c = new RawMessageCollector(Id, clock, TimeSpan.FromSeconds(60), initialSeq: last);
+        c.Append(B("A"), T0);
+        c.OnDisconnect(T0).Single().Seq.ShouldBe(last + 1);
+        c.Append(B("B"), T0);
+        c.OnDisconnect(T0).Single().Seq.ShouldBe(last + 2);
+    }
+
+    [Fact]
+    public void Collector_Boundaries_offset_lon_hon_chieu_dai_khuc_chi_cat_den_het_bo_dem()
+    {
+        var c = Collector();
+        c.Append(B("xx"), T0);
+        c.Append(B("AB"), T0.AddSeconds(1));
+        var r = c.ApplyBoundaries(2, [new DriverBoundary(50, false)], T0.AddSeconds(1), isReceiving: false);
+        r.Single().Bytes.ShouldBe(B("xxAB"));
+        c.Pending.ShouldBe(0);
+
+        c.Append(B("C"), T0.AddSeconds(2));
+        var again = c.ApplyBoundaries(1, [new DriverBoundary(9, false), new DriverBoundary(9, false)], T0.AddSeconds(2), isReceiving: false);
+        again.Single().Bytes.ShouldBe(B("C")); // ranh giới thứ hai không còn byte: bỏ, không sinh bản tin rỗng
+    }
 }

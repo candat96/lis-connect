@@ -10,9 +10,9 @@ namespace Lis.Connections.RawMessages;
 /// <remarks>
 /// Byte không thuộc lượt nào (ACK/NAK máy trả, rác, CR sau FS) dồn vào đầu bản tin kế tiếp. Xả thành bản tin <c>Partial</c> khi:
 /// im lặng quá <c>idleFlush</c> kể từ byte cuối; byte đầu trong bộ đệm quá <see cref="MaxAge"/> mà driver đang rảnh
-/// (máy gửi rác đều đặn); ngắt kết nối.
+/// (máy gửi rác đều đặn); ngắt kết nối. <c>initialSeq</c> = <c>Seq</c> lớn nhất đã dùng trước lần khởi động này, để <c>Seq</c> không lùi khi đồng hồ máy bị chỉnh lùi.
 /// </remarks>
-public sealed class RawMessageCollector(Guid instrumentId, TimeProvider clock, TimeSpan idleFlush)
+public sealed class RawMessageCollector(Guid instrumentId, TimeProvider clock, TimeSpan idleFlush, long initialSeq = 0)
 {
     /// <summary>Tuổi tối đa của byte rời khi driver rảnh.</summary>
     public static readonly TimeSpan MaxAge = TimeSpan.FromSeconds(60);
@@ -20,7 +20,7 @@ public sealed class RawMessageCollector(Guid instrumentId, TimeProvider clock, T
     private readonly List<byte> _buffer = [];
     private readonly List<(DateTimeOffset At, int Length)> _chunks = [];
     private DateTimeOffset _lastByteAt;
-    private long _lastSeq;
+    private long _lastSeq = initialSeq;
     private string _session = Guid.CreateVersion7().ToString();
 
     /// <summary>Số byte đang chờ cắt.</summary>

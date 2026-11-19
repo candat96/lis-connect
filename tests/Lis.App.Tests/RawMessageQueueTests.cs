@@ -69,6 +69,91 @@ public class RawMessageQueueTests : IDisposable
     }
 
     [Fact]
+    public async Task Queue_peek_tep_dang_bi_khoa_khong_thanh_loi()
+    {
+        var q = new RawMessageQueue(_root);
+        var m = Msg(10);
+        await q.SaveAsync(m, TestContext.Current.CancellationToken);
+        var path = Path.Combine(_root, Inst.ToString("N"), $"{10:D20}-{m.Id:N}.json");
+
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            q.Peek(Inst, 10).ShouldBeEmpty();
+            File.Exists(path).ShouldBeTrue();
+            File.Exists(path + ".loi").ShouldBeFalse();
+        }
+
+        q.Peek(Inst, 10).Single().Id.ShouldBe(m.Id);
+    }
+
+    [Fact]
+    public async Task Queue_peek_doc_duoc_tep_dang_mo_chia_se_doc_ghi()
+    {
+        var q = new RawMessageQueue(_root);
+        var m = Msg(10);
+        await q.SaveAsync(m, TestContext.Current.CancellationToken);
+        var path = Path.Combine(_root, Inst.ToString("N"), $"{10:D20}-{m.Id:N}.json");
+        using var other = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        q.Peek(Inst, 10).Single().Id.ShouldBe(m.Id);
+    }
+
+    [Fact]
+    public async Task Queue_peek_noi_dung_thieu_truong_bat_buoc_thanh_loi()
+    {
+        var q = new RawMessageQueue(_root);
+        await q.SaveAsync(Msg(10), TestContext.Current.CancellationToken);
+        var bad = Path.Combine(_root, Inst.ToString("N"), $"{5:D20}-{Guid.NewGuid():N}.json");
+        File.WriteAllText(bad, "null");
+        q.Peek(Inst, 10).Select(m => m.Seq).ShouldBe([10]);
+        File.Exists(bad + ".loi").ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Queue_MaxSeq_doc_tu_ten_tep_json_va_loi()
+    {
+        var q = new RawMessageQueue(_root);
+        q.MaxSeq(Inst).ShouldBe(0);
+        await q.SaveAsync(Msg(10), TestContext.Current.CancellationToken);
+        await q.SaveAsync(Msg(20), TestContext.Current.CancellationToken);
+        q.MaxSeq(Inst).ShouldBe(20);
+        File.WriteAllText(Path.Combine(_root, Inst.ToString("N"), $"{99:D20}-{Guid.NewGuid():N}.json.loi"), "x");
+        File.WriteAllText(Path.Combine(_root, Inst.ToString("N"), $"{500:D20}-{Guid.NewGuid():N}.json.tmp"), "x");
+        q.MaxSeq(Inst).ShouldBe(99);
+        q.MaxSeq(Guid.NewGuid()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Queue_don_tep_tmp_mo_coi_cu_hon_1_ngay()
+    {
+        var q = new RawMessageQueue(_root);
+        await q.SaveAsync(Msg(10), TestContext.Current.CancellationToken);
+        var dir = Path.Combine(_root, Inst.ToString("N"));
+        var old = Path.Combine(dir, "cu.json.tmp");
+        var fresh = Path.Combine(dir, "moi.json.tmp");
+        File.WriteAllText(old, "x");
+        File.WriteAllText(fresh, "x");
+        File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-2));
+
+        _ = new RawMessageQueue(_root).Instruments();
+
+        File.Exists(old).ShouldBeFalse();
+        File.Exists(fresh).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Queue_Instruments_chiu_duoc_thu_muc_bi_xoa()
+    {
+        var q = new RawMessageQueue(_root);
+        await q.SaveAsync(Msg(10), TestContext.Current.CancellationToken);
+        var other = Guid.NewGuid();
+        await q.SaveAsync(Msg(1, inst: other), TestContext.Current.CancellationToken);
+        Directory.Delete(Path.Combine(_root, other.ToString("N")), true);
+        q.Instruments().ShouldBe([Inst]);
+        Directory.Delete(_root, true);
+        q.Instruments().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Queue_nhieu_may_tach_thu_muc()
     {
         var q = new RawMessageQueue(_root);

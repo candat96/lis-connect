@@ -18,4 +18,7 @@ public sealed record RawMessage(
 public interface IRawMessageSink
 {
     Task SaveAsync(RawMessage message, CancellationToken ct);
+
+    /// <summary><c>Seq</c> lớn nhất đã ghi cho máy này (0 nếu chưa có). Dùng khởi tạo bộ gom sau khi khởi động lại.</summary>
+    long MaxSeq(Guid instrumentId) => 0;
 }

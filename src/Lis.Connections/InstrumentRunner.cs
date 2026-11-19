@@ -82,6 +82,19 @@ public sealed class InstrumentRunner : IAsyncDisposable
     private readonly IRawMessageSink? _raw;
     private readonly RawMessageCollector? _collector;
     private readonly List<RawMessage> _unsaved = [];
+    private long _unsavedBytes;
+    private string? _rawFailureText;
+
+    /// <summary>Trần phòng thủ của hàng giữ trong bộ nhớ khi đĩa lỗi: chạm trần thì ngắt máy như khi ghi đĩa lỗi.</summary>
+    private const int MaxUnsavedMessages = 1000;
+
+    private const long MaxUnsavedBytes = 50L * 1024 * 1024;
+    private const int FinalFlushAttempts = 5;
+    private static readonly TimeSpan FinalFlushGap = TimeSpan.FromMilliseconds(500);
+    private const string RawStoreDownText = "Không ghi được đĩa — đã ngắt máy để máy tự giữ kết quả";
+
+    /// <summary>Nội bộ: không ghi được bản tin thô xuống đĩa. Vòng ngoài coi như mất kết nối (máy không được ACK).</summary>
+    private sealed class RawStoreUnavailableException(string message) : Exception(message);
 
     public InstrumentRunner(
         InstrumentInfo instrument,
@@ -101,7 +114,8 @@ public sealed class InstrumentRunner : IAsyncDisposable
         {
             // Chế độ bản tin thô: khoảng lặng cắt bản tin của "chi-nghe" là 2 giây, họ khác 60 giây.
             _collector = new RawMessageCollector(
-                instrument.Id, clock, driver.Family == Lis.Core.Drivers.ListenOnly.ListenOnlyDriver.FamilyCode ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(60));
+                instrument.Id, clock, driver.Family == Lis.Core.Drivers.ListenOnly.ListenOnlyDriver.FamilyCode ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(60),
+                initialSeq: rawSink.MaxSeq(instrument.Id));
         }
 
         _instrument = instrument;
@@ -138,6 +152,7 @@ public sealed class InstrumentRunner : IAsyncDisposable
             }
         }
 
+        await FinalRawFlushAsync();
         _stop.Dispose();
         _gate.Dispose();
     }
@@ -146,6 +161,13 @@ public sealed class InstrumentRunner : IAsyncDisposable
     {
         while (!ct.IsCancellationRequested)
         {
+            // Còn bản tin chưa xuống đĩa thì chưa nhận gì từ máy: lưu cho xong rồi mới mở kết nối.
+            if (!await DrainUnsavedAsync(ct))
+            {
+                return;
+            }
+
+            _rawFailureText = null;
             _session = _clock.GetLocalNow().ToString("HHmmss");
             await using var link = _linkFactory(_settings);
             try
@@ -171,13 +193,13 @@ public sealed class InstrumentRunner : IAsyncDisposable
             SetStatus(LinkState.Connected, $"Đã kết nối · {link.Description}");
 
             using var sessionStop = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var ticker = TickLoopAsync(sessionStop.Token);
+            var ticker = TickLoopAsync(sessionStop, ct);
             try
             {
                 var buffer = new byte[4096];
                 while (true)
                 {
-                    var read = await link.ReadAsync(buffer, ct);
+                    var read = await link.ReadAsync(buffer, sessionStop.Token);
                     if (read == 0)
                     {
                         LogEvent("Máy đóng kết nối");
@@ -199,9 +221,14 @@ public sealed class InstrumentRunner : IAsyncDisposable
             {
                 return;
             }
+            catch (RawStoreUnavailableException ex)
+            {
+                _rawFailureText = ex.Message;
+                LogEvent($"Mất kết nối: {ex.Message}");
+            }
             catch (Exception ex)
             {
-                LogEvent($"Mất kết nối: {ex.Message}");
+                LogEvent(_rawFailureText is null ? $"Mất kết nối: {ex.Message}" : $"Mất kết nối: {_rawFailureText}");
             }
             finally
             {
@@ -211,35 +238,68 @@ public sealed class InstrumentRunner : IAsyncDisposable
                 {
                     await ticker;
                 }
-                catch (OperationCanceledException)
+                catch (Exception)
                 {
+                    // Vòng Tick tự bắt và log lỗi; dù sao cũng không được chặn việc xả bộ gom.
                 }
 
                 await FlushRawOnDisconnectAsync();
             }
 
-            SetStatus(LinkState.Error, $"Mất kết nối — thử lại sau {RetryDelay.TotalSeconds:0} giây");
+            SetStatus(LinkState.Error, _rawFailureText is null
+                ? $"Mất kết nối — thử lại sau {RetryDelay.TotalSeconds:0} giây"
+                : $"{_rawFailureText} — thử lại sau {RetryDelay.TotalSeconds:0} giây");
             await DelayAsync(ct);
         }
     }
 
-    private async Task TickLoopAsync(CancellationToken ct)
+    /// <summary>
+    /// Nhịp 1 giây: Tick driver, gửi bù hàng chờ. Lỗi bất kỳ được bắt và log (runner không chết, bộ gom không mất), trừ
+    /// huỷ và "không ghi được đĩa": lỗi đó ngắt phiên (<paramref name="session"/>) để máy không được ACK khi chưa lưu.
+    /// </summary>
+    private async Task TickLoopAsync(CancellationTokenSource session, CancellationToken ct)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1), _clock);
-        while (await timer.WaitForNextTickAsync(ct))
+        var failing = false;
+        while (await timer.WaitForNextTickAsync(session.Token))
         {
-            await WithGateAsync(() => HandleTopAsync(_driver.Tick(_clock.GetLocalNow()), ct, null));
-            if (_clock.GetUtcNow() >= _nextPendingRetry)
+            try
             {
-                _nextPendingRetry = _clock.GetUtcNow() + PendingRetryInterval;
-                await RetryPendingAsync();
+                await WithGateAsync(() => HandleTopAsync(_driver.Tick(_clock.GetLocalNow()), session.Token, null));
+                if (_clock.GetUtcNow() >= _nextPendingRetry)
+                {
+                    _nextPendingRetry = _clock.GetUtcNow() + PendingRetryInterval;
+                    await RetryPendingAsync();
+                }
+
+                failing = false;
+            }
+            catch (OperationCanceledException) when (session.IsCancellationRequested || ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (RawStoreUnavailableException ex)
+            {
+                _rawFailureText = ex.Message;
+                LogEvent($"Ngắt kết nối: {ex.Message}");
+                await session.CancelAsync();
+                return;
+            }
+            catch (Exception ex)
+            {
+                if (!failing)
+                {
+                    LogEvent($"Lỗi ở nhịp Tick (bỏ qua, vẫn chạy tiếp): {ex.Message}");
+                }
+
+                failing = true;
             }
         }
     }
 
-    private async Task WithGateAsync(Func<Task> work)
+    private async Task WithGateAsync(Func<Task> work, CancellationToken ct = default)
     {
-        await _gate.WaitAsync();
+        await _gate.WaitAsync(ct);
         try
         {
             await work();
@@ -253,6 +313,8 @@ public sealed class InstrumentRunner : IAsyncDisposable
     /// <summary>
     /// Đầu ra của một lần gọi driver ở vòng chính (Receive hoặc Tick): ở chế độ bản tin thô, cắt và ghi đĩa bản tin
     /// TRƯỚC khi <see cref="HandleAsync"/> ghi bất kỳ byte nào ra máy. <paramref name="receivedLength"/> null = Tick.
+    /// Còn bản tin chưa xuống đĩa thì KHÔNG ghi <c>Send</c> (máy không được ACK thứ chưa lưu): log ghi chú rồi ném
+    /// <see cref="RawStoreUnavailableException"/> để vòng ngoài ngắt kết nối.
     /// </summary>
     private async Task HandleTopAsync(DriverOutput output, CancellationToken ct, int? receivedLength)
     {
@@ -262,24 +324,45 @@ public sealed class InstrumentRunner : IAsyncDisposable
             var messages = receivedLength is { } length
                 ? _collector.ApplyBoundaries(length, output.Boundaries, now, _driver.IsReceiving)
                 : _collector.OnTick(output.Boundaries, now, _driver.IsReceiving);
-            await StoreRawAsync(messages, ct);
+            if (!await StoreRawAsync(messages, ct))
+            {
+                foreach (var note in output.Notes)
+                {
+                    LogEvent(note);
+                }
+
+                SetStatus(LinkState.Error, RawStoreDownText);
+                throw new RawStoreUnavailableException(RawStoreDownText);
+            }
         }
 
         await HandleAsync(output, ct);
     }
 
     /// <summary>
-    /// Ghi các bản tin hoàn tất (và mọi bản tin còn tồn do lần trước lỗi) theo thứ tự. Lỗi ghi: log, giữ lại trong bộ nhớ, thử ở Tick sau;
-    /// không ném ra ngoài để runner không dừng.
+    /// Ghi các bản tin hoàn tất (và mọi bản tin còn tồn) theo thứ tự. Trả false nếu còn bản tin chưa xuống đĩa (lỗi ghi, hoặc
+    /// hàng giữ chạm trần): bản tin giữ trong bộ nhớ, không ném. Chỉ ném khi bị huỷ.
     /// </summary>
-    private async Task StoreRawAsync(IReadOnlyList<RawMessage> fresh, CancellationToken ct)
+    private async Task<bool> StoreRawAsync(IReadOnlyList<RawMessage> fresh, CancellationToken ct)
     {
-        _unsaved.AddRange(fresh);
+        foreach (var message in fresh)
+        {
+            _unsaved.Add(message);
+            _unsavedBytes += message.Bytes.Length;
+        }
+
         while (_unsaved.Count > 0)
         {
+            if (_unsaved.Count > MaxUnsavedMessages || _unsavedBytes > MaxUnsavedBytes)
+            {
+                LogEvent($"Hàng bản tin chưa ghi đĩa chạm trần ({_unsaved.Count} bản tin, {_unsavedBytes} byte)");
+                return false;
+            }
+
             try
             {
                 await _raw!.SaveAsync(_unsaved[0], ct);
+                _unsavedBytes -= _unsaved[0].Bytes.Length;
                 _unsaved.RemoveAt(0);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -288,10 +371,42 @@ public sealed class InstrumentRunner : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                LogEvent($"Chưa ghi được bản tin thô xuống đĩa ({ex.Message}) — giữ trong bộ nhớ ({_unsaved.Count} bản tin), sẽ thử lại");
-                return;
+                LogEvent($"Chưa ghi được bản tin thô xuống đĩa ({ex.Message}) — giữ trong bộ nhớ ({_unsaved.Count} bản tin)");
+                return false;
             }
         }
+
+        return true;
+    }
+
+    /// <summary>Trước khi mở kết nối: lưu cho hết hàng giữ, lỗi thì chờ <see cref="RetryDelay"/>. False = runner đang dừng.</summary>
+    private async Task<bool> DrainUnsavedAsync(CancellationToken ct)
+    {
+        if (_raw is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                var done = false;
+                await WithGateAsync(async () => done = await StoreRawAsync([], ct), ct);
+                if (done)
+                {
+                    return true;
+                }
+
+                SetStatus(LinkState.Error, $"{RawStoreDownText} — chưa nhận dữ liệu từ máy, thử lại sau {RetryDelay.TotalSeconds:0} giây");
+                await DelayAsync(ct);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+        }
+
+        return false;
     }
 
     private async Task FlushRawOnDisconnectAsync()
@@ -301,7 +416,34 @@ public sealed class InstrumentRunner : IAsyncDisposable
             return;
         }
 
+        // Không ném: bản tin chưa ghi được ở lại _unsaved, vòng thử lại ở đầu RunAsync xử lý.
         await WithGateAsync(() => StoreRawAsync(_collector.OnDisconnect(_clock.GetLocalNow()), CancellationToken.None));
+    }
+
+    /// <summary>Dừng runner: xả hàng giữ tối đa 5 lần cách nhau 500 ms; vẫn lỗi thì log Critical số bản tin và số byte mất (không log nội dung).</summary>
+    private async Task FinalRawFlushAsync()
+    {
+        if (_collector is null)
+        {
+            return;
+        }
+
+        for (var attempt = 1; attempt <= FinalFlushAttempts; attempt++)
+        {
+            bool done = false;
+            await WithGateAsync(async () => done = await StoreRawAsync([], CancellationToken.None));
+            if (done)
+            {
+                return;
+            }
+
+            if (attempt < FinalFlushAttempts)
+            {
+                await Task.Delay(FinalFlushGap, _clock);
+            }
+        }
+
+        LogEvent($"[Critical] Dừng runner khi đĩa vẫn lỗi: mất {_unsaved.Count} bản tin thô, tổng {_unsavedBytes} byte (chưa ghi xuống đĩa)");
     }
 
     /// <summary>Xử lý đầu ra driver: ghi chú → log; khối gửi → máy; kết quả → CSDL; câu hỏi chỉ định → tra rồi trả lời.</summary>

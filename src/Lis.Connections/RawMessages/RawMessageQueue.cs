@@ -6,9 +6,18 @@ namespace Lis.Connections.RawMessages;
 /// Hàng chờ bản tin thô trên đĩa: <c>{root}/{instrumentId:N}/{Seq:D20}-{Id:N}.json</c>. Ghi nguyên tử (.tmp, flush xuống đĩa, đổi tên);
 /// đọc theo <see cref="RawMessage.Seq"/>; tệp hỏng đổi thành <c>.loi</c> và không chặn hàng.
 /// </summary>
-public sealed class RawMessageQueue(string root) : IRawMessageSink
+public sealed class RawMessageQueue : IRawMessageSink
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = false };
+    private static readonly TimeSpan StaleTemp = TimeSpan.FromDays(1);
+
+    private readonly string root;
+
+    public RawMessageQueue(string root)
+    {
+        this.root = root;
+        DeleteStaleTempFiles();
+    }
 
     private string DirectoryOf(Guid instrumentId) => Path.Combine(root, instrumentId.ToString("N"));
 
@@ -47,9 +56,23 @@ public sealed class RawMessageQueue(string root) : IRawMessageSink
                 break;
             }
 
+            byte[] content;
             try
             {
-                var message = JsonSerializer.Deserialize<RawMessage>(File.ReadAllText(file), Json);
+                // Chia sẻ đọc/ghi/xoá: tệp đang bị chương trình khác giữ (diệt vi-rút, sao lưu) chỉ là lỗi tạm, không phải tệp hỏng.
+                using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var buffer = new MemoryStream();
+                stream.CopyTo(buffer);
+                content = buffer.ToArray();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue; // bỏ qua ở lần Peek này, lần sau đọc lại
+            }
+
+            try
+            {
+                var message = JsonSerializer.Deserialize<RawMessage>(content, Json);
                 if (message is null || message.Bytes is null || message.InstrumentId != instrumentId)
                 {
                     throw new JsonException("Nội dung không hợp lệ");
@@ -57,7 +80,7 @@ public sealed class RawMessageQueue(string root) : IRawMessageSink
 
                 result.Add(message);
             }
-            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or ArgumentException)
+            catch (Exception ex) when (ex is JsonException or FormatException or ArgumentException)
             {
                 try
                 {
@@ -73,14 +96,92 @@ public sealed class RawMessageQueue(string root) : IRawMessageSink
         return result;
     }
 
-    public IReadOnlyList<Guid> Instruments() =>
-        !Directory.Exists(root)
-            ? []
-            : Directory.GetDirectories(root)
+    public IReadOnlyList<Guid> Instruments()
+    {
+        DeleteStaleTempFiles();
+        try
+        {
+            return Directory.GetDirectories(root)
                 .Select(d => Guid.TryParseExact(Path.GetFileName(d), "N", out var id) ? id : Guid.Empty)
-                .Where(id => id != Guid.Empty)
-                .Where(id => Directory.EnumerateFiles(DirectoryOf(id), "*.json").Any())
+                .Where(id => id != Guid.Empty && HasJson(id))
                 .ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return []; // thư mục gốc chưa có hoặc bị xoá giữa chừng
+        }
+    }
+
+    private bool HasJson(Guid instrumentId)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(DirectoryOf(instrumentId), "*.json").Any();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false; // thư mục máy vừa bị xoá
+        }
+    }
+
+    /// <summary><c>Seq</c> lớn nhất đọc từ tên tệp (<c>.json</c> và <c>.loi</c>); 0 nếu không có.</summary>
+    public long MaxSeq(Guid instrumentId)
+    {
+        long max = 0;
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(DirectoryOf(instrumentId)))
+            {
+                var name = Path.GetFileName(file);
+                if (!name.EndsWith(".json", StringComparison.Ordinal) && !name.EndsWith(".json.loi", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (name.Length > 20 && long.TryParse(name.AsSpan(0, 20), out var seq) && seq > max)
+                {
+                    max = seq;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // chưa có thư mục: chưa có bản tin nào
+        }
+
+        return max;
+    }
+
+    /// <summary>Tệp <c>.tmp</c> mồ côi (tắt máy giữa lúc ghi) quá 1 ngày thì xoá. Không bao giờ ném lỗi.</summary>
+    private void DeleteStaleTempFiles()
+    {
+        try
+        {
+            if (!Directory.Exists(root))
+            {
+                return;
+            }
+
+            foreach (var temp in Directory.EnumerateFiles(root, "*.tmp", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    if (DateTime.UtcNow - File.GetLastWriteTimeUtc(temp) > StaleTemp)
+                    {
+                        File.Delete(temp);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // đang bị giữ: để lần sau
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // thư mục vừa bị xoá
+        }
+    }
 
     public void Delete(RawMessage message)
     {
