@@ -37,6 +37,14 @@ switch (command)
 {
     case AgentCommand.Pair pair:
         return await PairAsync(pair.CodeText, paths, store);
+    case AgentCommand.ApplyUpdate apply:
+        if (!OperatingSystem.IsWindows())
+        {
+            Console.Error.WriteLine("Chỉ hỗ trợ trên Windows");
+            return 2;
+        }
+
+        return await ApplyUpdateAsync(apply.CommandId, paths);
     case AgentCommand.Service or AgentCommand.Run:
         Directory.CreateDirectory(paths.Root);
         return await RunAsync(config, environment, paths, store);
@@ -65,6 +73,48 @@ static async Task<int> SetupAsync(AgentCommand command, AgentPaths paths, Pairin
         Console.Out, runningExe: exePath, dataSecurity: new WindowsDataDirSecurity());
     return await new SetupConsole(Console.In, Console.Out, new WindowsElevation(), installer, store, exePath)
         .RunAsync(command, CancellationToken.None);
+}
+
+/// <summary>Chạy từ <c>LisAgent.new.exe</c> (SYSTEM, tách rời khỏi dịch vụ): áp bản mới, quay về bản cũ nếu không nối lại được trong 2 phút.</summary>
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
+static async Task<int> ApplyUpdateAsync(Guid commandId, AgentPaths paths)
+{
+    var logFile = Path.Combine(paths.Root, "cap-nhat.log");
+    void Log(string message)
+    {
+        try
+        {
+            Directory.CreateDirectory(paths.Root);
+            File.AppendAllText(logFile, $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [{commandId}] {message}{Environment.NewLine}", new System.Text.UTF8Encoding(false));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    var service = new ScServiceControl();
+    var newExe = Environment.ProcessPath ?? "";
+    var installed = service.BinPath();
+    if (installed is null || !string.Equals(Path.GetDirectoryName(installed), Path.GetDirectoryName(newExe), StringComparison.OrdinalIgnoreCase)
+        || !string.Equals(Path.GetFileName(newExe), UpdateHandler.NewFileName, StringComparison.OrdinalIgnoreCase))
+    {
+        Log("Không xác định được tệp cài của dịch vụ cạnh tệp bản mới — không cập nhật");
+        return 2;
+    }
+
+    Log($"Bắt đầu cập nhật lên {AgentVersion.Current}");
+    var report = await new UpdateApplier(
+        installed, newExe, paths, service, TimeProvider.System, UpdateApplier.DefaultConnectTimeout, Log,
+        deleteAfterExit: DeleteFileAfterExit).ApplyAsync(commandId, AgentVersion.Current, CancellationToken.None);
+    Log(report.Ok ? "Xong: thành công" : $"Xong: thất bại — {report.Error}");
+    return report.Ok ? 0 : 1;
+}
+
+static void DeleteFileAfterExit(string file)
+{
+    var script = Path.Combine(Path.GetTempPath(), $"lis-agent-del-{Guid.NewGuid():N}.cmd");
+    File.WriteAllText(script, UpdateApplier.BuildDeleteFileScript(file));
+    new ProcessLauncher().StartDetached("cmd.exe", $"/c \"\"{script}\"\"", Path.GetTempPath());
 }
 
 static async Task<int> PairAsync(string? codeText, AgentPaths paths, PairingStore store)
@@ -114,6 +164,10 @@ static async Task<int> RunAsync(IConfiguration config, IConfiguration environmen
         sp.GetRequiredService<AgentRuntime>(), paths, sp.GetRequiredService<IAgentLifetime>(),
         runningAsService && OperatingSystem.IsWindows() ? ServiceControlForWindows() : null, runningAsService,
         sp.GetRequiredService<ILogger<RevokeHandler>>()));
+    builder.Services.AddSingleton<IProcessLauncher, ProcessLauncher>();
+    builder.Services.AddSingleton<IAgentCommandHandler>(sp => new UpdateHandler(
+        sp.GetRequiredService<ServerClient>().DownloadInstallerAsync, AppContext.BaseDirectory, AgentVersion.Current,
+        runningAsService, sp.GetRequiredService<IProcessLauncher>(), sp.GetRequiredService<ILogger<UpdateHandler>>()));
     builder.Services.AddSingleton<CommandDispatcher>();
     builder.Services.AddSingleton(sp => new ChannelClient(
         new Uri(connection.ServerUrl), connection.AgentKey, sp.GetRequiredService<CommandDispatcher>(), paths,

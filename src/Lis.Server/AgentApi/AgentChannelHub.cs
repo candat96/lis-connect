@@ -223,6 +223,7 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
                 case ChannelProtocol.Hello:
                     await master.TouchAgentAsync(
                         agentId, null, AgentEndpoints.Clean(envelope.MachineName, MaxMachineName), AgentEndpoints.Clean(envelope.Version, MaxAgentVersion));
+                    await SettleUpdateAsync(identity, envelope);
                     await DeliverQueuedAsync(connection, agentId);
                     break;
                 case ChannelProtocol.Started when envelope.Id is { } id && await OwnsAsync(identity, id) is not null:
@@ -243,8 +244,56 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
         }
     }
 
+    /// <summary>
+    /// <c>hello</c> chốt lệnh <c>update</c> (agent tự khởi động lại giữa lệnh nên không có <c>result</c>): có <c>Update</c> → lệnh đó
+    /// thành <c>done</c>/<c>failed</c> (từ sent/running/unknown), chỉ khi lệnh thuộc agent này; không có mà phiên bản đang chạy khớp
+    /// <c>args.version</c> của lệnh update đang dở → <c>done</c>.
+    /// </summary>
+    private async Task SettleUpdateAsync(AgentIdentity identity, ChannelEnvelope hello)
+    {
+        var now = clock.GetUtcNow();
+        string[] open = ["sent", "running", "unknown"];
+        if (hello.Update is { } report)
+        {
+            if (await OwnsAsync(identity, report.CommandId) is not { Name: "update" } row)
+            {
+                return;
+            }
+
+            var changed = report.Ok
+                ? await commands.TransitionAsync(row.Id, open, "done", now, System.Text.Json.JsonSerializer.Serialize(new { version = report.Version }))
+                : await commands.TransitionAsync(
+                    row.Id, open, "failed", now, error: string.IsNullOrWhiteSpace(report.Error) ? "Cập nhật không thành công" : Truncate(report.Error, MaxError));
+            logger.LogInformation("Lệnh cập nhật {CommandId} của agent {AgentId} chốt qua hello: {Status}", row.Id, identity.Agent.Id, changed ? (report.Ok ? "done" : "failed") : "bỏ qua");
+            return;
+        }
+
+        var version = AgentEndpoints.Clean(hello.Version, MaxAgentVersion);
+        if (version is null || await commands.OpenUpdateAsync(identity.Agent.Id, now) is not { } pending)
+        {
+            return;
+        }
+
+        if (pending.Args is { ValueKind: System.Text.Json.JsonValueKind.Object } args
+            && args.TryGetProperty("version", out var expected) && expected.ValueKind == System.Text.Json.JsonValueKind.String
+            && expected.GetString() == version)
+        {
+            await commands.TransitionAsync(pending.Id, open, "done", now, System.Text.Json.JsonSerializer.Serialize(new { version }));
+            logger.LogInformation("Lệnh cập nhật {CommandId} của agent {AgentId} xong: agent báo đúng phiên bản", pending.Id, identity.Agent.Id);
+        }
+    }
+
     private async Task FinishAsync(AgentIdentity identity, AgentCommandRow row, ChannelEnvelope envelope)
     {
+        // update trả ok {handedOver:true}: việc chưa xong (agent còn phải đổi tệp và nối lại) — giữ running, hello sau chốt done/failed.
+        if (row.Name == "update" && envelope.Ok == true
+            && envelope.Data is { ValueKind: System.Text.Json.JsonValueKind.Object } data
+            && data.TryGetProperty("handedOver", out var handed) && handed.ValueKind == System.Text.Json.JsonValueKind.True)
+        {
+            await commands.TransitionAsync(row.Id, ["sent"], "running", clock.GetUtcNow());
+            return;
+        }
+
         var ok = envelope.Ok == true;
         var status = ok ? "done" : "failed";
         var error = ok ? null : string.IsNullOrWhiteSpace(envelope.Error) ? "Lệnh không thành công" : Truncate(envelope.Error, MaxError);

@@ -20,6 +20,9 @@ public abstract record AgentCommand
 
     public sealed record Uninstall : AgentCommand;
 
+    /// <summary>Do <c>LisAgent.new.exe</c> tự gọi khi cập nhật từ web: áp bản mới (tham số duy nhất là mã lệnh, một GUID).</summary>
+    public sealed record ApplyUpdate(Guid CommandId) : AgentCommand;
+
     /// <summary>Bấm đúp tệp cài trên Windows (không tham số).</summary>
     public sealed record Interactive : AgentCommand;
 
@@ -42,6 +45,10 @@ public abstract record AgentCommand
                 return new Run();
             case "uninstall" when args.Length == 1:
                 return new Uninstall();
+            case "apply-update" when args.Length == 2 && Guid.TryParse(args[1], out var commandId):
+                return new ApplyUpdate(commandId);
+            case "apply-update":
+                throw new ArgumentException("Dùng: LisAgent apply-update <mã lệnh>");
             case "pair" when args.Length == 1:
                 throw new ArgumentException("Thiếu mã ghép nối. Dùng: LisAgent pair <mã>");
             case "pair" when args.Length == 2:

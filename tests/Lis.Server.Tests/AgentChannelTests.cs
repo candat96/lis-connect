@@ -447,4 +447,82 @@ public sealed class AgentChannelTests(ServerFixture fixture) : IClassFixture<Ser
             row.Error.ShouldBe("Máy chủ khởi động lại — không rõ kết quả");
         }
     }
+
+    private static string UpdateArgs(string version) => JsonSerializer.Serialize(new { version, sha256 = "abc" });
+
+    [Fact]
+    public async Task Hello_bao_cap_nhat_chot_lenh()
+    {
+        var (host, clinic, agent, key, clock) = await StartAsync(fixture, "kenhcapnhat");
+        await using var _h = host;
+        var failed = await host.AgentCommands.CreateAsync(clinic.Id, agent.Id, "update", UpdateArgs("0.3.0"), "unknown", null, null, clock.GetUtcNow());
+        var succeeded = await host.AgentCommands.CreateAsync(clinic.Id, agent.Id, "update", UpdateArgs("0.3.0"), "sent", null, null, clock.GetUtcNow());
+
+        using var socket = await ConnectAsync(host, key);
+        await SendAsync(socket, new ChannelEnvelope(
+            ChannelProtocol.Hello, Version: "0.2.0",
+            Update: new UpdateReport(failed.Id, false, null, "Bản mới không kết nối được máy chủ trong 2 phút — đã quay về bản cũ")));
+        await WaitUntilAsync(async () => (await RowAsync(host, clinic, failed.Id))!.Status == "failed");
+        (await RowAsync(host, clinic, failed.Id))!.Error.ShouldBe("Bản mới không kết nối được máy chủ trong 2 phút — đã quay về bản cũ");
+
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "0.3.0", Update: new UpdateReport(succeeded.Id, true, "0.3.0", null)));
+        await WaitUntilAsync(async () => (await RowAsync(host, clinic, succeeded.Id))!.Status == "done");
+    }
+
+    [Fact]
+    public async Task Hello_bao_cap_nhat_dung_phien_ban_thi_lenh_dang_chay_thanh_done()
+    {
+        var (host, clinic, agent, key, clock) = await StartAsync(fixture, "kenhcapnhatver");
+        await using var _h = host;
+        var running = await host.AgentCommands.CreateAsync(clinic.Id, agent.Id, "update", UpdateArgs("0.3.0"), "running", null, null, clock.GetUtcNow());
+
+        using var socket = await ConnectAsync(host, key);
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "0.2.0"));
+        await Task.Delay(300, TestContext.Current.CancellationToken);
+        (await RowAsync(host, clinic, running.Id))!.Status.ShouldBe("running"); // sai phiên bản: chưa chốt
+
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "0.3.0"));
+        await WaitUntilAsync(async () => (await RowAsync(host, clinic, running.Id))!.Status == "done");
+    }
+
+    [Fact]
+    public async Task Hello_bao_cap_nhat_khong_dong_vao_lenh_cua_agent_khac_hay_lenh_da_xong()
+    {
+        var (host, clinic, agent, key, clock) = await StartAsync(fixture, "kenhcapnhatkhac");
+        await using var _h = host;
+        var (other, _) = await host.AddAgentWithKeyAsync(clinic, "Agent Khác", "XN-02");
+        var foreign = await host.AgentCommands.CreateAsync(clinic.Id, other.Id, "update", UpdateArgs("0.3.0"), "running", null, null, clock.GetUtcNow());
+        var restart = await host.AgentCommands.CreateAsync(clinic.Id, agent.Id, "restart", null, "running", null, null, clock.GetUtcNow());
+        var finished = await host.AgentCommands.CreateAsync(clinic.Id, agent.Id, "update", UpdateArgs("0.3.0"), "failed", null, null, clock.GetUtcNow());
+
+        using var socket = await ConnectAsync(host, key);
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "0.3.0", Update: new UpdateReport(foreign.Id, true, "0.3.0", null)));
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "0.3.0", Update: new UpdateReport(restart.Id, true, "0.3.0", null)));
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "0.3.0", Update: new UpdateReport(finished.Id, true, "0.3.0", null)));
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "0.3.0")); // hello cuối làm mốc: đã xử lý xong các hello trước
+
+        await Task.Delay(500, TestContext.Current.CancellationToken);
+        (await RowAsync(host, clinic, foreign.Id))!.Status.ShouldBe("running");
+        (await RowAsync(host, clinic, restart.Id))!.Status.ShouldBe("running");
+        (await RowAsync(host, clinic, finished.Id))!.Status.ShouldBe("failed");
+    }
+
+    [Fact]
+    public async Task Update_tra_handedOver_van_dang_chay_cho_hello_chot()
+    {
+        var (host, clinic, agent, key, clock) = await StartAsync(fixture, "kenhcapnhatban");
+        await using var _h = host;
+        using var socket = await ConnectAsync(host, key);
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "0.2.0"));
+        var row = await host.Hub.SubmitAsync(clinic.Id, agent.Id, "update", UpdateArgs("0.3.0"), null, "Quản trị Thử");
+        (await ReceiveAsync(socket))!.Id.ShouldBe(row.Id);
+
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Started, row.Id));
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Result, row.Id, Ok: true, Data: JsonSerializer.SerializeToElement(new { handedOver = true })));
+        await Task.Delay(500, TestContext.Current.CancellationToken);
+        (await RowAsync(host, clinic, row.Id))!.Status.ShouldBe("running");
+
+        await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Hello, Version: "0.3.0", Update: new UpdateReport(row.Id, true, "0.3.0", null)));
+        await WaitUntilAsync(async () => (await RowAsync(host, clinic, row.Id))!.Status == "done");
+    }
 }

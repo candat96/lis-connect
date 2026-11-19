@@ -58,6 +58,46 @@ public sealed class ServerClient(HttpClient http)
         await EnsureOkAsync(response, ct);
     }
 
+    /// <summary>
+    /// Tải tệp cài agent (<c>GET agent/v1/installer</c>) ghi vào <paramref name="destination"/>; SHA-256 (hex chữ thường) tính ngay trên
+    /// byte đã ghi, không tin tiêu đề server. Lỗi giữa chừng thì xoá tệp dở rồi ném lại.
+    /// </summary>
+    public async Task<(string Sha256, string? Version)> DownloadInstallerAsync(string destination, CancellationToken ct = default)
+    {
+        using var response = await http.GetAsync("agent/v1/installer", HttpCompletionOption.ResponseHeadersRead, ct);
+        await EnsureOkAsync(response, ct);
+        var version = response.Headers.TryGetValues("X-Agent-Version", out var values) ? values.FirstOrDefault() : null;
+        try
+        {
+            using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+            await using (var file = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+            await using (var body = await response.Content.ReadAsStreamAsync(ct))
+            {
+                var buffer = new byte[81920];
+                int read;
+                while ((read = await body.ReadAsync(buffer, ct)) > 0)
+                {
+                    hash.AppendData(buffer, 0, read);
+                    await file.WriteAsync(buffer.AsMemory(0, read), ct);
+                }
+            }
+
+            return (Convert.ToHexStringLower(hash.GetHashAndReset()), version);
+        }
+        catch
+        {
+            try
+            {
+                File.Delete(destination);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+
+            throw;
+        }
+    }
+
     private async Task<T> GetAsync<T>(string path, CancellationToken ct)
     {
         using var response = await http.GetAsync(path, ct);

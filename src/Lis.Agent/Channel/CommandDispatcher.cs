@@ -55,7 +55,9 @@ public sealed class CommandDispatcher(IEnumerable<IAgentCommandHandler> handlers
 
             try
             {
-                var data = await handler.RunAsync(command.Args, ct);
+                var data = handler is ICommandIdAware aware && command.Id is { } commandId
+                    ? await aware.RunAsync(commandId, command.Args, ct)
+                    : await handler.RunAsync(command.Args, ct);
                 return new ChannelEnvelope(ChannelProtocol.Result, command.Id, Ok: true, Data: data);
             }
             catch (AgentCommandException ex)
