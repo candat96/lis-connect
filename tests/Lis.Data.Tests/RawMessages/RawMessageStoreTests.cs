@@ -96,28 +96,52 @@ public class RawMessageStoreTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task Pending_cu_nhat_truoc_va_MarkInterrupted_chi_dang_giai_ma_qua_han()
+    public async Task Pending_cu_nhat_truoc()
     {
         var env = await RawEnv.CreateAsync(fixture);
         var newer = await env.StoreAsync([1]);
         var older = await env.StoreAsync([2]);
-        var stuckOld = await env.StoreAsync([3]);
-        var stuckNew = await env.StoreAsync([4]);
         await using (var connection = await env.Db.OpenAsync(TestContext.Current.CancellationToken))
         {
             await connection.ExecuteAsync("UPDATE raw_message SET stored_at = now() - interval '1 hour' WHERE id = @older", new { older });
-            await connection.ExecuteAsync(
-                "UPDATE raw_message SET decode_status = 'dang-giai-ma', decode_started_at = now() - interval '10 minutes' WHERE id = @stuckOld",
-                new { stuckOld });
-            await connection.ExecuteAsync(
-                "UPDATE raw_message SET decode_status = 'dang-giai-ma', decode_started_at = now() WHERE id = @stuckNew", new { stuckNew });
         }
 
         (await env.Store.PendingAsync(10)).ShouldBe([older, newer]);
         (await env.Store.PendingAsync(1)).ShouldBe([older]);
+    }
 
-        (await env.Store.MarkInterruptedAsync(DateTimeOffset.UtcNow.AddMinutes(-5))).ShouldBe(1);
-        (await env.Store.FindAsync(stuckOld))!.DecodeStatus.ShouldBe(RawMessageStatus.NeedsReview);
-        (await env.Store.FindAsync(stuckNew))!.DecodeStatus.ShouldBe(RawMessageStatus.Decoding);
+    [Fact]
+    public async Task Pending_giu_thu_tu_truyen_cua_tung_may()
+    {
+        var env = await RawEnv.CreateAsync(fixture);
+        var first = env.Insert([1]) with { Seq = 1, CompletedAt = RawEnv.CompletedAt.AddMinutes(1) };
+        var second = env.Insert([2]) with { Seq = 2, CompletedAt = RawEnv.CompletedAt.AddMinutes(2) };
+        var third = env.Insert([3]) with { Seq = 3, CompletedAt = RawEnv.CompletedAt.AddMinutes(2) };
+        // Lưu đảo ngược: bản tin truyền sau được lưu trước.
+        foreach (var m in new[] { third, second, first })
+        {
+            await env.Store.InsertIfAbsentAsync(m, TestContext.Current.CancellationToken);
+        }
+
+        (await env.Store.PendingAsync(10)).ShouldBe([first.Id, second.Id, third.Id]);
+    }
+
+    [Fact]
+    public async Task Xoa_90_ngay_xoa_theo_lo_va_xoa_het()
+    {
+        var env = await RawEnv.CreateAsync(fixture);
+        await using (var connection = await env.Db.OpenAsync(TestContext.Current.CancellationToken))
+        {
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO raw_message (id, instrument_id, seq, session, started_at, completed_at, stored_at, bytes, partial, decode_status)
+                SELECT uuidv7(), @instrumentId, g, 'phiên-thử', now(), now(), now() - interval '100 days', '\x01'::bytea, false, 'da-giai-ma'
+                FROM generate_series(1, 1203) g
+                """,
+                new { instrumentId = env.InstrumentId });
+        }
+
+        (await env.Store.DeleteOlderThanAsync(DateTimeOffset.UtcNow.AddDays(-90))).ShouldBe(1203);
+        (await env.CountAsync("SELECT count(*) FROM raw_message")).ShouldBe(0);
     }
 }

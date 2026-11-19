@@ -99,13 +99,16 @@ public class RawMessageProcessorTests(PostgresFixture fixture)
         (await env.CountAsync("SELECT count(*) FROM unmatched_result")).ShouldBe(2);
         var historyBefore = (await HistoryAsync(env.Db, items[env.WbcId])).Count;
 
-        // Giải mã lại 2 lần nữa: số dòng QC/chưa ghép không đổi và Outcome không đếm dòng bị bỏ qua.
+        // Giải mã lại 2 lần nữa: dòng QC/chưa ghép chưa xử lý của lượt trước được THAY bằng bản mới (không nhân đôi);
+        // số dòng giữ nguyên và decode_result ghi rõ số dòng đã thay.
         for (var i = 0; i < 2; i++)
         {
             var qcRow = await env.Processor.DecodeAsync(qcId, "giai-ma-lai", env.Base.ActorId, Ct);
-            qcRow.DecodeResult!.Value.GetProperty("qc").GetInt32().ShouldBe(0);
+            qcRow.DecodeResult!.Value.GetProperty("supersededQc").GetInt32().ShouldBe(2);
+            qcRow.DecodeResult.Value.GetProperty("qc").GetInt32().ShouldBe(2);
             var unmatchedRow = await env.Processor.DecodeAsync(unmatchedId, "giai-ma-lai", env.Base.ActorId, Ct);
-            unmatchedRow.DecodeResult!.Value.GetProperty("unmatched").GetInt32().ShouldBe(0);
+            unmatchedRow.DecodeResult!.Value.GetProperty("supersededUnmatched").GetInt32().ShouldBe(2);
+            unmatchedRow.DecodeResult.Value.GetProperty("unmatched").GetInt32().ShouldBe(2);
             await env.Processor.DecodeAsync(mixedId, "giai-ma-lai", env.Base.ActorId, Ct);
         }
 
@@ -146,8 +149,19 @@ public class RawMessageProcessorTests(PostgresFixture fixture)
         var id = await env.StoreAsync(RawEnv.Hl7(false, (s1.Barcode, "5.1", "110"), (s2.Barcode, "6.2", "120"), (s3.Barcode, "7.3", "130")));
 
         // "Server chết": tiến trình bị huỷ sau reading thứ 2 trong 3 (tắt máy chủ giữa chừng).
-        env.Processor.AfterReadingIngested = n => n == 2 ? throw new OperationCanceledException("Tắt máy chủ") : Task.CompletedTask;
-        var interrupted = await env.Processor.DecodeAsync(id, "tu-dong", null, Ct);
+        using var shutdown = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        env.Processor.AfterReadingIngested = n =>
+        {
+            if (n != 2)
+            {
+                return Task.CompletedTask;
+            }
+
+            shutdown.Cancel();
+            throw new OperationCanceledException("Tắt máy chủ", shutdown.Token);
+        };
+        await Should.ThrowAsync<OperationCanceledException>(() => env.Processor.DecodeAsync(id, "tu-dong", null, shutdown.Token));
+        var interrupted = (await env.Store.FindAsync(id))!;
 
         interrupted.DecodeStatus.ShouldBe(RawMessageStatus.Waiting);
         (await RowsOfMessageAsync(env, id)).ShouldBe(0);
@@ -179,47 +193,25 @@ public class RawMessageProcessorTests(PostgresFixture fixture)
     {
         var env = await RawEnv.CreateAsync(fixture);
         var id = await env.StoreAsync(RawEnv.Hl7(true, ("QC-A", "5.1", "110"), ("QC-B", "6.2", "120"), ("QC-C", "7.3", "130")));
-        env.Processor.AfterReadingIngested = n => n == 2 ? throw new OperationCanceledException("Tắt máy chủ") : Task.CompletedTask;
+        using var shutdown = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        env.Processor.AfterReadingIngested = n =>
+        {
+            if (n != 2)
+            {
+                return Task.CompletedTask;
+            }
 
-        await env.Processor.DecodeAsync(id, "tu-dong", null, Ct);
+            shutdown.Cancel();
+            throw new OperationCanceledException("Tắt máy chủ", shutdown.Token);
+        };
+
+        await Should.ThrowAsync<OperationCanceledException>(() => env.Processor.DecodeAsync(id, "tu-dong", null, shutdown.Token));
         (await env.CountAsync("SELECT count(*) FROM qc_result")).ShouldBe(0);
 
         await new RawMessageProcessor(env.Db, env.Ingest, null, env.Clock).RecoverAsync(Ct);
 
         (await env.CountAsync("SELECT count(*) FROM qc_result")).ShouldBe(6);
         (await env.CountAsync("SELECT count(*) FROM qc_result WHERE barcode = 'QC-A'")).ShouldBe(2);
-    }
-
-    [Fact]
-    public async Task Dang_giai_ma_qua_5_phut_thanh_can_xem_lai_khong_tu_chay()
-    {
-        var env = await RawEnv.CreateAsync(fixture);
-        var (_, barcode, items) = await env.NewSampleAsync();
-        var id = await env.StoreAsync(RawEnv.Hl7(false, (barcode, "9.81", "132")));
-        // Giả lập tiến trình chết sau khi đã commit "dang-giai-ma": bắt đầu từ 10 phút trước.
-        await using (var connection = await env.Db.OpenAsync(Ct))
-        {
-            await connection.ExecuteAsync(
-                "UPDATE raw_message SET decode_status = 'dang-giai-ma', decode_started_at = @at WHERE id = @id",
-                new { id, at = env.Clock.GetUtcNow().AddMinutes(-10).ToUniversalTime() });
-        }
-
-        await env.Processor.RecoverAsync(Ct);
-
-        (await env.Store.FindAsync(id))!.DecodeStatus.ShouldBe(RawMessageStatus.NeedsReview);
-        (await StoredOrNullAsync(env.Db, items[env.WbcId])).ShouldBeNull();
-
-        // Chưa quá 5 phút thì để nguyên (có thể lượt khác còn đang chạy).
-        var fresh = await env.StoreAsync(RawEnv.Hl7(false, (barcode, "9.81", "132")));
-        await using (var connection = await env.Db.OpenAsync(Ct))
-        {
-            await connection.ExecuteAsync(
-                "UPDATE raw_message SET decode_status = 'dang-giai-ma', decode_started_at = @at WHERE id = @id",
-                new { id = fresh, at = env.Clock.GetUtcNow().AddMinutes(-2).ToUniversalTime() });
-        }
-
-        await env.Processor.RecoverAsync(Ct);
-        (await env.Store.FindAsync(fresh))!.DecodeStatus.ShouldBe(RawMessageStatus.Decoding);
     }
 
     [Fact]

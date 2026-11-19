@@ -32,7 +32,7 @@ internal sealed record RawEnv(
         await instruments.SaveChannelAsync(new ChannelMap(Guid.Empty, instrumentId, "718-7", hgbId, null, null, false, false));
 
         var ingest = new IngestService(baseEnv.Db, clock);
-        return new RawEnv(baseEnv, instrumentId, wbcId, hgbId, new RawMessageStore(baseEnv.Db),
+        return new RawEnv(baseEnv, instrumentId, wbcId, hgbId, new RawMessageStore(baseEnv.Db, clock),
             new RawMessageProcessor(baseEnv.Db, ingest, learning, clock), ingest, clock);
     }
 
@@ -61,7 +61,12 @@ internal sealed record RawEnv(
     }
 
     /// <summary>Bản tin HL7-MLLP: mỗi OBR là một mẫu (barcode ở OBR-3); <paramref name="qc"/> = MSH-11 là Q.</summary>
-    public static byte[] Hl7(bool qc, params (string Barcode, string Wbc, string Hgb)[] samples)
+    public static byte[] Hl7(bool qc, params (string Barcode, string Wbc, string Hgb)[] samples) => BuildHl7(qc, "N", samples);
+
+    /// <summary>Như <see cref="Hl7"/> nhưng OBX-8 (cờ bất thường) để trống: kết quả không mang cờ máy nên mới tự duyệt được.</summary>
+    public static byte[] Hl7Unflagged(params (string Barcode, string Wbc, string Hgb)[] samples) => BuildHl7(false, "", samples);
+
+    private static byte[] BuildHl7(bool qc, string flag, (string Barcode, string Wbc, string Hgb)[] samples)
     {
         var text = new StringBuilder();
         text.Append($"MSH|^~\\&|Analyzer|Mindray|||20261119083000||ORU^R01|1|{(qc ? "Q" : "P")}|2.3.1||||||UNICODE\r");
@@ -70,8 +75,8 @@ internal sealed record RawEnv(
         foreach (var (barcode, wbc, hgb) in samples)
         {
             text.Append($"OBR|{i++}||{barcode}|00001^Automated Count^99MRC||20261119082000|20261119083000\r");
-            text.Append($"OBX|1|NM|6690-2^WBC^LN||{wbc}|10*9/L|4.00-10.00|N|||F\r");
-            text.Append($"OBX|2|NM|718-7^HGB^LN||{hgb}|g/L|110-150|N|||F\r");
+            text.Append($"OBX|1|NM|6690-2^WBC^LN||{wbc}|10*9/L|4.00-10.00|{flag}|||F\r");
+            text.Append($"OBX|2|NM|718-7^HGB^LN||{hgb}|g/L|110-150|{flag}|||F\r");
         }
 
         return [0x0B, .. Encoding.UTF8.GetBytes(text.ToString()), 0x1C, 0x0D];

@@ -219,6 +219,16 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                 return false;
             }
 
+            // Giải mã lại có thể treo bản chờ thay ngay cả khi mẫu CHƯA duyệt: duyệt lúc đó sẽ chốt giá trị cũ
+            // trong khi còn một giá trị khác của máy chưa ai xem.
+            var withPending = await connection.ExecuteScalarAsync<int>(
+                $"SELECT count(*)::int FROM result r {JoinResultToSample} AND r.pending_value IS NOT NULL",
+                new { sampleId }, transaction);
+            if (withPending > 0)
+            {
+                throw new ResultException(ResultFailure.Conflict, "Mẫu còn giá trị chờ thay — chấp nhận hoặc bỏ trước khi duyệt");
+            }
+
             var withValue = await connection.ExecuteScalarAsync<int>(
                 $"SELECT count(*)::int FROM result r {JoinResultToSample} AND r.value IS NOT NULL AND r.value <> ''",
                 new { sampleId }, transaction);

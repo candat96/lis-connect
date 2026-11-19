@@ -148,6 +148,7 @@ public static class InstrumentsEndpoints
         {
             InstrumentDeleteResult.Deleted => Results.NoContent(),
             InstrumentDeleteResult.NotFound => throw ApiException.NotFound(InstrumentNotFound),
+            InstrumentDeleteResult.InUseRawMessages => throw ApiException.Conflict("Máy còn bản tin thô chưa xử lý xong"),
             _ => throw ApiException.Conflict("Máy đã có kết quả xét nghiệm gắn với nó nên không xoá được — hãy chuyển sang \"Ngừng dùng\""),
         };
     }

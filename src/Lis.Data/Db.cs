@@ -50,7 +50,17 @@ public sealed class Db(NpgsqlDataSource source)
         }
         catch
         {
-            await transaction.RollbackAsync(ct);
+            try
+            {
+                // Không truyền ct: bị huỷ thì vẫn phải rollback cho xong.
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            catch (Exception)
+            {
+                // Rollback hỏng (vd kết nối đã đứt) không được che lỗi gốc: giao dịch dù sao cũng không được commit
+                // và máy chủ tự huỷ giao dịch dở khi kết nối đóng. Db không có logger nên bỏ qua.
+            }
+
             throw;
         }
     }

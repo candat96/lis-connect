@@ -3,7 +3,8 @@
 -- id do agent sinh nên không có DEFAULT: gửi lại cùng id thì ON CONFLICT DO NOTHING (chống trùng).
 CREATE TABLE IF NOT EXISTS raw_message (
     id uuid PRIMARY KEY,
-    instrument_id uuid NOT NULL REFERENCES instrument (id) ON DELETE CASCADE,
+    -- RESTRICT: xoá máy không được âm thầm kéo theo bản tin thô (InstrumentStore.DeleteAsync tự xoá bản tin đã xong).
+    instrument_id uuid NOT NULL REFERENCES instrument (id) ON DELETE RESTRICT,
     agent_id uuid NULL,
     seq bigint NOT NULL,
     session text NOT NULL,
@@ -18,7 +19,12 @@ CREATE TABLE IF NOT EXISTS raw_message (
     driver_config jsonb NULL,
     decode_status text NOT NULL CHECK (decode_status IN
         ('cho-giai-ma', 'dang-giai-ma', 'da-giai-ma', 'khong-co-ket-qua', 'loi', 'chi-luu', 'can-xem-lai')),
+    -- Hàng rào lượt chạy: lượt đang chạy giữ (decode_status = 'dang-giai-ma', decode_started_at) do ClaimAsync đặt;
+    -- mọi UPDATE trạng thái của lượt đó đều kèm điều kiện này. decode_kind là loại lượt (tu-dong / giai-ma-lai),
+    -- decode_attempts đếm số lần claim — phục hồi (RecoverAsync) dùng cả hai để quyết định chạy lại hay chuyển can-xem-lai.
     decode_started_at timestamptz NULL,
+    decode_kind text NULL CHECK (decode_kind IN ('tu-dong', 'giai-ma-lai')),
+    decode_attempts int NOT NULL DEFAULT 0,
     decoder_version text NULL,
     decode_result jsonb NULL,
     decoded_at timestamptz NULL
@@ -43,6 +49,7 @@ CREATE TABLE IF NOT EXISTS raw_message_decode (
 );
 CREATE INDEX IF NOT EXISTS raw_message_decode_msg_idx ON raw_message_decode (raw_message_id, at);
 
--- Khoá chống chèn trùng khi giải mã lại bản tin QC / chưa ghép (IngestService tìm theo khoá này).
-CREATE INDEX IF NOT EXISTS qc_result_rawref_idx ON qc_result (instrument_id, raw_ref) WHERE raw_ref LIKE 'ban-tin:%';
-CREATE INDEX IF NOT EXISTS unmatched_result_rawref_idx ON unmatched_result (instrument_id, raw_ref) WHERE raw_ref LIKE 'ban-tin:%';
+-- Giải mã lại bản tin thô thay các dòng QC / Chưa ghép chưa xử lý do bản tin đó sinh ra từ lượt trước
+-- (xoá theo máy + raw_ref rồi ingest lại), nên chỉ cần chỉ mục tra cứu thường.
+CREATE INDEX IF NOT EXISTS qc_result_rawref_idx ON qc_result (instrument_id, raw_ref);
+CREATE INDEX IF NOT EXISTS unmatched_result_rawref_idx ON unmatched_result (instrument_id, raw_ref);

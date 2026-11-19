@@ -69,6 +69,9 @@ public enum InstrumentDeleteResult
 
     /// <summary>Máy đã có kết quả / log tham chiếu tới — không xoá được, chỉ ngừng dùng.</summary>
     InUse,
+
+    /// <summary>Máy còn bản tin thô chưa xử lý xong (chờ giải mã, đang giải mã, lỗi, chỉ lưu, cần xem lại) — không xoá được.</summary>
+    InUseRawMessages,
 }
 
 /// <summary>Danh mục máy và map kênh mà màn "Máy &amp; map" cần. Cài đặt thật là <see cref="InstrumentStore"/>; kiểm thử ViewModel dùng bản giả.</summary>
@@ -337,13 +340,31 @@ public sealed class InstrumentStore(Db db) : IInstrumentStore
         return channel.Id;
     }
 
-    /// <summary>Xoá máy cùng map kênh và danh sách chỉ số khai báo của nó trong một giao dịch.</summary>
+    /// <summary>
+    /// Xoá máy cùng map kênh, danh sách chỉ số khai báo và các bản tin thô đã xong (<c>da-giai-ma</c>, <c>khong-co-ket-qua</c>) của nó
+    /// trong một giao dịch. Còn bản tin thô ở trạng thái khác thì <see cref="InstrumentDeleteResult.InUseRawMessages"/>.
+    /// </summary>
     public async Task<InstrumentDeleteResult> DeleteAsync(Guid instrumentId)
     {
         try
         {
             return await db.InTransactionAsync(async (connection, transaction) =>
             {
+                var unfinished = await connection.ExecuteScalarAsync<bool>(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM raw_message
+                        WHERE instrument_id = @instrumentId AND decode_status NOT IN ('da-giai-ma', 'khong-co-ket-qua'))
+                    """,
+                    new { instrumentId }, transaction);
+                if (unfinished)
+                {
+                    return InstrumentDeleteResult.InUseRawMessages;
+                }
+
+                await connection.ExecuteAsync(
+                    "DELETE FROM raw_message WHERE instrument_id = @instrumentId AND decode_status IN ('da-giai-ma', 'khong-co-ket-qua')",
+                    new { instrumentId }, transaction);
                 await connection.ExecuteAsync("DELETE FROM instrument_service WHERE instrument_id = @instrumentId", new { instrumentId }, transaction);
                 await connection.ExecuteAsync("DELETE FROM instrument_channel WHERE instrument_id = @instrumentId", new { instrumentId }, transaction);
                 var deleted = await connection.ExecuteAsync("DELETE FROM instrument WHERE id = @instrumentId", new { instrumentId }, transaction);

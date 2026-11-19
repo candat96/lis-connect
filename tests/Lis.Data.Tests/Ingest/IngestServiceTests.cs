@@ -753,8 +753,10 @@ public class IngestServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task Ingest_BanTin_QcVaChuaGhep_KhongChenTrungKhiGiaiMaLai_RawRefKhacVanChen()
+    public async Task Ingest_BanTin_QcVaChuaGhep_IngestKhongTuChongTrung_DongDaXuLyKhongTaoLaiKhiGiaiMaLai()
     {
+        // Chống trùng khi giải mã lại không còn dựa vào xmin trong IngestService: một bản tin chỉ chạy tu-dong một lần
+        // (hàng rào lượt chạy) và lượt giai-ma-lai xoá dòng chưa xử lý của lượt trước trước khi ingest (RawMessageProcessor).
         var env = await CreateEnvAsync();
         var rawRef = $"ban-tin:{Guid.NewGuid()}";
         var qc = new InstrumentReading(env.InstrumentId, "QC-THU", IsQc: true, ReceivedAt, rawRef, [Item("HGB", "131"), Item("WBC", "6.1")]);
@@ -762,50 +764,49 @@ public class IngestServiceTests(PostgresFixture fixture)
 
         (await env.Ingest.IngestAsync(qc)).Qc.ShouldBe(2);
         (await env.Ingest.IngestAsync(orphan)).Unmatched.ShouldBe(2);
-
-        // Giải mã lại cùng bản tin: không chèn thêm và không đếm.
-        (await env.Ingest.IngestAsync(qc)).Qc.ShouldBe(0);
-        (await env.Ingest.IngestAsync(orphan)).Unmatched.ShouldBe(0);
+        // Ingest lại (chế độ Live, như đường /readings cũ) luôn ghi thêm, kể cả cùng raw_ref.
+        (await env.Ingest.IngestAsync(qc)).Qc.ShouldBe(2);
+        (await env.Ingest.IngestAsync(orphan)).Unmatched.ShouldBe(2);
 
         await using (var connection = await env.Db.OpenAsync(TestContext.Current.CancellationToken))
         {
-            (await connection.ExecuteScalarAsync<int>("SELECT count(*) FROM qc_result")).ShouldBe(2);
-            (await connection.ExecuteScalarAsync<int>("SELECT count(*) FROM unmatched_result")).ShouldBe(2);
+            (await connection.ExecuteScalarAsync<int>("SELECT count(*) FROM qc_result")).ShouldBe(4);
+            (await connection.ExecuteScalarAsync<int>("SELECT count(*) FROM unmatched_result")).ShouldBe(4);
+
+            // Chế độ giải mã lại: dòng Chưa ghép ĐÃ xử lý cùng (barcode, kênh, giá trị) giữ nguyên và không tạo lại.
+            await connection.ExecuteAsync(
+                "UPDATE unmatched_result SET resolved_at = now(), resolved_by = @actor, dismiss_reason = 'Bỏ qua thử' WHERE channel_code = 'HGB'",
+                new { actor = env.Base.ActorId });
         }
 
-        // Bản tin khác (raw_ref khác) hoặc raw_ref không phải bản tin thô (đường cũ) vẫn chèn bình thường.
-        (await env.Ingest.IngestAsync(qc with { RawRef = $"ban-tin:{Guid.NewGuid()}" })).Qc.ShouldBe(2);
-        (await env.Ingest.IngestAsync(qc with { RawRef = "MSG-001" })).Qc.ShouldBe(2);
-        (await env.Ingest.IngestAsync(qc with { RawRef = "MSG-001" })).Qc.ShouldBe(2);
+        await env.Db.InTransactionAsync(async (connection, transaction) =>
+        {
+            var again = await env.Ingest.IngestAsync(orphan, connection, transaction, ValueWriteMode.Redecode);
+            again.Unmatched.ShouldBe(1);
+            return 0;
+        }, TestContext.Current.CancellationToken);
     }
 
     [Fact]
     public async Task Ingest_BanTin_CungKhoaTrongMotBanTinVanGhiDuHaiDong()
     {
-        // Một bản tin có hai kết quả cùng mẫu + kênh (máy gửi lại/điều chỉnh): lần giải mã đầu không được mất dòng nào.
+        // Một bản tin có hai kết quả cùng mẫu + kênh (máy gửi lại/điều chỉnh): không dòng nào bị mất, kể cả ở chế độ giải mã lại.
         var env = await CreateEnvAsync();
         var rawRef = $"ban-tin:{Guid.NewGuid()}";
         var first = new InstrumentReading(env.InstrumentId, "KHONGCO02", IsQc: false, ReceivedAt, rawRef, [Item("HGB", "100")]);
         var second = first with { Items = [Item("HGB", "101")] };
 
-        await env.Db.InTransactionAsync(async (connection, transaction) =>
+        foreach (var mode in new[] { ValueWriteMode.Live, ValueWriteMode.Redecode })
         {
-            (await env.Ingest.IngestAsync(first, connection, transaction)).Unmatched.ShouldBe(1);
-            (await env.Ingest.IngestAsync(second, connection, transaction)).Unmatched.ShouldBe(1);
-            return 0;
-        }, TestContext.Current.CancellationToken);
+            await env.Db.InTransactionAsync(async (connection, transaction) =>
+            {
+                (await env.Ingest.IngestAsync(first, connection, transaction, mode)).Unmatched.ShouldBe(1);
+                (await env.Ingest.IngestAsync(second, connection, transaction, mode)).Unmatched.ShouldBe(1);
+                return 0;
+            }, TestContext.Current.CancellationToken);
+        }
 
-        (await UnmatchedRowsAsync(env.Db)).Count.ShouldBe(2);
-
-        // Giải mã lại: cả hai dòng đã có từ trước nên không chèn thêm.
-        await env.Db.InTransactionAsync(async (connection, transaction) =>
-        {
-            (await env.Ingest.IngestAsync(first, connection, transaction)).Unmatched.ShouldBe(0);
-            (await env.Ingest.IngestAsync(second, connection, transaction)).Unmatched.ShouldBe(0);
-            return 0;
-        }, TestContext.Current.CancellationToken);
-
-        (await UnmatchedRowsAsync(env.Db)).Count.ShouldBe(2);
+        (await UnmatchedRowsAsync(env.Db)).Count.ShouldBe(4);
     }
 
     [Fact]

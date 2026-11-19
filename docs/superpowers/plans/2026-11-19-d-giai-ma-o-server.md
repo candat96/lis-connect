@@ -35,12 +35,12 @@
 
 - Trạng thái giải mã (`raw_message.decode_status`):
   - `cho-giai-ma`: đã lưu, chưa chạy.
-  - `dang-giai-ma`: đang chạy. Kẹt quá 5 phút lúc server khởi động thì chuyển `can-xem-lai`.
+  - `dang-giai-ma`: đang chạy, do lượt giữ hàng rào (`decode_started_at` + `decode_kind` + `decode_attempts`, giao dịch chính giữ `FOR UPDATE` dòng này). Không đoán theo thời gian chạy dài: `RawMessageStore.RecoverAsync(grace = 1 phút)` chỉ xét dòng quá hạn ân hạn và lấy được khoá dòng (`FOR UPDATE SKIP LOCKED`, nghĩa là không còn lượt sống nào giữ). Lượt `tu-dong` mới claim dưới 3 lần thì về `cho-giai-ma` tự chạy lại; lượt `giai-ma-lai`, hoặc đã gián đoạn 3 lần, thì `can-xem-lai` kèm ghi chú "Giải mã bị gián đoạn {n} lần".
   - `da-giai-ma`: có ≥ 1 kết quả.
   - `khong-co-ket-qua`: giải mã xong, không ra kết quả nào, ví dụ chỉ có câu hỏi chỉ định hoặc byte rời.
   - `loi`: driver ném lỗi, bản tin dở dang có ghi chú lỗi, hoặc ingest ném lỗi.
   - `chi-luu`: họ giao thức `chi-nghe`, hoặc máy chưa chọn giao thức.
-  - `can-xem-lai`: giải mã bị gián đoạn, không tự chạy lại.
+  - `can-xem-lai`: giải mã bị gián đoạn (lượt giải mã lại, hoặc lượt tự động đã gián đoạn 3 lần), không tự chạy lại.
 - `raw_ref` của kết quả, QC và chưa ghép do bản tin thô sinh ra: `ban-tin:{raw_message.id}`.
 - Phiên bản bộ giải mã: `RawMessageDecoder.Version` = `"{InformationalVersion của Lis.Core}"`.
 
@@ -205,28 +205,29 @@
       - `at timestamptz NOT NULL DEFAULT now()`
   - `IngestService`:
     - Thêm overload `Task<IngestOutcome> IngestAsync(InstrumentReading reading, NpgsqlConnection connection, NpgsqlTransaction transaction)`. Bản cũ `IngestAsync(reading)` gọi bản mới trong `db.InTransactionAsync`, hành vi không đổi.
-    - Khi `reading.RawRef` bắt đầu bằng `"ban-tin:"`: không chèn `qc_result` / `unmatched_result` nếu đã có dòng cùng `instrument_id`, `raw_ref`, `barcode`, `channel_code`. Dòng bị bỏ qua không được đếm vào `Qc` / `Unmatched`.
+    - Overload thêm tham số `ValueWriteMode mode` (`Live` | `Redecode`). `Redecode` (lượt `giai-ma-lai`): kết quả đã có thì giống → không ghi, khác → vào chờ thay, trùng chờ thay của bản tin khác → `Conflict` (không ghi), không bao giờ `PendingCleared`, không tự duyệt mẫu, không tạo lại dòng Chưa ghép đã xử lý. `Live` giữ hành vi cũ.
+    - Không còn chống trùng `qc_result` / `unmatched_result` bằng `xmin`: lượt `tu-dong` chỉ chạy một lần nhờ hàng rào; lượt `giai-ma-lai` xoá dòng QC / Chưa ghép chưa xử lý của bản tin đó (`raw_ref = 'ban-tin:{id}'`) trước khi ingest.
   - `RawMessageStore(Db db)`:
     - `Task<RawMessageRow?> InsertIfAbsentAsync(RawMessageInsert m, CancellationToken ct)`: trả `null` khi id đã có, dùng `ON CONFLICT (id) DO NOTHING`.
     - `Task<RawMessageRow?> FindAsync(Guid id)`.
     - `Task<IReadOnlyList<RawMessageRow>> ListAsync(RawMessageFilter f)`, lọc theo `instrumentId`, `statuses`, `from`, `to`, `beforeCompletedAt` + `beforeId`, `limit ≤ 200`.
-    - `Task<int> MarkInterruptedAsync(DateTimeOffset olderThan)`: `dang-giai-ma` có `decode_started_at < olderThan` chuyển `can-xem-lai`.
-    - `Task<IReadOnlyList<Guid>> PendingAsync(int max)`: `cho-giai-ma`, cũ nhất trước.
+    - `Task<RawMessageRecovery> RecoverAsync(TimeSpan? grace = null, CancellationToken ct = default)`: thay `MarkInterruptedAsync`. `dang-giai-ma` quá `grace` (mặc định 1 phút) mà lấy được khoá `FOR UPDATE SKIP LOCKED`: lượt `tu-dong` có `decode_attempts < 3` → `cho-giai-ma`; còn lại → `can-xem-lai` ("Giải mã bị gián đoạn {n} lần").
+    - `Task<IReadOnlyList<Guid>> PendingAsync(int max)`: `cho-giai-ma`, sắp theo `instrument_id, completed_at, seq` để giữ thứ tự truyền của từng máy.
     - `Task<int> DeleteOlderThanAsync(DateTimeOffset storedBefore)`: chỉ xoá các trạng thái kết thúc `da-giai-ma`, `khong-co-ket-qua`, `loi`, `chi-luu`.
     - Record `RawMessageInsert(Guid Id, Guid InstrumentId, Guid? AgentId, long Seq, string Session, DateTimeOffset StartedAt, DateTimeOffset CompletedAt, byte[] Bytes, bool Partial)`.
     - `RawMessageRow` gồm đủ các cột, kèm `DecodeResult` dạng `JsonElement?`.
   - `RawMessageProcessor(Db db, IngestService ingest, IChannelMapLearning? learning, TimeProvider clock)`:
     - `Task<RawMessageRow> DecodeAsync(Guid id, string kind, Guid? actorId, CancellationToken ct)`. Chạy trong **một giao dịch**:
       1. `SELECT … FOR UPDATE` dòng `raw_message`. Đang `dang-giai-ma` do lượt khác thì bỏ, trả nguyên dòng.
-      2. Đặt `dang-giai-ma` cùng `decode_started_at`. Bước này commit trong giao dịch riêng **trước**, để còn phát hiện bị gián đoạn.
-      3. Mở giao dịch chính. Đọc cấu hình máy **hiện tại**: `protocol_family`, `model`, `driver_config`. Lượt tự động đầu tiên thì cấu hình này cũng là ảnh chụp lưu vào `raw_message`.
+      2. Đặt `dang-giai-ma` cùng `decode_started_at`, `decode_kind`, `decode_attempts + 1`. Bước này commit trong giao dịch riêng **trước**. `decode_started_at` đọc lại từ CSDL làm hàng rào lượt chạy.
+      3. Mở giao dịch chính, mở đầu bằng `SELECT … FROM raw_message WHERE id AND decode_status='dang-giai-ma' AND decode_started_at=@claimedAt FOR UPDATE` (không thấy dòng thì huỷ lượt), rồi khoá mọi mẫu của bản tin theo `ORDER BY id`. Mọi `UPDATE` trạng thái ngoài giao dịch chính kèm cùng điều kiện hàng rào. Deadlock / lỗi tạm thời thì thử lại tối đa 3 lần (nghỉ 100 ms × lần thử, giải mã lại từ byte). Đọc cấu hình máy **hiện tại**: `protocol_family`, `model`, `driver_config`. Lượt tự động đầu tiên thì cấu hình này cũng là ảnh chụp lưu vào `raw_message`.
       4. Họ là `chi-nghe` hoặc trống thì chuyển `chi-luu`.
       5. Ngược lại: `RawMessageDecoder.Decode(DriverRegistry.Create(...)!, bytes, completed_at)`. Với mỗi reading, `ingest.IngestAsync(new InstrumentReading(instrumentId, r.Barcode, r.IsQc, completed_at, $"ban-tin:{id}", r.Items), conn, tx)` rồi cộng dồn `IngestOutcome`.
       6. Ghi `decode_result` = `{readings, stored, pendingReplacement, unmatched, qc, queries:[...], notes:[...], abandoned, error:null}`, kèm `decoder_version`, `decoded_at`, trạng thái theo bảng "Tên dùng chung", và một dòng `raw_message_decode`. Rồi commit.
       7. Sau commit: có `unmatched > 0` thì `learning.AutoLearnAsync(instrumentId)`. Lỗi ở bước này chỉ ghi log.
       - Driver hoặc ingest ném lỗi: rollback giao dịch chính. Giao dịch riêng ghi `loi` với `error` = thông điệp, kèm dòng vết. Không có reading nào được giữ.
     - `Task<RawMessageDecodeResult> PreviewAsync(Guid id)`: chỉ giải mã, không ghi gì.
-    - `Task RecoverAsync(CancellationToken ct)`: gọi `MarkInterruptedAsync(now - 5 phút)`, rồi `DecodeAsync` từng id trong `PendingAsync`.
+    - `Task RecoverAsync(CancellationToken ct)`: gọi `RawMessageStore.RecoverAsync(grace 1 phút)`, rồi `DecodeAsync` từng id trong `PendingAsync`.
 - [ ] **Step 1: Test đỏ** (Testcontainers, dùng các fixture của `IngestServiceTests`).
   - `Insert_trung_id_tra_null_khong_doi_dong_cu`
   - `Decode_hl7_ghi_ket_qua_qua_ingest_va_raw_ref_ban_tin`
@@ -266,7 +267,7 @@
   - `RawMessageWorker`:
     - Khi server khởi động, gọi `RecoverAsync` cho mọi phòng khám.
     - Mỗi giờ, mỗi phòng khám gọi `DeleteOlderThanAsync(now - 90 ngày)`.
-    - Mỗi 60 giây, gọi `PendingAsync` để vớt bản tin `cho-giai-ma` sót lại.
+    - Mỗi 60 giây, gọi `RecoverAsync` (phục hồi `dang-giai-ma` không còn lượt sống) rồi mới `PendingAsync` để vớt bản tin `cho-giai-ma` sót lại.
   - `/api` (JWT, phòng khám lấy từ token):
     - `GET /api/raw-messages?instrumentId&status=loi,can-xem-lai&from&to&before&limit`, cho mọi vai trò xem log. Trả `[{id, instrumentId, instrumentName, seq, session, startedAt, completedAt, partial, size, decodeStatus, decoderVersion, summary}]`, trong đó `summary` là `decode_result` rút gọn.
     - `GET /api/raw-messages/{id}`: chi tiết, `hex` (tối đa 256 KB đầu), `decodeResult`, `decodes:[{kind, actorName, at, decoderVersion, status, result}]`.

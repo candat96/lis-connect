@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Dapper;
+using Lis.Core.Drivers;
 
 namespace Lis.Data.RawMessages;
 
@@ -35,9 +36,25 @@ public sealed record RawMessageFilter(
     Guid? InstrumentId, IReadOnlyList<string>? Statuses, DateTimeOffset? From, DateTimeOffset? To,
     DateTimeOffset? BeforeCompletedAt, Guid? BeforeId, int Limit = 50);
 
-/// <summary>Truy cập bảng <c>raw_message</c>. Không có logic giải mã ở đây (xem <see cref="RawMessageProcessor"/>).</summary>
-public sealed class RawMessageStore(Db db)
+/// <summary>Kết quả một lần phục hồi: số bản tin được trả về <c>cho-giai-ma</c> và số bản tin chuyển <c>can-xem-lai</c>.</summary>
+public sealed record RawMessageRecovery(int Requeued, int NeedsReview)
 {
+    public int Total => Requeued + NeedsReview;
+}
+
+/// <summary>Truy cập bảng <c>raw_message</c>. Không có logic giải mã ở đây (xem <see cref="RawMessageProcessor"/>).</summary>
+public sealed class RawMessageStore(Db db, TimeProvider? clock = null)
+{
+    /// <summary>Lượt <c>dang-giai-ma</c> bắt đầu quá thời gian này mà không còn ai giữ khoá dòng thì coi là đã chết.</summary>
+    public static readonly TimeSpan DefaultRecoverGrace = TimeSpan.FromMinutes(1);
+
+    /// <summary>Lượt <c>tu-dong</c> bị gián đoạn tới số lần claim này thì không tự chạy lại nữa mà chuyển <c>can-xem-lai</c>.</summary>
+    public const int MaxAutoAttempts = 3;
+
+    private const int DeleteBatchSize = 500;
+
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+
     internal const string Columns =
         """
         id, instrument_id, agent_id, seq, session, started_at, completed_at, stored_at, bytes, partial,
@@ -100,32 +117,110 @@ public sealed class RawMessageStore(Db db)
         return rows.Select(r => r.ToRow()).ToList();
     }
 
-    /// <summary>Bản tin <c>dang-giai-ma</c> bắt đầu trước <paramref name="olderThan"/> (tiến trình đã chết) → <c>can-xem-lai</c>, không tự chạy lại.</summary>
-    public async Task<int> MarkInterruptedAsync(DateTimeOffset olderThan)
+    /// <summary>
+    /// Phục hồi các bản tin <c>dang-giai-ma</c> bắt đầu quá <paramref name="grace"/> trước (mặc định 1 phút) mà không còn lượt
+    /// nào sống giữ dòng đó: tìm bằng <c>FOR UPDATE SKIP LOCKED</c> — lấy được khoá nghĩa là giao dịch chính của lượt đã
+    /// kết thúc (commit, rollback hoặc tiến trình chết), còn dòng đang bị khoá thì lượt đó còn sống nên bỏ qua. Lượt
+    /// <c>tu-dong</c> mới claim dưới <see cref="MaxAutoAttempts"/> lần thì về <c>cho-giai-ma</c> để tự chạy lại; các trường hợp
+    /// còn lại (lượt <c>giai-ma-lai</c>, hoặc đã thử đủ số lần) thì <c>can-xem-lai</c> kèm ghi chú "Giải mã bị gián đoạn {n} lần".
+    /// </summary>
+    public async Task<RawMessageRecovery> RecoverAsync(TimeSpan? grace = null, CancellationToken ct = default)
     {
-        await using var connection = await db.OpenAsync();
-        return await connection.ExecuteAsync(
-            "UPDATE raw_message SET decode_status = 'can-xem-lai' WHERE decode_status = 'dang-giai-ma' AND decode_started_at < @olderThan",
-            new { olderThan = olderThan.ToUniversalTime() });
+        var cutoff = (_clock.GetUtcNow() - (grace ?? DefaultRecoverGrace)).UtcDateTime;
+        await using var connection = await db.OpenAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        var stuck = (await connection.QueryAsync<StuckRow>(new CommandDefinition(
+            """
+            SELECT id, decode_kind, decode_attempts FROM raw_message
+            WHERE decode_status = 'dang-giai-ma' AND decode_started_at < @cutoff
+            ORDER BY stored_at, id
+            FOR UPDATE SKIP LOCKED
+            """,
+            new { cutoff }, transaction, cancellationToken: ct))).ToList();
+
+        int requeued = 0, needsReview = 0;
+        foreach (var row in stuck)
+        {
+            if (row.DecodeKind == "tu-dong" && row.DecodeAttempts < MaxAutoAttempts)
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    "UPDATE raw_message SET decode_status = 'cho-giai-ma' WHERE id = @id", new { row.Id }, transaction, cancellationToken: ct));
+                requeued++;
+                continue;
+            }
+
+            var result = JsonSerializer.Serialize(new
+            {
+                interrupted = true,
+                attempts = row.DecodeAttempts,
+                note = $"Giải mã bị gián đoạn {row.DecodeAttempts} lần",
+            });
+            await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE raw_message SET decode_status = 'can-xem-lai', decode_result = @result::jsonb WHERE id = @id",
+                new { row.Id, result }, transaction, cancellationToken: ct));
+            if (row.DecodeKind is not null)
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    """
+                    INSERT INTO raw_message_decode (raw_message_id, kind, actor_id, decoder_version, status, result)
+                    VALUES (@Id, @DecodeKind, NULL, @version, 'can-xem-lai', @result::jsonb)
+                    """,
+                    new { row.Id, row.DecodeKind, version = RawMessageDecoder.Version, result }, transaction, cancellationToken: ct));
+            }
+
+            needsReview++;
+        }
+
+        await transaction.CommitAsync(ct);
+        return new RawMessageRecovery(requeued, needsReview);
     }
 
-    /// <summary>Id các bản tin <c>cho-giai-ma</c>, cũ nhất trước.</summary>
+    /// <summary>
+    /// Id các bản tin <c>cho-giai-ma</c>: từng máy theo đúng thứ tự máy đã truyền (<c>completed_at</c>, <c>seq</c>) để kết quả
+    /// của bản tin sau không bị bản tin trước đè lên khi giải mã lại hàng loạt.
+    /// </summary>
     public async Task<IReadOnlyList<Guid>> PendingAsync(int max)
     {
         await using var connection = await db.OpenAsync();
         var ids = await connection.QueryAsync<Guid>(
-            "SELECT id FROM raw_message WHERE decode_status = 'cho-giai-ma' ORDER BY stored_at, id LIMIT @max",
+            "SELECT id FROM raw_message WHERE decode_status = 'cho-giai-ma' ORDER BY instrument_id, completed_at, seq, stored_at, id LIMIT @max",
             new { max = Math.Max(1, max) });
         return ids.ToList();
     }
 
-    /// <summary>Xoá bản tin lưu trước <paramref name="storedBefore"/> — chỉ các trạng thái đã kết thúc; không bao giờ xoá bản tin chưa xong.</summary>
+    /// <summary>
+    /// Xoá bản tin lưu trước <paramref name="storedBefore"/> — chỉ các trạng thái đã kết thúc; không bao giờ xoá bản tin chưa xong.
+    /// Xoá từng lô <see cref="DeleteBatchSize"/> dòng mỗi lệnh (giao dịch ngắn, không giữ khoá lâu) tới khi hết.
+    /// </summary>
     public async Task<int> DeleteOlderThanAsync(DateTimeOffset storedBefore)
     {
         await using var connection = await db.OpenAsync();
-        return await connection.ExecuteAsync(
-            "DELETE FROM raw_message WHERE stored_at < @storedBefore AND decode_status = ANY(@terminal)",
-            new { storedBefore = storedBefore.ToUniversalTime(), terminal = RawMessageStatus.Terminal.ToArray() });
+        var total = 0;
+        while (true)
+        {
+            var deleted = await connection.ExecuteAsync(
+                """
+                DELETE FROM raw_message WHERE id IN (
+                    SELECT id FROM raw_message
+                    WHERE stored_at < @storedBefore AND decode_status = ANY(@terminal)
+                    ORDER BY stored_at, id
+                    LIMIT @batch
+                    FOR UPDATE SKIP LOCKED)
+                """,
+                new { storedBefore = storedBefore.ToUniversalTime(), terminal = RawMessageStatus.Terminal.ToArray(), batch = DeleteBatchSize });
+            total += deleted;
+            if (deleted < DeleteBatchSize)
+            {
+                return total;
+            }
+        }
+    }
+
+    internal sealed record StuckRow
+    {
+        public Guid Id { get; init; }
+        public string? DecodeKind { get; init; }
+        public int DecodeAttempts { get; init; }
     }
 
     internal sealed record Dto

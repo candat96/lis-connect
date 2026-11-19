@@ -429,6 +429,29 @@ public class ResultServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task Duyet_mau_con_cho_thay_bi_chan()
+    {
+        var env = await CreateEnvAsync();
+        var instrumentId = await InsertInstrumentAsync(env.Db, "Máy thử XN");
+        var wbcId = await SaveServiceAsync(env.Catalog, "WBC", "Bạch cầu", env.EdtaId, decimals: 1, unit: "G/L");
+        var (sampleId, items) = await CreateSampleAsync(env, MaleAdult(), wbcId);
+        await env.Results.SetManualAsync(items[wbcId], "6.0", env.ActorId, null);
+        // Mẫu CHƯA duyệt mà có bản chờ thay (giải mã lại ra giá trị khác).
+        await SetPendingAsync(env.Db, items[wbcId], "7.2", instrumentId, "ban-tin:thu");
+
+        var ex = await Should.ThrowAsync<ResultException>(() => env.Results.ApproveAsync(sampleId, env.ActorId));
+
+        ex.Failure.ShouldBe(ResultFailure.Conflict);
+        ex.Message.ShouldBe("Mẫu còn giá trị chờ thay — chấp nhận hoặc bỏ trước khi duyệt");
+        (await env.Results.GetAsync(sampleId)).ApprovedAt.ShouldBeNull();
+
+        var resultId = (await StoredAsync(env.Db, items[wbcId])).Id;
+        await env.Results.RejectPendingAsync(resultId, env.ActorId);
+        await env.Results.ApproveAsync(sampleId, env.ActorId);
+        (await env.Results.GetAsync(sampleId)).ApprovedAt.ShouldNotBeNull();
+    }
+
+    [Fact]
     public async Task RejectPending_ClearsAndLogs()
     {
         var env = await CreateEnvAsync();
