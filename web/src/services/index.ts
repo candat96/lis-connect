@@ -303,6 +303,48 @@ export interface Agent {
   version: string | null;
   /** Có giá trị khi còn một mã ghép nối chưa dùng, chưa hết hạn. */
   pairingExpiresAt: string | null;
+  /** Kênh lệnh WebSocket đang mở — lệnh tới agent ngay. */
+  channel: boolean;
+  /** Cổng COM ở lần quét cuối (null = chưa quét). */
+  ports: AgentPort[] | null;
+  portsScannedAt: string | null;
+}
+
+/** Một cổng COM agent thấy trên máy tính của nó. */
+export interface AgentPort {
+  name: string;
+  description: string | null;
+  /** Tên máy xét nghiệm của agent đang dùng cổng này. */
+  usedBy: string | null;
+  /** Phần mềm khác đang giữ cổng. */
+  busy: boolean;
+}
+
+export type AgentCommandName =
+  | 'reload-config' | 'scan-ports' | 'test-port' | 'reconnect-instrument' | 'flush-pending' | 'restart' | 'update' | 'revoke';
+
+export type AgentCommandStatus = 'queued' | 'sent' | 'running' | 'done' | 'failed' | 'expired' | 'unknown';
+
+export interface AgentCommand {
+  id: string;
+  name: AgentCommandName;
+  args: Record<string, unknown> | null;
+  status: AgentCommandStatus;
+  requestedBy: string | null;
+  requestedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export interface TestPortArgs {
+  portName: string;
+  baudRate: number;
+  dataBits: number;
+  parity: string;
+  stopBits: number;
+  seconds: number;
 }
 
 /** Mã ghép nối dùng một lần (30 phút) — chỉ trả về lúc tạo, không xem lại được. */
@@ -327,6 +369,11 @@ export const agentService = {
   remove: (id: string) => api<void>(`/agents/${id}`, { method: 'DELETE' }),
   installerInfo: () => api<InstallerInfo>('/agents/installer/info'),
   downloadInstaller: () => apiBlob('/agents/installer'),
+  /** Ra lệnh cho agent; server trả 202 kèm lệnh ở trạng thái queued/sent. */
+  command: (id: string, name: AgentCommandName, args?: TestPortArgs | { instrumentId: string }) =>
+    api<AgentCommand>(`/agents/${id}/commands`, { method: 'POST', body: args ? { name, args } : { name } }),
+  commands: (id: string) => api<AgentCommand[]>(`/agents/${id}/commands`),
+  commandById: (commandId: string) => api<AgentCommand>(`/agents/commands/${commandId}`),
 };
 
 // ---- Log agent ----
@@ -394,6 +441,8 @@ export const qk = {
   unmapped: (id: string) => ['instruments', id, 'unmapped'] as const,
   agents: ['agents'] as const,
   agentInstaller: ['agent-installer'] as const,
+  agentCommands: (id: string) => ['agents', id, 'commands'] as const,
+  agentCommand: (commandId: string) => ['agent-command', commandId] as const,
   users: ['users'] as const,
   logs: (filter: object) => ['agent-logs', filter] as const,
 };

@@ -1,7 +1,7 @@
 import { Tag } from 'antd';
 import {
   CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, DisconnectOutlined, ExclamationCircleOutlined,
-  HourglassOutlined, LinkOutlined, LoadingOutlined, QuestionCircleOutlined,
+  HourglassOutlined, LinkOutlined, LoadingOutlined, QuestionCircleOutlined, SendOutlined,
 } from '@ant-design/icons';
 import type { ReactNode } from 'react';
 
@@ -32,6 +32,15 @@ const STATUS: Record<string, Record<string, StatusDef>> = {
     never: { label: 'Đã ghép nối, chưa chạy', color: 'default', icon: <QuestionCircleOutlined /> },
     pairing: { label: 'Chờ ghép nối', color: 'processing', icon: <HourglassOutlined /> },
     unpaired: { label: 'Chưa ghép nối', color: 'default', icon: <DisconnectOutlined /> },
+  },
+  command: {
+    queued: { label: 'Chờ agent', color: 'default', icon: <HourglassOutlined /> },
+    sent: { label: 'Đã gửi', color: 'processing', icon: <SendOutlined /> },
+    running: { label: 'Đang chạy', color: 'processing', icon: <LoadingOutlined /> },
+    done: { label: 'Xong', color: 'success', icon: <CheckCircleOutlined /> },
+    failed: { label: 'Lỗi', color: 'error', icon: <CloseCircleOutlined /> },
+    expired: { label: 'Hết hạn', color: 'warning', icon: <ClockCircleOutlined /> },
+    unknown: { label: 'Không rõ kết quả', color: 'warning', icon: <QuestionCircleOutlined /> },
   },
   user: {
     active: { label: 'Đang hoạt động', color: 'success', icon: <CheckCircleOutlined /> },

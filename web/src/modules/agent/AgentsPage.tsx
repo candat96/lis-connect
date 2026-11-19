@@ -1,17 +1,21 @@
 // Agent: máy tính đặt cạnh máy xét nghiệm, nối cổng COM/TCP và gửi dữ liệu về server.
-// Màn này thêm agent bằng mã ghép nối (tải tệp cài → chạy là xong), đổi tên, ghép nối lại, xoá, và xem agent đang kết nối hay không.
-import { FileSearchOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons';
+// Màn này thêm agent bằng mã ghép nối (tải tệp cài → chạy là xong), đổi tên, ghép nối lại, xoá, xem agent đang kết nối hay không,
+// và mở bảng điều khiển (lệnh qua kênh WebSocket) bằng nút "Điều khiển" hoặc bấm vào dòng.
+import { ControlOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App, Button, Card, Empty, Flex, Form, Input, Modal, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Empty, Flex, Form, Input, Modal, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { agentService, qk, type Agent } from '@/services';
 import { DeleteButton } from '@/shared/ui/DeleteButton';
 import { StatusTag } from '@/shared/ui/StatusTag';
 import { useIsAdmin } from '@/stores/sessionStore';
+import { AgentDrawer } from './AgentDrawer';
 import { PairingDialog, type PairingTarget } from './PairingDialog';
 import { pairingState } from './pairing';
+
+// Nhãn ngắn trạng thái đường truyền trong bảng; câu đầy đủ hiện khi rê chuột.
+const LINK_LABEL: Record<string, string> = { Connected: 'Đã kết nối', Connecting: 'Đang chờ máy', Error: 'Lỗi kết nối', NotRunning: 'Không chạy' };
 
 interface AgentForm {
   name: string;
@@ -20,11 +24,11 @@ interface AgentForm {
 export default function AgentsPage() {
   const isAdmin = useIsAdmin();
   const { message, modal } = App.useApp();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<AgentForm>();
   const [editing, setEditing] = useState<Agent | 'new' | null>(null);
   const [pairing, setPairing] = useState<PairingTarget | null>(null);
+  const [controlId, setControlId] = useState<string | null>(null);
 
   const agents = useQuery({ queryKey: qk.agents, queryFn: agentService.list, refetchInterval: 10_000 });
   const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: qk.agents }), queryClient.invalidateQueries({ queryKey: qk.instruments })]);
@@ -103,10 +107,15 @@ export default function AgentsPage() {
           </Typography.Text>
           {agents.error && <Alert type="error" showIcon message={(agents.error as Error).message} />}
           <Table<Agent>
-            rowKey="id" size="small" bordered pagination={false} loading={agents.isLoading} dataSource={agents.data ?? []} scroll={{ x: 960 }}
+            rowKey="id" size="small" bordered pagination={false} loading={agents.isLoading} dataSource={agents.data ?? []} scroll={{ x: 1100 }}
+            rowClassName={() => 'row-clickable'}
+            onRow={(row) => ({
+              // Bấm vào dòng mở bảng điều khiển; bấm nút trong dòng thì để nút xử lý.
+              onClick: (e) => { if (!(e.target as HTMLElement).closest('button, a, .ant-popover')) setControlId(row.id); },
+            })}
             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có agent nào — bấm Thêm agent để lấy tệp cài" /> }}
             columns={[
-              { title: 'Tên agent', dataIndex: 'name', render: (v: string) => <b>{v}</b> },
+              { title: 'Tên agent', dataIndex: 'name', width: 200, render: (v: string) => <b>{v}</b> },
               {
                 title: 'Trạng thái', width: 230,
                 render: (_, row) => {
@@ -138,18 +147,20 @@ export default function AgentsPage() {
                     : (
                       <Space size={[6, 6]} wrap>
                         {row.instruments.map((i) => (
-                          <Tag key={i.id} color={i.status?.state === 'Connected' ? 'success' : i.status?.state === 'Error' ? 'error' : undefined} style={{ marginInlineEnd: 0 }}>
-                            {i.name}{i.status ? ` · ${i.status.text}` : ''}
-                          </Tag>
+                          <Tooltip key={i.id} title={i.status?.text}>
+                            <Tag color={i.status?.state === 'Connected' ? 'success' : i.status?.state === 'Error' ? 'error' : undefined} style={{ marginInlineEnd: 0 }}>
+                              {i.name}{i.status ? ` · ${LINK_LABEL[i.status.state] ?? i.status.state}` : ''}
+                            </Tag>
+                          </Tooltip>
                         ))}
                       </Space>
                     ),
               },
               {
-                title: '', width: isAdmin ? 320 : 80, align: 'right',
+                title: '', width: isAdmin ? 350 : 120, align: 'right',
                 render: (_, row) => (
                   <Space size={4}>
-                    <Button size="small" icon={<FileSearchOutlined />} onClick={() => navigate(`/log-agent?agentId=${row.id}`)}>Log</Button>
+                    <Button size="small" icon={<ControlOutlined />} onClick={() => setControlId(row.id)}>Điều khiển</Button>
                     {isAdmin && <Button size="small" onClick={() => openForm(row)}>Sửa</Button>}
                     {isAdmin && (
                       <Button size="small" icon={<LinkOutlined />} loading={pair.isPending && pair.variables?.id === row.id} onClick={() => confirmPair(row)}>
@@ -177,6 +188,8 @@ export default function AgentsPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <AgentDrawer agentId={controlId} onClose={() => setControlId(null)} />
 
       <PairingDialog target={pairing} onClose={() => setPairing(null)} newCodeLoading={pair.isPending}
         onNewCode={() => pairing && pair.mutate({ id: pairing.agentId, name: pairing.agentName, pairedAt: pairing.baselinePairedAt })} />

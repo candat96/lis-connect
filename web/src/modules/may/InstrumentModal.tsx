@@ -1,7 +1,9 @@
 // Thêm / sửa máy xét nghiệm: tên, giao thức, agent phụ trách, và cách agent nối với máy (COM hoặc TCP).
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Alert, App, Col, Form, Input, InputNumber, Modal, Radio, Row, Select, Switch } from 'antd';
+import { Alert, App, AutoComplete, Col, Form, Input, InputNumber, Modal, Radio, Row, Select, Switch } from 'antd';
+import dayjs from 'dayjs';
 import { useEffect } from 'react';
+import { portOptionLabel } from '@/modules/agent/commands';
 import { agentService, instrumentService, qk, type ConnectionKind, type Instrument, type InstrumentInput } from '@/services';
 
 const PROTOCOLS = [
@@ -39,7 +41,16 @@ export function InstrumentModal({ target, onClose, onSaved }: Props) {
   const { message } = App.useApp();
   const [form] = Form.useForm<FormValues>();
   const kind = Form.useWatch('kind', form);
+  const workstationCode = Form.useWatch('workstationCode', form);
   const agents = useQuery({ queryKey: qk.agents, queryFn: agentService.list, enabled: target !== null });
+  // Gợi ý cổng COM từ lần quét cuối của agent được chọn; vẫn gõ tay được khi chưa quét / cổng chưa cắm.
+  const chosenAgent = (agents.data ?? []).find((a) => a.workstationCode === workstationCode);
+  const portOptions = (chosenAgent?.ports ?? []).map((p) => ({ value: p.name, label: portOptionLabel(p) }));
+  const portsHint = !chosenAgent
+    ? 'Tên cổng trên máy tính agent.'
+    : chosenAgent.ports === null
+      ? 'Tên cổng trên máy tính agent. Quét cổng ở mục Agent → Điều khiển để có gợi ý.'
+      : `Gợi ý theo lần quét lúc ${dayjs(chosenAgent.portsScannedAt).format('HH:mm DD/MM')}.`;
 
   useEffect(() => {
     if (target === null) return;
@@ -118,8 +129,11 @@ export function InstrumentModal({ target, onClose, onSaved }: Props) {
         {kind === 'serial' && (
           <Row gutter={12}>
             <Col span={8}>
-              <Form.Item name="portName" label="Cổng COM" rules={[{ required: true, whitespace: true, message: 'Nhập cổng COM' }]} extra="Tên cổng trên máy tính agent.">
-                <Input placeholder="COM3" style={{ textTransform: 'uppercase' }} maxLength={32} />
+              <Form.Item name="portName" label="Cổng COM" rules={[{ required: true, whitespace: true, message: 'Nhập cổng COM' }, { max: 32, message: 'Tên cổng tối đa 32 ký tự' }]} extra={portsHint}>
+                <AutoComplete options={portOptions} filterOption={(input, option) => String(option?.value ?? '').toUpperCase().includes(input.trim().toUpperCase())}
+                  popupMatchSelectWidth={false}>
+                  <Input placeholder="COM3" style={{ textTransform: 'uppercase' }} />
+                </AutoComplete>
               </Form.Item>
             </Col>
             <Col span={8}>

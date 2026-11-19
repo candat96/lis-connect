@@ -27,7 +27,7 @@ const inThirtyMinutes = () => new Date(Date.now() + 30 * 60_000).toISOString();
 
 const agent = (over: Partial<Agent>): Agent => ({
   id: 'a1', name: 'Máy tính XN tầng 2', workstationCode: 'W-a1', lastSeenAt: null, online: false, instruments: [],
-  paired: false, pairedAt: null, machineName: null, version: null, pairingExpiresAt: null,
+  paired: false, pairedAt: null, machineName: null, version: null, pairingExpiresAt: null, channel: false, ports: null, portsScannedAt: null,
   ...over,
 });
 
