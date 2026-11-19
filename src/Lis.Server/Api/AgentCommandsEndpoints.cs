@@ -21,7 +21,7 @@ public sealed record AgentCommandView(
 public static partial class AgentCommandsEndpoints
 {
     /// <summary>Sau <c>revoke</c> mà agent đang nối: chờ kết quả tối đa chừng này rồi đóng kênh.</summary>
-    public static readonly TimeSpan RevokeCloseGrace = TimeSpan.FromSeconds(5);
+    internal static TimeSpan RevokeCloseGrace { get; set; } = TimeSpan.FromSeconds(5);
 
     private const string InvalidBody = "Dữ liệu gửi lên không hợp lệ";
     private const string AgentNotFound = "Không tìm thấy agent";
@@ -41,8 +41,8 @@ public static partial class AgentCommandsEndpoints
     public static void MapAgentCommandsApi(this RouteGroupBuilder agents)
     {
         agents.MapPost("/{id}/commands",
-            (HttpContext http, MasterStore master, TimeProvider clock, AgentChannelHub hub, AgentCommandStore commands, AgentDistribution distribution, string id, AgentCommandBody body) =>
-                SubmitAsync(http.Ctx(), master, clock, hub, commands, distribution, id, body));
+            (HttpContext http, MasterStore master, TimeProvider clock, AgentChannelHub hub, AgentCommandStore commands, AgentDistribution distribution, ILoggerFactory loggers, string id, AgentCommandBody body) =>
+                SubmitAsync(http.Ctx(), master, clock, hub, commands, distribution, loggers, id, body));
         agents.MapGet("/{id}/commands",
             (HttpContext http, MasterStore master, TimeProvider clock, AgentCommandStore commands, string id) =>
                 ListAsync(http.Ctx(), master, clock, commands, id, http.Request.Query));
@@ -51,7 +51,7 @@ public static partial class AgentCommandsEndpoints
     }
 
     private static async Task<IResult> SubmitAsync(
-        RequestContext ctx, MasterStore master, TimeProvider clock, AgentChannelHub hub, AgentCommandStore commands, AgentDistribution distribution, string id, AgentCommandBody body)
+        RequestContext ctx, MasterStore master, TimeProvider clock, AgentChannelHub hub, AgentCommandStore commands, AgentDistribution distribution, ILoggerFactory loggers, string id, AgentCommandBody body)
     {
         var agentId = ApiFormat.ParseId(id);
         var name = body.Name ?? throw ApiException.BadRequest(InvalidBody);
@@ -85,7 +85,7 @@ public static partial class AgentCommandsEndpoints
 
         if (name == "revoke")
         {
-            return Results.Json(await RevokeAsync(ctx, master, hub, commands, clock, agent.Agent), statusCode: StatusCodes.Status202Accepted);
+            return Results.Json(await RevokeAsync(ctx, master, hub, commands, clock, loggers.CreateLogger("Lis.Server.Api.AgentCommands"), agent.Agent), statusCode: StatusCodes.Status202Accepted);
         }
 
         var row = await hub.SubmitAsync(ctx.Clinic.Id, agentId, name, argsJson, ctx.User.Id, ctx.User.FullName);
@@ -98,8 +98,10 @@ public static partial class AgentCommandsEndpoints
     /// Thu hồi: khoá bị từ chối NGAY ở server (kể cả agent đang tắt). Agent không nối → lệnh <c>done</c> ngay với <c>{"offline":true}</c>;
     /// đang nối → gửi lệnh để agent tự dọn, đóng kênh khi có kết quả hoặc sau <see cref="RevokeCloseGrace"/>.
     /// </summary>
-    private static async Task<AgentCommandView> RevokeAsync(RequestContext ctx, MasterStore master, AgentChannelHub hub, AgentCommandStore commands, TimeProvider clock, AgentInfo agent)
+    private static async Task<AgentCommandView> RevokeAsync(RequestContext ctx, MasterStore master, AgentChannelHub hub, AgentCommandStore commands, TimeProvider clock, ILogger logger, AgentInfo agent)
     {
+        // Chụp kênh đang nối trước khi thu hồi: chỉ đóng đúng kênh này, không đóng kênh mới nếu agent ghép nối lại ngay.
+        var connection = hub.CurrentConnection(agent.Id);
         if (!await master.RevokeAgentAsync(ctx.Clinic.Id, agent.Id)) throw ApiException.NotFound(AgentNotFound);
 
         var row = await hub.SubmitAsync(ctx.Clinic.Id, agent.Id, "revoke", null, ctx.User.Id, ctx.User.FullName);
@@ -112,16 +114,17 @@ public static partial class AgentCommandsEndpoints
             }
         }
 
-        if (row.Status is "sent" or "running" || hub.IsConnected(agent.Id))
+        if (connection is not null && row.Status is "sent" or "running")
         {
-            _ = CloseAfterResultAsync(commands, hub, ctx.Clinic.Id, agent.Id, row.Id);
+            _ = CloseAfterResultAsync(commands, hub, logger, ctx.Clinic.Id, agent.Id, row.Id, connection);
         }
 
         return ViewOf(row);
     }
 
-    /// <summary>Đóng kênh của agent vừa bị thu hồi khi lệnh <c>revoke</c> có kết quả hoặc hết 5 giây (đồng hồ thật, không theo đồng hồ giả của test).</summary>
-    private static async Task CloseAfterResultAsync(AgentCommandStore commands, AgentChannelHub hub, Guid clinicId, Guid agentId, Guid commandId)
+    /// <summary>Đóng đúng kênh <paramref name="connection"/> khi lệnh <c>revoke</c> có kết quả hoặc hết <see cref="RevokeCloseGrace"/> (đồng hồ thật, hỏi CSDL mỗi 250 ms).</summary>
+    private static async Task CloseAfterResultAsync(
+        AgentCommandStore commands, AgentChannelHub hub, ILogger logger, Guid clinicId, Guid agentId, Guid commandId, object connection)
     {
         try
         {
@@ -133,14 +136,15 @@ public static partial class AgentCommandsEndpoints
                     break;
                 }
 
-                await Task.Delay(50);
+                await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(250, Math.Max(10, RevokeCloseGrace.TotalMilliseconds / 4))));
             }
 
-            await hub.DisconnectAsync(agentId);
+            await hub.DisconnectAsync(agentId, connection);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Đóng kênh là việc phụ: khoá đã bị thu hồi nên agent không nối lại được. Không ghi nội dung lệnh.
+            logger.LogDebug(ex, "Không đóng được kênh của agent {AgentId} sau thu hồi", agentId);
         }
     }
 

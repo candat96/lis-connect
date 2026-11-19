@@ -85,6 +85,18 @@ public sealed class AgentChannelHub(AgentCommandStore commands, MasterStore mast
         }
     }
 
+    /// <summary>Kênh đang giữ <paramref name="agentId"/> (null khi chưa nối) — dùng với <see cref="DisconnectAsync(Guid, object)"/> để chỉ đóng đúng kênh đó.</summary>
+    public object? CurrentConnection(Guid agentId) => _connections.GetValueOrDefault(agentId);
+
+    /// <summary>Đóng kênh của agent chỉ khi nó vẫn là <paramref name="expected"/>; agent đã nối lại bằng kênh mới thì không đụng tới.</summary>
+    public async Task DisconnectAsync(Guid agentId, object expected)
+    {
+        if (_connections.GetValueOrDefault(agentId) is { } connection && ReferenceEquals(connection, expected))
+        {
+            await connection.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Khoá agent đã bị thu hồi");
+        }
+    }
+
     /// <summary>Chạy suốt đời một kênh: đăng ký (thay kênh cũ), vòng nhận, dọn khi đóng. Trả về khi kênh đã đóng.</summary>
     public async Task RunAsync(AgentIdentity identity, WebSocket socket, CancellationToken ct)
     {

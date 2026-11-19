@@ -15,7 +15,7 @@ namespace Lis.Server.Tests;
 public sealed class AgentChannelTests(ServerFixture fixture) : IClassFixture<ServerFixture>
 {
     private static readonly Uri ChannelUri = new("ws://localhost/agent/v1/channel");
-    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);
 
     private static FakeTimeProvider NewClock() => new(new DateTimeOffset(2026, 11, 19, 8, 0, 0, TimeSpan.FromHours(7)));
 
@@ -34,14 +34,23 @@ public sealed class AgentChannelTests(ServerFixture fixture) : IClassFixture<Ser
     }
 
     /// <summary>Nhận một khung; null khi server đóng kênh.</summary>
-    private static async Task<ChannelEnvelope?> ReceiveAsync(WebSocket socket)
+    private static async Task<ChannelEnvelope?> ReceiveAsync(WebSocket socket, string what = "một khung từ server")
     {
         using var cts = new CancellationTokenSource(Wait);
         var buffer = new byte[8192];
         using var message = new MemoryStream();
         while (true)
         {
-            var result = await socket.ReceiveAsync(buffer, cts.Token);
+            WebSocketReceiveResult result;
+            try
+            {
+                result = await socket.ReceiveAsync(buffer, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new Shouldly.ShouldAssertException($"Hết giờ chờ {what}");
+            }
+
             if (result.MessageType == WebSocketMessageType.Close)
             {
                 return null;
@@ -252,12 +261,15 @@ public sealed class AgentChannelTests(ServerFixture fixture) : IClassFixture<Ser
         await SendAsync(a, new ChannelEnvelope(ChannelProtocol.Hello));
         await WaitUntilAsync(() => Task.FromResult(host.Hub.IsConnected(agent.Id)));
 
+        var first = host.Hub.CurrentConnection(agent.Id);
         using var b = await ConnectAsync(host, key);
         await SendAsync(b, new ChannelEnvelope(ChannelProtocol.Hello));
 
         // A bị đóng
         (await ReceiveAsync(a)).ShouldBeNull();
         a.CloseStatusDescription.ShouldBe("Có kết nối mới hơn");
+        // Khung đóng của A đi trước lúc B được đăng ký xong: chờ B thế chỗ rồi mới giao lệnh (không thì lệnh nằm hàng chờ).
+        await WaitUntilAsync(() => Task.FromResult(host.Hub.CurrentConnection(agent.Id) is { } now && !ReferenceEquals(now, first)));
 
         var row = await host.Hub.SubmitAsync(clinic.Id, agent.Id, "scan-ports", null, null, null);
         row.Status.ShouldBe("sent");

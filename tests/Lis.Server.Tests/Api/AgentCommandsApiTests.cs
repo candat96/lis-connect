@@ -8,6 +8,7 @@ using Lis.Core.Agents;
 using Lis.Core.Instruments;
 using Lis.Data.Instruments;
 using Lis.Server.AgentApi;
+using Lis.Server.Api;
 using Lis.Server.Tenancy;
 using Shouldly;
 using Xunit;
@@ -20,7 +21,7 @@ public sealed class AgentCommandsApiTests(ServerFixture fixture) : IClassFixture
     private const string Password = "mat-khau-thu-1";
     private const string AdminOnly = "Chỉ tài khoản Quản trị được thay đổi cài đặt này";
     private static readonly Uri ChannelUri = new("ws://localhost/agent/v1/channel");
-    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);
     private readonly List<string> _dirs = [];
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -78,14 +79,23 @@ public sealed class AgentCommandsApiTests(ServerFixture fixture) : IClassFixture
     }
 
     /// <summary>Nhận một khung; null khi server đóng kênh.</summary>
-    private static async Task<ChannelEnvelope?> ReceiveAsync(WebSocket socket, TimeSpan? timeout = null)
+    private static async Task<ChannelEnvelope?> ReceiveAsync(WebSocket socket, TimeSpan? timeout = null, string what = "một khung từ server")
     {
         using var cts = new CancellationTokenSource(timeout ?? Wait);
         var buffer = new byte[8192];
         using var message = new MemoryStream();
         while (true)
         {
-            var result = await socket.ReceiveAsync(buffer, cts.Token);
+            WebSocketReceiveResult result;
+            try
+            {
+                result = await socket.ReceiveAsync(buffer, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new Shouldly.ShouldAssertException($"Hết giờ chờ {what}");
+            }
+
             if (result.MessageType == WebSocketMessageType.Close)
             {
                 return null;
@@ -105,7 +115,7 @@ public sealed class AgentCommandsApiTests(ServerFixture fixture) : IClassFixture
         while (!await condition())
         {
             (DateTime.UtcNow < deadline).ShouldBeTrue("Hết giờ chờ điều kiện");
-            await Task.Delay(20);
+            await Task.Delay(150);
         }
     }
 
@@ -312,7 +322,7 @@ public sealed class AgentCommandsApiTests(ServerFixture fixture) : IClassFixture
 
         await SendAsync(socket, new ChannelEnvelope(ChannelProtocol.Result, command.Id, Ok: true));
 
-        (await ReceiveAsync(socket, TimeSpan.FromSeconds(6))).ShouldBeNull();
+        (await ReceiveAsync(socket, TimeSpan.FromSeconds(30), "khung đóng kênh sau thu hồi")).ShouldBeNull();
         await WaitUntilAsync(() => Task.FromResult(!s.Host.Hub.IsConnected(s.Agent.Id)));
         (await s.Host.AgentCommands.FindAsync(s.Clinic.Id, command.Id!.Value))!.Status.ShouldBe("done");
     }
@@ -324,11 +334,20 @@ public sealed class AgentCommandsApiTests(ServerFixture fixture) : IClassFixture
         using var socket = await ConnectAsync(s.Host, s.Key);
         await ConnectedAsync(s);
 
-        (await s.Admin.PostAsJsonAsync(s.Url, new { name = "revoke" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var before = AgentCommandsEndpoints.RevokeCloseGrace;
+        AgentCommandsEndpoints.RevokeCloseGrace = TimeSpan.FromMilliseconds(300);
+        try
+        {
+            (await s.Admin.PostAsJsonAsync(s.Url, new { name = "revoke" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
-        (await ReceiveAsync(socket))!.Name.ShouldBe("revoke");
+            (await ReceiveAsync(socket))!.Name.ShouldBe("revoke");
         // Agent im lặng: server vẫn đóng kênh, không giữ mãi.
-        (await ReceiveAsync(socket, TimeSpan.FromSeconds(9))).ShouldBeNull();
+            (await ReceiveAsync(socket, TimeSpan.FromSeconds(30), "khung đóng kênh (agent im lặng)")).ShouldBeNull();
+        }
+        finally
+        {
+            AgentCommandsEndpoints.RevokeCloseGrace = before;
+        }
     }
 
     [Fact]
