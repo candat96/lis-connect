@@ -10,7 +10,9 @@ public abstract record InstallOutcome
     /// <summary>Không thành công; <see cref="Message"/> là câu tiếng Việt cho người dùng.</summary>
     public sealed record Failed(string Message) : InstallOutcome;
 
-    public sealed record Uninstalled(string DataDirectory) : InstallOutcome;
+    /// <param name="DataDirectory">Thư mục dữ liệu được giữ lại.</param>
+    /// <param name="InstallDirPending">Thư mục cài đang bị khoá bởi chính tiến trình gỡ — sẽ được xoá sau khi cửa sổ đóng.</param>
+    public sealed record Uninstalled(string DataDirectory, bool InstallDirPending = false) : InstallOutcome;
 }
 
 /// <summary>
@@ -47,8 +49,15 @@ public sealed class AgentInstaller(
             if (wasRunning)
             {
                 output.WriteLine("Đang dừng dịch vụ cũ...");
+                // Đăng ký hoàn tác trước khi dừng: Stop lỗi giữa chừng vẫn bật lại được dịch vụ cũ.
+                undo.Add(("bật lại dịch vụ cũ", () =>
+                {
+                    if (!service.IsRunning())
+                    {
+                        service.Start();
+                    }
+                }));
                 service.Stop();
-                undo.Add(("bật lại dịch vụ cũ", service.Start));
             }
 
             // 2. Chép tệp vào thư mục cài (trừ khi đang chạy chính từ đó).
@@ -124,11 +133,20 @@ public sealed class AgentInstaller(
         var createdDir = !Directory.Exists(installDir);
         Directory.CreateDirectory(installDir);
         var hadOld = File.Exists(Target);
+        if (hadOld)
+        {
+            // Sao lưu lỗi thì chưa có gì để hoàn tác — để lỗi gốc đi lên nguyên vẹn.
+            File.Copy(Target, backup, overwrite: true);
+        }
+
         Action undo = () =>
         {
             if (hadOld)
             {
-                File.Move(backup, Target, overwrite: true);
+                if (File.Exists(backup))
+                {
+                    File.Move(backup, Target, overwrite: true);
+                }
             }
             else
             {
@@ -139,10 +157,6 @@ public sealed class AgentInstaller(
                 }
             }
         };
-        if (hadOld)
-        {
-            File.Copy(Target, backup, overwrite: true);
-        }
 
         try
         {
@@ -183,16 +197,21 @@ public sealed class AgentInstaller(
                 service.Delete();
             }
 
-            if (File.Exists(paths.Pairing))
+            // Quên ghép nối: khoá + bộ đệm của phòng khám (như PairingStore.Save làm khi đổi ghép nối).
+            if (Directory.Exists(paths.Root))
             {
                 File.Delete(paths.Pairing);
+                File.Delete(paths.IdentityCache);
+                File.Delete(paths.InstrumentsCache);
             }
 
+            var pending = false;
             if (Directory.Exists(installDir))
             {
                 if (runningExe is not null && IsUnder(runningExe, installDir))
                 {
                     (deferDelete ?? DeleteAfterExit)(installDir);
+                    pending = true;
                 }
                 else
                 {
@@ -200,7 +219,7 @@ public sealed class AgentInstaller(
                 }
             }
 
-            return new InstallOutcome.Uninstalled(paths.Root);
+            return new InstallOutcome.Uninstalled(paths.Root, pending);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -208,13 +227,28 @@ public sealed class AgentInstaller(
         }
     }
 
-    /// <summary>Đang chạy từ chính thư mục cài thì không xoá ngay được — hẹn xoá sau khi tiến trình này thoát.</summary>
-    private static void DeleteAfterExit(string directory) =>
-        Process.Start(new ProcessStartInfo("cmd.exe", $"/c timeout 3 & rmdir /s /q \"{directory}\"")
+    /// <summary>
+    /// Đang chạy từ chính thư mục cài thì không xoá ngay được (tệp đang bị khoá). Ghi một tệp .cmd tạm thử <c>rmdir</c>
+    /// mỗi giây tối đa 60 lần cho tới khi thư mục biến mất (tức là sau khi tiến trình này thoát), rồi tự xoá.
+    /// </summary>
+    private static void DeleteAfterExit(string directory)
+    {
+        var script = Path.Combine(Path.GetTempPath(), $"lis-agent-go-{Guid.NewGuid():N}.cmd");
+        File.WriteAllText(script, BuildDeleteScript(directory));
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"\"{script}\"\"")
         {
             CreateNoWindow = true,
             UseShellExecute = false,
         });
+        if (process is null)
+        {
+            File.Delete(script);
+            throw new InvalidOperationException($"không hẹn được việc xoá thư mục {directory} — hãy xoá thủ công sau khi đóng cửa sổ");
+        }
+    }
+
+    internal static string BuildDeleteScript(string directory) =>
+        $"@echo off\r\nfor /l %%i in (1,1,60) do (\r\n  rmdir /s /q \"{directory}\" >nul 2>&1\r\n  if not exist \"{directory}\" goto done\r\n  ping -n 2 127.0.0.1 >nul\r\n)\r\n:done\r\ndel \"%~f0\"\r\n";
 
     private static bool SamePath(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);

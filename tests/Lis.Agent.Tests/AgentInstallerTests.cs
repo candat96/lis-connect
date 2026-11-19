@@ -150,4 +150,43 @@ public sealed class AgentInstallerTests : IDisposable
         deferred.ShouldBe(InstallDir);
         Directory.Exists(InstallDir).ShouldBeTrue();
     }
+
+    [Fact]
+    public async Task Sao_luu_loi_thi_bao_loi_goc_va_giu_tep_cu_va_bat_lai_dich_vu()
+    {
+        Directory.CreateDirectory(InstallDir);
+        File.WriteAllText(Target, "cu");
+        Directory.CreateDirectory(Target + ".bak"); // chặn việc ghi .bak
+        var service = new FakeServiceControl(exists: true, running: true);
+
+        var outcome = await Installer(service).InstallOrRepairAsync(Source, TestCodes.Code(), CancellationToken.None);
+
+        var failed = outcome.ShouldBeOfType<InstallOutcome.Failed>();
+        failed.Message.ShouldNotContain("Hoàn tác chưa trọn vẹn");
+        File.ReadAllText(Target).ShouldBe("cu");
+        service.Running.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Kich_ban_xoa_hen_gio_thu_lai_den_khi_thu_muc_het()
+    {
+        var script = AgentInstaller.BuildDeleteScript(@"C:\Program Files\LIS Agent");
+        script.ShouldContain("for /l %%i in (1,1,60)");
+        script.ShouldContain("rmdir /s /q \"C:\\Program Files\\LIS Agent\"");
+        script.ShouldContain("ping -n 2");
+    }
+
+    [Fact]
+    public async Task Go_xoa_ca_bo_dem_danh_tinh()
+    {
+        var paths = new AgentPaths(DataDir);
+        File.WriteAllText(paths.IdentityCache, "{}");
+        File.WriteAllText(paths.InstrumentsCache, "[]");
+
+        Installer(new FakeServiceControl()).Uninstall().ShouldBeOfType<InstallOutcome.Uninstalled>();
+
+        File.Exists(paths.IdentityCache).ShouldBeFalse();
+        File.Exists(paths.InstrumentsCache).ShouldBeFalse();
+        await Task.CompletedTask;
+    }
 }

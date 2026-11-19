@@ -158,6 +158,36 @@ public sealed class SetupConsoleTests : IDisposable
 
         exit.ShouldBe(0);
         _service.Commands.ShouldBe(["Exists"]);
+        _output.ToString().ShouldContain("Nhấn Enter để đóng");
+    }
+
+    [Fact]
+    public async Task Khong_khoi_dong_duoc_tien_trinh_quan_tri_thi_bao_loi_khong_nem()
+    {
+        var elevation = new FakeElevation(false, failWith: "Windows không khởi động được tiến trình quản trị");
+
+        var exit = await Console(elevation, "\n", MakeExe("LisAgent.exe")).RunAsync(new AgentCommand.Interactive(), CancellationToken.None);
+
+        exit.ShouldBe(1);
+        _output.ToString().ShouldContain("Không xin được quyền quản trị");
+    }
+
+    [Fact]
+    public async Task Go_khi_thu_muc_cai_dang_bi_khoa_thi_noi_se_xoa_sau_khi_dong_cua_so()
+    {
+        _store.Save(TestCodes.State(), "khoa-thu");
+        var installDir = Path.Combine(_root, "PF", "LIS Agent");
+        Directory.CreateDirectory(installDir);
+        var exe = Path.Combine(installDir, "LisAgent.exe");
+        File.WriteAllText(exe, "x");
+        var installer = new AgentInstaller(_paths, installDir, _service, (_, _) => throw new PairingException("x"), _output,
+            runningExe: exe, deferDelete: _ => { });
+
+        var exit = await new SetupConsole(new StringReader("2\n\n"), _output, new FakeElevation(true), installer, _store, exe)
+            .RunAsync(new AgentCommand.Interactive(), CancellationToken.None);
+
+        exit.ShouldBe(0);
+        _output.ToString().ShouldContain("sẽ được xoá sau khi đóng cửa sổ này");
     }
 
     [Fact]

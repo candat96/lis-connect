@@ -41,9 +41,22 @@ public sealed class SetupConsole(
 
     private int Relaunch(string arguments, bool pause)
     {
-        if (elevation.RelaunchElevated(exePath, arguments, out var exitCode) == ElevationResult.Started)
+        try
         {
-            return exitCode;
+            if (elevation.RelaunchElevated(exePath, arguments, out var exitCode) == ElevationResult.Started)
+            {
+                return exitCode;
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            output.WriteLine($"Không xin được quyền quản trị: {ex.Message}");
+            if (pause)
+            {
+                WaitEnter();
+            }
+
+            return 1;
         }
 
         output.WriteLine("Cần quyền quản trị Windows để cài agent. Nhờ người có tài khoản quản trị bấm chạy lại tệp này.");
@@ -78,6 +91,7 @@ public sealed class SetupConsole(
                 case "2":
                     return Report(installer.Uninstall(), pause: true);
                 case "0" or null:
+                    WaitEnter();
                     return 0;
                 default:
                     output.WriteLine("Lựa chọn không hợp lệ.");
@@ -147,6 +161,11 @@ public sealed class SetupConsole(
                 break;
             case InstallOutcome.Uninstalled gone:
                 output.WriteLine($"Đã gỡ agent. Dữ liệu (kết quả chờ gửi, nhật ký) vẫn giữ ở {gone.DataDirectory}; xoá thư mục đó nếu không cần nữa.");
+                if (gone.InstallDirPending)
+                {
+                    output.WriteLine("Thư mục chương trình sẽ được xoá sau khi đóng cửa sổ này.");
+                }
+
                 break;
             case InstallOutcome.Failed failed:
                 output.WriteLine(failed.Message);

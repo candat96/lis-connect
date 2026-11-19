@@ -40,7 +40,7 @@ public sealed class WindowsElevation : IElevation
         try
         {
             using var process = Process.Start(new ProcessStartInfo(exePath, arguments) { UseShellExecute = true, Verb = "runas" })
-                                ?? throw new InvalidOperationException("Không chạy được tiến trình quản trị");
+                                ?? throw new InvalidOperationException("Windows không khởi động được tiến trình quản trị");
             process.WaitForExit();
             exitCode = process.ExitCode;
             return ElevationResult.Started;

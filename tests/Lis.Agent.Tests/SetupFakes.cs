@@ -32,7 +32,7 @@ internal sealed class FakeServiceControl(bool exists = false, bool running = fal
     public bool WaitRunning(TimeSpan timeout) { Commands.Add("WaitRunning"); return WaitRunningResult; }
 }
 
-internal sealed class FakeElevation(bool elevated, ElevationResult result = ElevationResult.Started, int childExit = 0) : IElevation
+internal sealed class FakeElevation(bool elevated, ElevationResult result = ElevationResult.Started, int childExit = 0, string? failWith = null) : IElevation
 {
     public List<(string Exe, string Args)> Relaunches { get; } = [];
 
@@ -41,6 +41,11 @@ internal sealed class FakeElevation(bool elevated, ElevationResult result = Elev
     public ElevationResult RelaunchElevated(string exePath, string arguments, out int exitCode)
     {
         Relaunches.Add((exePath, arguments));
+        if (failWith is not null)
+        {
+            throw new InvalidOperationException(failWith);
+        }
+
         exitCode = childExit;
         return result;
     }
