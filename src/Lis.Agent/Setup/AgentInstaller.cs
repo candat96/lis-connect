@@ -239,6 +239,8 @@ public sealed class AgentInstaller(
         {
             CreateNoWindow = true,
             UseShellExecute = false,
+            // Thư mục làm việc của cmd mà nằm trong thư mục cài thì Windows không cho xoá thư mục đó.
+            WorkingDirectory = Path.GetTempPath(),
         });
         if (process is null)
         {
@@ -247,8 +249,11 @@ public sealed class AgentInstaller(
         }
     }
 
-    internal static string BuildDeleteScript(string directory) =>
-        $"@echo off\r\nfor /l %%i in (1,1,60) do (\r\n  rmdir /s /q \"{directory}\" >nul 2>&1\r\n  if not exist \"{directory}\" goto done\r\n  ping -n 2 127.0.0.1 >nul\r\n)\r\n:done\r\ndel \"%~f0\"\r\n";
+    internal static string BuildDeleteScript(string directory)
+    {
+        var dir = directory.Replace("%", "%%"); // cmd mở rộng %...% trong tệp .cmd
+        return $"@echo off\r\ncd /d \"%TEMP%\"\r\nfor /l %%i in (1,1,60) do (\r\n  rmdir /s /q \"{dir}\" >nul 2>&1\r\n  if not exist \"{dir}\" goto done\r\n  ping -n 2 127.0.0.1 >nul\r\n)\r\n:done\r\ndel \"%~f0\"\r\n";
+    }
 
     private static bool SamePath(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);

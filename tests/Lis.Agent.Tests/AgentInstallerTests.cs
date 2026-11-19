@@ -174,10 +174,12 @@ public sealed class AgentInstallerTests : IDisposable
         script.ShouldContain("for /l %%i in (1,1,60)");
         script.ShouldContain("rmdir /s /q \"C:\\Program Files\\LIS Agent\"");
         script.ShouldContain("ping -n 2");
+        script.ShouldContain("cd /d \"%TEMP%\"");
+        AgentInstaller.BuildDeleteScript(@"C:\100%x\LIS").ShouldContain("C:\\100%%x\\LIS");
     }
 
     [Fact]
-    public async Task Go_xoa_ca_bo_dem_danh_tinh()
+    public void Go_xoa_ca_bo_dem_danh_tinh()
     {
         var paths = new AgentPaths(DataDir);
         File.WriteAllText(paths.IdentityCache, "{}");
@@ -187,6 +189,5 @@ public sealed class AgentInstallerTests : IDisposable
 
         File.Exists(paths.IdentityCache).ShouldBeFalse();
         File.Exists(paths.InstrumentsCache).ShouldBeFalse();
-        await Task.CompletedTask;
     }
 }
