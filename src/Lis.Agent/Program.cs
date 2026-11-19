@@ -94,7 +94,18 @@ static async Task<int> ApplyUpdateAsync(Guid commandId, AgentPaths paths)
 
     var service = new ScServiceControl();
     var newExe = Environment.ProcessPath ?? "";
-    var installed = service.BinPath();
+    string? installed;
+    try
+    {
+        installed = service.BinPath();
+    }
+    catch (Exception ex)
+    {
+        // Không đọc được cấu hình dịch vụ vẫn phải báo lên web, kẻo lệnh treo tới hết 10 phút.
+        Log($"Đọc cấu hình dịch vụ lỗi: {ex.Message}");
+        installed = null;
+    }
+
     if (installed is null || !string.Equals(Path.GetDirectoryName(installed), Path.GetDirectoryName(newExe), StringComparison.OrdinalIgnoreCase)
         || !string.Equals(Path.GetFileName(newExe), UpdateHandler.NewFileName, StringComparison.OrdinalIgnoreCase))
     {
