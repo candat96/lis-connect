@@ -97,6 +97,84 @@ và ghi `version.txt` (lấy từ `<Version>` của `Lis.Agent.csproj`). Image D
 Dữ liệu agent: `%ProgramData%\LIS Agent` (log thô `rawlog`, kết quả chờ gửi `cho-gui`, cấu hình máy lần
 cuối lấy được — dùng khi bật máy mà chưa có mạng).
 
+## Kênh lệnh (điều khiển agent từ web)
+
+Ngoài các đường `/agent/v1` ở trên, agent giữ thêm một kênh WebSocket tới server để nhận lệnh từ web (nạp lại cấu hình, thử cổng COM,
+cập nhật…). Kênh chỉ chở **lệnh và kết quả lệnh**. Kết quả xét nghiệm, trạng thái máy và log vẫn đi qua HTTP như cũ, nên kênh
+đứt không làm mất kết quả và agent vẫn chạy máy xét nghiệm với cấu hình đã lưu.
+
+- **Địa chỉ:** `/agent/v1/channel`, cùng địa chỉ server trong mã ghép nối (`http` thành `ws`, `https` thành `wss`).
+- **Xác thực:** khoá agent nằm ở header, không nằm trong URL. Khoá bị thu hồi thì bắt tay WebSocket bị từ chối.
+- **Nối lại:** mất kênh thì agent tự nối lại sau 1, 2, 4, 8, 16, 30, 60 giây (lệch ngẫu nhiên khoảng ±20%); nối được thì về lại 1 giây.
+- **Ai ra lệnh:** chỉ vai trò Quản trị. Quản trị, Kỹ thuật viên và Trưởng khoa xem được Lịch sử lệnh.
+- **Sửa máy xét nghiệm:** thêm, sửa, xoá máy trên web thì server báo agent nạp lại cấu hình ngay qua kênh, không chờ 30 giây.
+
+### Các lệnh
+
+| Lệnh | Việc làm | Thời gian tối đa |
+|---|---|---|
+| `reload-config` | Nạp lại cấu hình máy từ server, chạy lại các máy theo cấu hình mới | 2 phút |
+| `scan-ports` | Quét cổng COM trên máy tính agent: tên cổng, thiết bị, cổng nào máy đang dùng, cổng nào phần mềm khác giữ | 2 phút |
+| `test-port` | Mở một cổng COM, chỉ nghe, không gửi gì; trả dữ liệu nhận được. Cổng đang có máy dùng thì tạm ngắt máy đó rồi tự nối lại | số giây nghe + 30 giây |
+| `reconnect-instrument` | Đóng rồi mở lại kết nối của một máy xét nghiệm | 2 phút |
+| `flush-pending` | Gửi ngay các bản tin đang chờ trong `cho-gui` | 2 phút |
+| `restart` | Khởi động lại dịch vụ. Chỉ chạy khi agent là dịch vụ Windows (Recovery tự bật lại sau khoảng 5 giây) | 2 phút |
+| `update` | Tải bản mới từ server, kiểm SHA-256, thay tệp, khởi động lại. Tải tối đa 5 phút | 10 phút |
+| `revoke` | Thu hồi agent: server khoá khoá agent ngay, agent dừng dịch vụ và đặt kiểu khởi động Disabled | 2 phút |
+
+`restart` khi agent chạy console báo lỗi "Agent không chạy như dịch vụ nên không tự khởi động lại".
+
+### Hàng đợi và trạng thái lệnh
+
+Agent chưa nối kênh thì lệnh nằm trong hàng đợi tối đa **60 giây**. Agent nối lại kịp thì nhận lệnh; quá 60 giây lệnh thành
+**Hết hạn**, không xếp hàng lâu hơn. Riêng `revoke` có hiệu lực ngay ở server dù agent đang tắt.
+
+| Trạng thái (trên web) | Nghĩa |
+|---|---|
+| Chờ agent | Agent chưa nối kênh, lệnh đang chờ (tối đa 60 giây) |
+| Đã gửi | Server đã gửi lệnh cho agent, agent chưa báo bắt đầu |
+| Đang chạy | Agent đang làm |
+| Xong | Chạy xong, kết quả ở Lịch sử lệnh |
+| Lỗi | Agent báo lỗi; lý do ghi ở Lịch sử lệnh |
+| Hết hạn | Agent không nhận lệnh trong 60 giây |
+| Không rõ kết quả | Agent mất kết nối khi đang chạy lệnh (hoặc server vừa khởi động lại): không biết lệnh đã làm xong chưa. Lệnh không tự chạy lại; kiểm tra rồi ra lệnh lại nếu cần |
+
+Server khởi động lại thì lệnh đang Chờ agent / Đã gửi / Đang chạy chuyển thành "Không rõ kết quả" ("Máy chủ khởi động lại — không rõ kết quả").
+Riêng `update` khi agent đứt kênh thì không báo "Không rõ kết quả" ngay: server chờ agent nối lại bằng bản mới (hoặc bản cũ nếu phải quay về) rồi mới kết luận.
+
+### Cập nhật agent
+
+Server cần có tệp mới trong `AGENT_DIST_DIR` (`LisAgent.exe` và `version.txt`, tạo bằng `scripts/publish-agent.sh`). Nút
+**Cập nhật lên x.y.z** chỉ hiện khi phiên bản đó khác phiên bản agent đang chạy. Agent chỉ tải tệp từ chính server đã ghép nối và
+phải khớp SHA-256 server công bố. Agent chép tệp mới cạnh tệp cũ rồi mới dừng dịch vụ, đổi tệp, bật lại. Bản mới **không nối lại được
+server trong 2 phút** thì agent trả tệp cũ, bật lại bản cũ, và lệnh thành "Lỗi" kèm lý do. Không có cập nhật hàng loạt: mỗi agent một lệnh.
+
+### Reverse proxy cho WebSocket
+
+Mục 6 của [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md) có mẫu nginx cho cả web, `/api` và `/agent/v1`. Riêng đường
+`/agent/v1/channel` là WebSocket, nên proxy phải cho nâng cấp kết nối (`Upgrade`). Proxy chặn WebSocket thì mọi thứ khác vẫn chạy,
+chỉ riêng kênh lệnh đứt: web hiện "Kênh lệnh đang đứt — các lệnh tạm tắt" trong khi agent vẫn báo về qua HTTP.
+
+nginx (thêm vào khối `server` có sẵn, đặt trước `location /`):
+
+```nginx
+location /agent/v1/channel {
+    proxy_pass http://127.0.0.1:5080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 120s;
+}
+```
+
+- **Caddy:** `reverse_proxy 127.0.0.1:5080` tự lo WebSocket, không cần thêm gì.
+- **IIS:** bật tính năng **WebSocket Protocol** (Server Manager → Add Roles and Features → Web Server → Application Development)
+  và dùng URL Rewrite + Application Request Routing (ARR) để chuyển tiếp về server LIS.
+- **Thời gian chờ:** proxy cắt kết nối im lặng quá lâu, nên `proxy_read_timeout` đặt từ 120 giây trở lên. Kênh bị cắt thì agent tự nối lại.
+- Mẫu nginx và hướng dẫn IIS ở đây **chưa chạy thử trên máy chủ thật**; xem mục 9 của danh sách kiểm
+  [2026-11-19-c-windows-that.md](superpowers/checklists/2026-11-19-c-windows-that.md).
+
 ## API agent (`/agent/v1`, header `X-Agent-Key`)
 
 | | |
@@ -107,13 +185,14 @@ cuối lấy được — dùng khi bật máy mà chưa có mạng).
 | `POST /order-queries` | máy hỏi chỉ định theo barcode → các mã kênh cần chạy |
 | `POST /status` | trạng thái kết nối từng máy (web hiển thị) |
 | `POST /logs` | log thô: mọi byte đi/về với máy (hex) + sự kiện, gửi theo lô mỗi giây; server giữ 14 ngày |
+| `GET /channel` (WebSocket) | kênh lệnh, xem mục trên |
 
 ## Cài đặt trên web
 
 Máy xét nghiệm (giao thức, cổng COM/TCP, agent phụ trách), map kênh, và agent (thêm, ghép nối, ghép nối lại) đều làm trên web
 (`../web`, do chính server LIS phục vụ). Agent sau khi ghép nối tự lấy cấu hình máy về mỗi 30 giây.
 Chỉ cần một tên miền / địa chỉ cho cả web, `/api` và `/agent/v1` — cùng trỏ vào server LIS (reverse proxy xem mục 6 của hướng dẫn
-cài đặt). Ra khỏi mạng nội bộ thì dùng HTTPS: mã ghép nối và khoá agent đi qua mạng.
+cài đặt; riêng `/agent/v1/channel` phải cho WebSocket qua, xem mục "Reverse proxy cho WebSocket" ở trên). Ra khỏi mạng nội bộ thì dùng HTTPS: mã ghép nối và khoá agent đi qua mạng.
 
 ## Chưa có
 

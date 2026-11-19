@@ -150,7 +150,75 @@ Log thô lưu ở `C:\ProgramData\LIS Connect\rawlog\`, mỗi máy mỗi ngày m
 đặt ở **Cài đặt → Log thô** (mặc định 30 ngày). Tab đó cũng hiện dung lượng đang dùng và cảnh báo
 khi vượt ngưỡng.
 
-## 13. Liên hệ hỗ trợ
+## 13. Agent đang mất kết nối
+
+Trên web, bảng điều khiển agent báo **"Agent đang mất kết nối — các lệnh tạm tắt"**, trạng thái **Mất kết nối**. Nghĩa là máy
+chủ không nhận được báo cáo của agent quá 90 giây. Các nút lệnh tắt, trừ **Thu hồi**.
+
+Kiểm tra trên máy tính đặt agent:
+
+1. Máy còn bật, còn mạng không.
+2. `services.msc` → dịch vụ **LIS Agent** có đang chạy. Nếu dừng, bấm **Start**.
+3. Mở `<PUBLIC_URL>/healthz` bằng trình duyệt trên máy đó. Không mở được là lỗi mạng hoặc máy chủ LIS đang tắt.
+
+Trong lúc agent mất kết nối, máy xét nghiệm vẫn chạy và kết quả giữ trên đĩa (`C:\ProgramData\LIS Agent\cho-gui`). Có mạng lại thì agent
+tự gửi, không ghi trùng. Kênh lệnh tự nối lại, không cần làm gì thêm.
+
+## 14. Kênh lệnh đang đứt
+
+Bảng điều khiển báo **"Kênh lệnh đang đứt — các lệnh tạm tắt"** trong khi trạng thái agent vẫn là **Đang kết nối**. Nghĩa là agent vẫn
+báo về máy chủ, nhưng kênh để ra lệnh không nối được.
+
+- **Vừa mới tắt hoặc mới khởi động agent**: đợi vài chục giây, kênh tự nối lại (thử sau 1, 2, 4... tối đa 60 giây). Sau khoảng 90 giây
+  nếu agent thật sự đã tắt thì trạng thái chuyển **Mất kết nối** (mục 13).
+- **Báo mãi không hết**: thường là reverse proxy chặn WebSocket. IT thêm đường `/agent/v1/channel` cho WebSocket đi qua
+  ([HUONG-DAN-CAI-DAT.md](../HUONG-DAN-CAI-DAT.md), mục 6). Sửa xong, đợi tối đa 1 phút là hết báo.
+
+Trong lúc kênh đứt, kết quả xét nghiệm vẫn lên web bình thường.
+
+## 15. Lệnh "Hết hạn" hoặc "Không rõ kết quả"
+
+Xem ở **Lịch sử lệnh** trong bảng điều khiển agent.
+
+- **Hết hạn**: agent không nhận lệnh trong 60 giây. Lệnh **chưa** chạy. Chờ agent nối lại (mục 13, 14) rồi ra lệnh lại.
+- **Không rõ kết quả**: agent mất kết nối khi đang chạy lệnh, hoặc máy chủ vừa khởi động lại. Không biết lệnh đã làm xong chưa
+  và lệnh **không tự chạy lại**. Xem tình trạng thực tế rồi quyết định: ví dụ sau **Gửi bù ngay**, nhìn cột **Chờ gửi** ở mục
+  **Máy xét nghiệm**; sau **Nối lại**, nhìn cột **Đường truyền**. Cần thì ra lệnh lại; các lệnh này làm lại đều an toàn.
+
+## 16. Cập nhật quay về bản cũ
+
+Lệnh **Cập nhật lên x.y.z** báo **Lỗi**, và cột **Phiên bản** vẫn là bản cũ. Agent đã tự quay về bản đang chạy trước đó nên máy
+xét nghiệm không bị ảnh hưởng quá vài phút.
+
+Bấm vào dòng lệnh ở **Lịch sử lệnh** để đọc lý do. Hai lý do thường gặp:
+
+- **"Bản mới không kết nối được máy chủ trong 2 phút — đã quay về bản cũ"**: bản mới chạy lên nhưng không nối lại được máy chủ.
+  Kiểm tra máy tính agent có chặn bản mới (phần mềm diệt vi-rút, tường lửa theo tên tệp) không, và máy chủ có `LisAgent.exe`
+  đúng bản trong thư mục `AGENT_DIST_DIR`.
+- **"Cài bản mới lỗi: ... — đã quay về bản cũ"**: lỗi khi thay tệp (tệp bị khoá, thiếu quyền). Chép nguyên văn lý do khi báo IT.
+
+Lỗi xảy ra sớm hơn (tải tệp hỏng, sai SHA-256, máy chủ chưa có tệp mới) cũng hiện ở đây; khi đó tệp đang chạy chưa bị đụng tới. Chỉ cần
+sửa nguyên nhân rồi bấm **Cập nhật lên x.y.z** lại.
+
+## 17. Khởi động lại báo lỗi
+
+Lệnh **Khởi động lại** báo **Lỗi**: "Agent không chạy như dịch vụ nên không tự khởi động lại". Agent này đang chạy trong cửa sổ dòng lệnh
+(console), không phải dịch vụ Windows, nên không ai bật lại nó sau khi dừng. Lệnh không làm gì cả.
+
+Dùng cho máy thật: cài agent bằng tệp cài để chạy dịch vụ **LIS Agent** (xem [HUONG-DAN-CAI-DAT.md](../HUONG-DAN-CAI-DAT.md), mục 5.2).
+Máy phát triển đang chạy console thì tắt cửa sổ rồi chạy lại bằng tay.
+
+## 18. Thử cổng báo cổng bận
+
+Kết quả **Thử cổng** là "COM3 đang bị chương trình khác mở (LIS cũ, phần mềm của hãng, terminal…)", hoặc ở mục **Cổng COM** tình trạng là
+**Phần mềm khác đang giữ**. Cổng đang bị một chương trình **không phải agent** mở. Cách xử lý:
+
+1. Tắt app LIS Windows cũ, phần mềm của hãng máy, hoặc terminal (PuTTY, Tera Term...) trên máy tính đó.
+2. Bấm **Quét cổng COM** lại; tình trạng về **Trống** thì bấm **Thử cổng** lại.
+
+Cổng đang do một máy xét nghiệm đã khai trên chính agent dùng thì **không** bị báo bận: agent tạm ngắt máy đó, nghe thử, rồi tự nối lại.
+
+## 19. Liên hệ hỗ trợ
 
 Khi báo lỗi, chuẩn bị sẵn:
 

@@ -286,6 +286,28 @@ server {
 Khi đó đặt `PUBLIC_URL=https://lis.example.vn` trong `.env` để mã ghép nối trỏ đúng địa chỉ này. Nên dùng HTTPS: dữ liệu người bệnh,
 mã ghép nối và khoá agent đi qua mạng.
 
+**WebSocket cho kênh lệnh.** Web điều khiển agent qua một kênh WebSocket tại `/agent/v1/channel`. Proxy phải cho kênh này đi qua,
+nếu không web vẫn chạy bình thường nhưng các nút lệnh của agent bị tắt. Thêm vào khối `server` ở trên, đặt trước `location /`:
+
+```nginx
+  location /agent/v1/channel {
+    proxy_pass http://127.0.0.1:5080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 120s;
+  }
+```
+
+Caddy: `reverse_proxy` tự lo WebSocket. IIS: bật tính năng WebSocket Protocol và dùng ARR. Chi tiết ở
+[server-agent.md](server-agent.md) (mục "Reverse proxy cho WebSocket").
+
+**Cách kiểm tra:** đăng nhập web bằng tài khoản Quản trị → **Agent** → bấm **Điều khiển** ở một agent đang chạy. Kênh thông thì
+**không** có lời báo "Kênh lệnh đang đứt" và các nút **Nạp lại cấu hình**, **Quét cổng COM** bấm được. Bấm **Quét cổng COM** thấy trạng
+thái chạy tới **Xong** là kênh dùng được cả hai chiều. Nếu có lời báo "Kênh lệnh đang đứt — các lệnh tạm tắt" trong khi agent
+vẫn báo về, nguyên nhân gần như chắc chắn là proxy chưa cho WebSocket qua.
+
 **Địa chỉ của người dùng sau proxy.** Server dùng địa chỉ kết nối để làm chậm dò mã thiết lập và ghi log. Đứng sau proxy thì
 địa chỉ đó luôn là của proxy. Muốn dùng địa chỉ thật từ `X-Forwarded-For` / `X-Forwarded-Proto`, đặt
 `Proxy:TrustForwardedHeaders=true` (biến môi trường `Proxy__TrustForwardedHeaders=true`; mặc định tắt). **Chỉ bật khi**
@@ -302,6 +324,7 @@ systemd / NSSM), **sao lưu CSDL hằng ngày** (`pg_dump` từng CSDL phòng kh
 | Web báo "Không kết nối được máy chủ" | Server LIS (5080) có chạy không (`/healthz`); cấu hình proxy |
 | Đăng nhập báo sai dù đúng mật khẩu | Mã phòng khám; tài khoản có bị *Tạm khoá* / *Đã ngừng* ở mục Nhân sự |
 | Agent hiện "Mất kết nối" / "Đã ghép nối, chưa chạy" | Dịch vụ "LIS Agent" có chạy (`services.msc`); từ máy đó mở được `<PUBLIC_URL>/healthz` |
+| Bảng điều khiển agent báo "Kênh lệnh đang đứt" | Reverse proxy chưa cho WebSocket qua `/agent/v1/channel` (mục 6); hoặc agent vừa tắt |
 | Agent hiện "Chờ ghép nối" / "Chưa ghép nối" | Chưa chạy tệp cài, hoặc mã hết hạn: bấm **Ghép nối lại** lấy mã mới rồi chạy lại tệp cài |
 | Tệp cài báo mã hết hạn / đã được dùng | Mã chỉ sống 30 phút và dùng một lần — bấm **Ghép nối lại** trên web, tải tệp mới |
 | Web báo chưa có tệp cài agent | Server chưa có `AGENT_DIST_DIR` (image Docker đã có sẵn; chạy trực tiếp thì `bash scripts/publish-agent.sh` rồi đặt biến này) |

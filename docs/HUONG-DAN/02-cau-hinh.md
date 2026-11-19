@@ -283,3 +283,79 @@ bị chặn với thông báo "Kênh máy chỉ map tới chỉ số lá, không
 Dùng nút **Sửa**/**Xóa** trên mỗi dòng để sửa hoặc gỡ map kênh đã có.
 
 ![Máy & map](anh/12-may-va-map.png)
+
+## 9. Điều khiển agent từ web
+
+Khi dùng bản web, mỗi máy tính cạnh máy xét nghiệm chạy một **agent**. Quản trị có thể điều khiển agent ngay trên web, không cần
+ra tận máy tính đó. Vào màn **Agent kết nối máy**, bấm nút **Điều khiển** ở dòng agent (hoặc bấm vào dòng) để mở bảng điều khiển
+bên phải. Nút **Xem log** ở góc trên bảng mở log của agent.
+
+Đầu bảng hiện **Trạng thái**, **Báo về lần cuối**, **Máy tính** và **Phiên bản**. Các nút lệnh chỉ tài khoản **Quản trị** thấy.
+
+### Khi các nút bị tắt
+
+Nút lệnh chỉ bấm được khi agent đang nối kênh lệnh với máy chủ. Có hai lời báo:
+
+- **"Agent đang mất kết nối — các lệnh tạm tắt"**: agent không báo về máy chủ quá 90 giây. Kiểm tra máy tính agent còn bật, còn mạng,
+  dịch vụ **LIS Agent** đang chạy. Agent tự nối lại, không cần làm gì thêm.
+- **"Kênh lệnh đang đứt — các lệnh tạm tắt"**: agent vẫn báo về nhưng kênh lệnh không nối. Nhờ IT kiểm tra reverse proxy
+  ([HUONG-DAN-CAI-DAT.md](../HUONG-DAN-CAI-DAT.md), mục 6).
+
+Lúc đó nút **Thu hồi** vẫn bấm được. Máy xét nghiệm vẫn chạy và kết quả vẫn được gửi; chỉ việc ra lệnh từ web bị tạm dừng.
+
+### Các nút lệnh
+
+| Nút | Làm gì | Khi nào dùng |
+|---|---|---|
+| **Nạp lại cấu hình** | Agent lấy lại cấu hình máy từ máy chủ và chạy lại các máy | Sửa, thêm, xoá máy trên web đã tự báo agent; dùng nút này khi nghi agent chưa theo kịp |
+| **Quét cổng COM** | Liệt kê cổng COM trên máy tính agent | Lắp máy mới, hoặc không biết máy nối vào cổng nào |
+| **Gửi bù ngay** | Gửi ngay các bản tin đang chờ gửi | Vừa có mạng lại, muốn kết quả lên web ngay thay vì chờ |
+| **Khởi động lại** | Khởi động lại dịch vụ agent (hỏi xác nhận) | Agent hoạt động lạ mà **Nối lại** không khỏi |
+| **Cập nhật lên x.y.z** | Agent tải bản mới từ máy chủ rồi tự khởi động lại (hỏi xác nhận) | Chỉ hiện khi máy chủ có bản khác bản agent đang chạy |
+| **Thu hồi** | Khoá agent, dừng dịch vụ (phải gõ đúng tên agent) | Bỏ máy tính đó, hoặc nghi lộ khoá agent |
+
+**Khởi động lại**: các máy xét nghiệm của agent tạm ngắt, Windows tự bật lại dịch vụ trong khoảng 1 phút. Chỉ làm được khi
+agent chạy là dịch vụ Windows.
+
+**Cập nhật**: nếu bản mới không nối lại được máy chủ trong 2 phút, agent tự quay về bản cũ. Lệnh báo **Lỗi** kèm lý do ở **Lịch sử lệnh**.
+Nên cập nhật lúc vắng mẫu. Mỗi lần chỉ cập nhật một agent.
+
+**Thu hồi**: máy chủ khoá agent ngay. Agent đang chạy thì dừng dịch vụ và không tự bật lại. Thư mục `cho-gui` (kết quả chờ gửi) vẫn
+còn trên máy tính. Muốn dùng lại agent đó: **Ghép nối lại** trên web rồi chạy tệp cài mới. Agent đang tắt lúc thu hồi thì lệnh vẫn **Xong**
+với kết quả "Đã thu hồi khi agent đang tắt — agent sẽ không nối lại được".
+
+### Máy xét nghiệm của agent
+
+Mục **Máy xét nghiệm** liệt kê từng máy agent phụ trách: đường truyền, nhận lần cuối, đã nhận, chờ gửi.
+
+- **Nối lại**: đóng rồi mở lại kết nối của đúng một máy. Dùng khi máy hiện lỗi kết nối sau khi cắm lại cáp hoặc bật lại máy xét nghiệm.
+- **Thử cổng**: chỉ có ở máy nối COM, xem phần dưới.
+
+### Thử cổng khi lắp máy mới
+
+Dùng để biết máy xét nghiệm có gửi được dữ liệu về cổng COM không, trước khi khai máy.
+
+1. Bấm **Quét cổng COM**. Mục **Cổng COM** hiện từng cổng, thiết bị, và tình trạng:
+   - "Trống": chưa ai dùng.
+   - "Máy ... đang dùng": một máy xét nghiệm đã khai đang giữ cổng.
+   - "Phần mềm khác đang giữ": phần mềm trên máy tính (app LIS Windows cũ, phần mềm của hãng, terminal) đang mở cổng.
+2. Bấm **Thử cổng** ở dòng cổng cần thử. Hộp thoại **"Thử cổng COMx"** hiện tốc độ baud, bit dữ liệu, parity, stop bit
+   (lấy sẵn từ cấu hình máy nếu cổng đã có máy) và **Nghe trong (giây)** từ 1 đến 60, mặc định 10.
+3. Bấm **Thử**, rồi trong lúc đó cho máy xét nghiệm gửi một kết quả (chạy một mẫu, hoặc dùng chức năng gửi lại của máy).
+4. Kết quả hiện bên dưới nút lệnh: "Mở được, nhận N byte". Dữ liệu hiện dạng chữ, ký tự điều khiển thành `<STX>`, `<CR>`...
+   Có dữ liệu đọc được là cáp và thông số đúng. Toàn ký tự lạ thường là sai baud, bit dữ liệu hoặc parity.
+
+Agent chỉ **nghe**, không gửi gì tới máy. Nếu cổng đang có máy đã khai dùng, hộp thoại cảnh báo "Máy ... sẽ tạm ngắt trong N giây" và nút
+đổi thành **Vẫn thử**. Thử xong agent tự nối lại máy đó, kể cả khi lần thử báo lỗi.
+
+### Chọn cổng COM từ gợi ý
+
+Máy & map kênh → **Sửa máy** (hoặc thêm máy), chọn kết nối **Cổng COM (RS-232)**. Ô **Cổng COM** gợi ý theo lần quét cuối của agent phụ
+trách, ví dụ "COM3 — USB-SERIAL CH340 · đang dùng bởi Máy Thử". Chọn một dòng hoặc gõ tay. Dưới ô ghi giờ quét ("Gợi ý theo lần quét lúc ...").
+Chưa có gợi ý thì bấm **Quét cổng COM** ở bảng điều khiển của agent trước.
+
+### Lịch sử lệnh
+
+Mục **Lịch sử lệnh** ghi từng lệnh: lệnh, kết quả tóm tắt, lúc ra lệnh, người ra lệnh, trạng thái. Bấm vào dòng để xem chi tiết.
+Trạng thái gồm **Chờ agent**, **Đã gửi**, **Đang chạy**, **Xong**, **Lỗi**, **Hết hạn**, **Không rõ kết quả**.
+Cách xử lý **Hết hạn** và **Không rõ kết quả** xem [04-xu-ly-su-co.md](04-xu-ly-su-co.md), mục 15.
