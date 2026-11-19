@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Lis.Connections.RawMessages;
 using Lis.Core.Drivers;
 using Lis.Core.Ingest;
 using Lis.Core.Instruments;
@@ -78,6 +79,9 @@ public sealed class InstrumentRunner : IAsyncDisposable
     private string _session = "";
     private DateTimeOffset _nextPendingRetry;
     private InstrumentConnectionStatus _status;
+    private readonly IRawMessageSink? _raw;
+    private readonly RawMessageCollector? _collector;
+    private readonly List<RawMessage> _unsaved = [];
 
     public InstrumentRunner(
         InstrumentInfo instrument,
@@ -89,8 +93,17 @@ public sealed class InstrumentRunner : IAsyncDisposable
         IOrderQueryService queries,
         string pendingRoot,
         TimeProvider clock,
-        Action<InstrumentConnectionStatus> onStatus)
+        Action<InstrumentConnectionStatus> onStatus,
+        IRawMessageSink? rawSink = null)
     {
+        _raw = rawSink;
+        if (rawSink is not null)
+        {
+            // Chế độ bản tin thô: khoảng lặng cắt bản tin của "chi-nghe" là 2 giây, họ khác 60 giây.
+            _collector = new RawMessageCollector(
+                instrument.Id, clock, driver.Family == Lis.Core.Drivers.ListenOnly.ListenOnlyDriver.FamilyCode ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(60));
+        }
+
         _instrument = instrument;
         _settings = settings;
         _driver = driver;
@@ -153,7 +166,7 @@ public sealed class InstrumentRunner : IAsyncDisposable
             }
 
             _link = link;
-            await WithGateAsync(() => { _driver.Reset(); return Task.CompletedTask; });
+            await WithGateAsync(() => { _driver.Reset(); _collector?.NewSession(); return Task.CompletedTask; });
             LogEvent($"Đã kết nối · {link.Description}");
             SetStatus(LinkState.Connected, $"Đã kết nối · {link.Description}");
 
@@ -173,7 +186,13 @@ public sealed class InstrumentRunner : IAsyncDisposable
 
                     var bytes = buffer.AsSpan(0, read).ToArray();
                     SafeLog(new RawLogEntry(_clock.GetLocalNow(), RawLogDirection.In, _session, bytes));
-                    await WithGateAsync(() => HandleAsync(_driver.Receive(bytes, _clock.GetLocalNow()), ct));
+                    await WithGateAsync(() =>
+                    {
+                        var now = _clock.GetLocalNow();
+                        // Byte vào bộ gom TRƯỚC Receive: Receive ném lỗi cũng không mất khúc byte.
+                        _collector?.Append(bytes, now);
+                        return HandleTopAsync(_driver.Receive(bytes, now), ct, bytes.Length);
+                    });
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -195,6 +214,8 @@ public sealed class InstrumentRunner : IAsyncDisposable
                 catch (OperationCanceledException)
                 {
                 }
+
+                await FlushRawOnDisconnectAsync();
             }
 
             SetStatus(LinkState.Error, $"Mất kết nối — thử lại sau {RetryDelay.TotalSeconds:0} giây");
@@ -207,7 +228,7 @@ public sealed class InstrumentRunner : IAsyncDisposable
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1), _clock);
         while (await timer.WaitForNextTickAsync(ct))
         {
-            await WithGateAsync(() => HandleAsync(_driver.Tick(_clock.GetLocalNow()), ct));
+            await WithGateAsync(() => HandleTopAsync(_driver.Tick(_clock.GetLocalNow()), ct, null));
             if (_clock.GetUtcNow() >= _nextPendingRetry)
             {
                 _nextPendingRetry = _clock.GetUtcNow() + PendingRetryInterval;
@@ -227,6 +248,60 @@ public sealed class InstrumentRunner : IAsyncDisposable
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// Đầu ra của một lần gọi driver ở vòng chính (Receive hoặc Tick): ở chế độ bản tin thô, cắt và ghi đĩa bản tin
+    /// TRƯỚC khi <see cref="HandleAsync"/> ghi bất kỳ byte nào ra máy. <paramref name="receivedLength"/> null = Tick.
+    /// </summary>
+    private async Task HandleTopAsync(DriverOutput output, CancellationToken ct, int? receivedLength)
+    {
+        if (_collector is not null)
+        {
+            var now = _clock.GetLocalNow();
+            var messages = receivedLength is { } length
+                ? _collector.ApplyBoundaries(length, output.Boundaries, now, _driver.IsReceiving)
+                : _collector.OnTick(output.Boundaries, now, _driver.IsReceiving);
+            await StoreRawAsync(messages, ct);
+        }
+
+        await HandleAsync(output, ct);
+    }
+
+    /// <summary>
+    /// Ghi các bản tin hoàn tất (và mọi bản tin còn tồn do lần trước lỗi) theo thứ tự. Lỗi ghi: log, giữ lại trong bộ nhớ, thử ở Tick sau;
+    /// không ném ra ngoài để runner không dừng.
+    /// </summary>
+    private async Task StoreRawAsync(IReadOnlyList<RawMessage> fresh, CancellationToken ct)
+    {
+        _unsaved.AddRange(fresh);
+        while (_unsaved.Count > 0)
+        {
+            try
+            {
+                await _raw!.SaveAsync(_unsaved[0], ct);
+                _unsaved.RemoveAt(0);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogEvent($"Chưa ghi được bản tin thô xuống đĩa ({ex.Message}) — giữ trong bộ nhớ ({_unsaved.Count} bản tin), sẽ thử lại");
+                return;
+            }
+        }
+    }
+
+    private async Task FlushRawOnDisconnectAsync()
+    {
+        if (_collector is null)
+        {
+            return;
+        }
+
+        await WithGateAsync(() => StoreRawAsync(_collector.OnDisconnect(_clock.GetLocalNow()), CancellationToken.None));
     }
 
     /// <summary>Xử lý đầu ra driver: ghi chú → log; khối gửi → máy; kết quả → CSDL; câu hỏi chỉ định → tra rồi trả lời.</summary>
@@ -249,7 +324,8 @@ public sealed class InstrumentRunner : IAsyncDisposable
             SafeLog(new RawLogEntry(_clock.GetLocalNow(), RawLogDirection.Out, _session, block));
         }
 
-        foreach (var reading in output.Readings)
+        // Chế độ bản tin thô: kết quả do server giải mã từ bản tin, không đi đường này.
+        foreach (var reading in _raw is null ? output.Readings : [])
         {
             await SubmitAsync(new InstrumentReading(
                 _instrument.Id, reading.Barcode, reading.IsQc, _clock.GetLocalNow(), Truncate(reading.RawText, 8000), reading.Items));

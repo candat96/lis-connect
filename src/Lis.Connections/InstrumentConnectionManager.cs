@@ -1,3 +1,4 @@
+using Lis.Connections.RawMessages;
 using Lis.Core.Drivers;
 using Lis.Core.Instruments;
 using Lis.Data.Ingest;
@@ -66,7 +67,8 @@ public sealed class InstrumentConnectionManager(
     IOrderQueryService queries,
     string pendingRoot,
     TimeProvider clock,
-    Func<ConnectionSettings, IByteLink>? linkFactory = null) : IInstrumentConnections
+    Func<ConnectionSettings, IByteLink>? linkFactory = null,
+    IRawMessageSink? rawSink = null) : IInstrumentConnections
 {
     /// <summary>Thông điệp trạng thái của máy đã nhường cổng cho lệnh thử cổng.</summary>
     public const string BorrowedStatusText = "Đang nhường cổng cho lệnh thử cổng";
@@ -307,7 +309,7 @@ public sealed class InstrumentConnectionManager(
     {
         var runner = new InstrumentRunner(
             instrument, settings, CreateDriver(instrument)!, _linkFactory, rawLogs, sink, queries, pendingRoot, clock,
-            status => StatusChanged?.Invoke(status));
+            status => StatusChanged?.Invoke(status), rawSink);
         lock (_idle)
         {
             _idle.Remove(instrument.Id);
