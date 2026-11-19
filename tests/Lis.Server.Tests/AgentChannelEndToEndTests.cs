@@ -46,6 +46,8 @@ public sealed class AgentChannelEndToEndTests(ServerFixture fixture) : IClassFix
         public Task StopAllAsync() => Task.CompletedTask;
 
         public Task<int> RetryPendingNowAsync() => Task.FromResult(0);
+
+        public Task<PortLease> BorrowPortAsync(string portName, CancellationToken ct = default) => Task.FromResult(new PortLease([]));
     }
 
     private sealed class Rig : IAsyncDisposable

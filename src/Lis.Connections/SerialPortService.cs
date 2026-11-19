@@ -3,7 +3,7 @@ using System.Management;
 using System.Text.RegularExpressions;
 using Lis.Core.Instruments;
 
-namespace Lis.App.Services;
+namespace Lis.Connections;
 
 /// <summary>Một cổng COM thấy trên máy trạm.</summary>
 /// <param name="PortName">Vd <c>COM5</c>.</param>

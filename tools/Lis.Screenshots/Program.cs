@@ -7,6 +7,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Lis.App.Services;
+using Lis.Connections;
 using Lis.App.ViewModels;
 using Lis.App.ViewModels.Admin;
 using Lis.App.ViewModels.Catalog;

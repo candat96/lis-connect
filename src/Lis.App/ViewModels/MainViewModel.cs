@@ -2,6 +2,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lis.App.Services;
+using Lis.Connections;
 using Lis.App.ViewModels.Admin;
 using Lis.App.ViewModels.Catalog;
 using Lis.App.ViewModels.Instruments;

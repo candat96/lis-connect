@@ -23,6 +23,34 @@ public interface IInstrumentConnections
 
     /// <summary>Gửi bù ngay các bản tin lưu tạm trên đĩa (không chờ 30 giây); trả tổng số bản tin còn chờ sau khi thử.</summary>
     Task<int> RetryPendingNowAsync();
+
+    /// <summary>
+    /// Mượn một cổng COM: dừng các máy đang chạy trên cổng đó và không cho <see cref="ReloadAsync"/> mở lại cho tới khi
+    /// <see cref="PortLease"/> được giải phóng (<c>DisposeAsync</c> → nạp lại, máy tự chạy lại). Luôn giải phóng trong <c>finally</c>.
+    /// </summary>
+    /// <param name="ct">Chỉ dùng khi chờ tới lượt; đã mượn xong thì không huỷ giữa chừng để không bỏ lại máy bị dừng.</param>
+    Task<PortLease> BorrowPortAsync(string portName, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Quyền tạm dùng một cổng COM. <see cref="InstrumentNames"/> = tên các máy xét nghiệm đã tạm nhường cổng (rỗng nếu cổng không ai dùng).
+/// <c>DisposeAsync</c> chỉ có tác dụng lần đầu.
+/// </summary>
+public sealed record PortLease(IReadOnlyList<string> InstrumentNames) : IAsyncDisposable
+{
+    private Func<Task>? _release;
+
+    internal PortLease(IReadOnlyList<string> instrumentNames, Func<Task> release)
+        : this(instrumentNames) => _release = release;
+
+    public async ValueTask DisposeAsync()
+    {
+        var release = Interlocked.Exchange(ref _release, null);
+        if (release is not null)
+        {
+            await release();
+        }
+    }
 }
 
 /// <summary>
@@ -40,7 +68,11 @@ public sealed class InstrumentConnectionManager(
     TimeProvider clock,
     Func<ConnectionSettings, IByteLink>? linkFactory = null) : IInstrumentConnections
 {
-    private readonly Dictionary<Guid, (InstrumentRunner Runner, string Signature)> _runners = [];
+    /// <summary>Thông điệp trạng thái của máy đã nhường cổng cho lệnh thử cổng.</summary>
+    public const string BorrowedStatusText = "Đang nhường cổng cho lệnh thử cổng";
+
+    private readonly Dictionary<Guid, (InstrumentRunner Runner, string Signature, string Name, string? Port)> _runners = [];
+    private readonly Dictionary<string, int> _borrowed = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<Guid, InstrumentConnectionStatus> _idle = [];
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly Func<ConnectionSettings, IByteLink> _linkFactory = linkFactory ?? ByteLinkFactory.Create;
@@ -93,6 +125,12 @@ public sealed class InstrumentConnectionManager(
 
             foreach (var (id, want) in wanted)
             {
+                if (IsBorrowed(want.Settings))
+                {
+                    SetIdle(new InstrumentConnectionStatus(id, LinkState.NotRunning, BorrowedStatusText));
+                    continue;
+                }
+
                 if (!_runners.ContainsKey(id))
                 {
                     StartRunner(want.Instrument, want.Settings, want.Signature);
@@ -104,6 +142,82 @@ public sealed class InstrumentConnectionManager(
             _lock.Release();
         }
     }
+
+    public async Task<PortLease> BorrowPortAsync(string portName, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(portName);
+        await _lock.WaitAsync(ct);
+        var names = new List<string>();
+        try
+        {
+            _borrowed[portName] = _borrowed.GetValueOrDefault(portName) + 1;
+            try
+            {
+                var onPort = _runners
+                    .Where(r => string.Equals(r.Value.Port, portName, StringComparison.OrdinalIgnoreCase))
+                    .Select(r => (r.Key, r.Value.Name))
+                    .ToList();
+                foreach (var (id, name) in onPort)
+                {
+                    await StopAsync(id);
+                    SetIdle(new InstrumentConnectionStatus(id, LinkState.NotRunning, BorrowedStatusText));
+                    names.Add(name);
+                }
+            }
+            catch
+            {
+                Unregister(portName);
+                throw;
+            }
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        return new PortLease(names, () => ReleasePortAsync(portName));
+    }
+
+    private void Unregister(string portName)
+    {
+        if (_borrowed.TryGetValue(portName, out var count))
+        {
+            if (count <= 1)
+            {
+                _borrowed.Remove(portName);
+            }
+            else
+            {
+                _borrowed[portName] = count - 1;
+            }
+        }
+    }
+
+    private async Task ReleasePortAsync(string portName)
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            Unregister(portName);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        try
+        {
+            await ReloadAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Mất server khi nạp lại: không để việc trả cổng lỗi theo; vòng nạp định kỳ sẽ mở lại các máy đã nhường cổng.
+            System.Diagnostics.Debug.WriteLine($"Nạp lại sau khi trả cổng lỗi: {ex.Message}");
+        }
+    }
+
+    private bool IsBorrowed(ConnectionSettings settings) =>
+        settings.Kind == ConnectionKind.Serial && settings.PortName is { } port && _borrowed.ContainsKey(port);
 
     public async Task RestartAsync(Guid instrumentId)
     {
@@ -187,7 +301,7 @@ public sealed class InstrumentConnectionManager(
         lock (_idle)
         {
             _idle.Remove(instrument.Id);
-            _runners[instrument.Id] = (runner, signature);
+            _runners[instrument.Id] = (runner, signature, instrument.Name, settings.Kind == ConnectionKind.Serial ? settings.PortName : null);
         }
 
         runner.Start();

@@ -44,6 +44,14 @@ internal sealed class FakeConnections : IInstrumentConnections
 
     public Task<int> RetryPendingNowAsync() => Task.FromResult(Remaining);
 
+    public List<string> Borrowed { get; } = [];
+
+    public Task<PortLease> BorrowPortAsync(string portName, CancellationToken ct = default)
+    {
+        Borrowed.Add(portName);
+        return Task.FromResult(new PortLease([]));
+    }
+
     public void Raise(InstrumentConnectionStatus status) => StatusChanged?.Invoke(status);
 }
 

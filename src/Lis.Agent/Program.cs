@@ -1,4 +1,5 @@
 using Lis.Agent;
+using Lis.Connections;
 using Lis.Core.Agents;
 using Lis.Data.Local;
 using Microsoft.Extensions.Configuration;
@@ -102,6 +103,10 @@ static async Task<int> RunAsync(IConfiguration config, IConfiguration environmen
     builder.Services.AddSingleton<IAgentCommandHandler, ReloadConfigHandler>();
     builder.Services.AddSingleton<IAgentCommandHandler, ReconnectInstrumentHandler>();
     builder.Services.AddSingleton<IAgentCommandHandler, FlushPendingHandler>();
+    builder.Services.AddSingleton<ISerialPortService, SerialPortService>();
+    builder.Services.AddSingleton<IPortProbe, SerialPortProbe>();
+    builder.Services.AddSingleton<IAgentCommandHandler, ScanPortsHandler>();
+    builder.Services.AddSingleton<IAgentCommandHandler, TestPortHandler>();
     builder.Services.AddSingleton<IAgentCommandHandler>(sp => new RestartHandler(
         sp.GetRequiredService<AgentRuntime>(), sp.GetRequiredService<IAgentLifetime>(), runningAsService,
         sp.GetRequiredService<ILogger<RestartHandler>>()));

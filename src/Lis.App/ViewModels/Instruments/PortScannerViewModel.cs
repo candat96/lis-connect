@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lis.App.Services;
+using Lis.Connections;
 using Lis.Core.Instruments;
 
 namespace Lis.App.ViewModels.Instruments;

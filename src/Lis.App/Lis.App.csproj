@@ -21,7 +21,6 @@
     <PackageReference Include="Avalonia.Fonts.Inter" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="System.IO.Ports" />
-    <PackageReference Include="System.Management" />
   </ItemGroup>
 
   <ItemGroup>

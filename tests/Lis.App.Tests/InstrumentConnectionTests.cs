@@ -1,5 +1,6 @@
 using System.Text;
 using Lis.App.Services;
+using Lis.Connections;
 using Lis.App.ViewModels.Instruments;
 using Lis.Core.Auth;
 using Lis.Core.Instruments;

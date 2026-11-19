@@ -162,6 +162,8 @@ public sealed class CommandDispatcherTests : IDisposable
         }
 
         public Task<int> RetryPendingNowAsync() => Task.FromResult(0);
+
+        public Task<PortLease> BorrowPortAsync(string portName, CancellationToken ct = default) => Task.FromResult(new PortLease([]));
     }
 
     private sealed class OrderedLifetime(List<string> log) : IAgentLifetime
