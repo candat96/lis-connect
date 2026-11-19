@@ -83,6 +83,10 @@ public static class ApiSession
     public static void RequireUnapprover(this RequestContext ctx) =>
         Require(ctx, "Chỉ Trưởng khoa hoặc Quản trị được huỷ duyệt", Roles.QuanTri, Roles.TruongKhoa);
 
+    /// <summary>Giải mã thử / giải mã lại bản tin thô: chỉ Quản trị và Trưởng khoa.</summary>
+    public static void RequireRedecoder(this RequestContext ctx) =>
+        Require(ctx, "Chỉ Trưởng khoa hoặc Quản trị được giải mã bản tin", Roles.QuanTri, Roles.TruongKhoa);
+
     /// <summary>Theo dõi máy, xem log: Quản trị, Kỹ thuật viên, Trưởng khoa.</summary>
     public static void RequireLabStaff(this RequestContext ctx) =>
         Require(ctx, "Tài khoản không có quyền xem mục này", Roles.QuanTri, Roles.KyThuatVien, Roles.TruongKhoa);

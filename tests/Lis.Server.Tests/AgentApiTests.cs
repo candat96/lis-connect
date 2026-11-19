@@ -20,9 +20,8 @@ using Xunit;
 namespace Lis.Server.Tests;
 
 /// <summary>
-/// Đường agent → server → CSDL phòng khám: xác thực khoá, chỉ thấy máy của máy trạm mình, gửi kết
-/// quả vào đúng phiếu, gửi lại không ghi trùng, máy hỏi chỉ định, và cách ly giữa hai phòng khám.
-/// Dùng chính <see cref="ServerClient"/> / <see cref="HttpReadingSink"/> của agent để gọi.
+/// Đường agent → server → CSDL phòng khám: xác thực khoá, chỉ thấy máy của máy trạm mình, máy hỏi chỉ định, và cách ly giữa hai phòng khám.
+/// Dùng chính <see cref="ServerClient"/> của agent để gọi.
 /// </summary>
 public sealed class AgentApiTests(ServerFixture fixture) : IClassFixture<ServerFixture>
 {
@@ -84,7 +83,7 @@ public sealed class AgentApiTests(ServerFixture fixture) : IClassFixture<ServerF
     }
 
     [Fact]
-    public async Task Agent_SendsReading_StoredInItsClinic_AndResendIsNotDuplicated()
+    public async Task Agent_Me_Instruments_OrderQuery_Status()
     {
         var env = await NewClinicAsync("pka");
         await using var factory = Factory();
@@ -97,21 +96,8 @@ public sealed class AgentApiTests(ServerFixture fixture) : IClassFixture<ServerF
         var instruments = await client.InstrumentsAsync(TestContext.Current.CancellationToken);
         instruments.ShouldHaveSingleItem().Name.ShouldBe("AU thử");
 
-        var reading = new InstrumentReading(env.InstrumentId, env.Barcode, false, At, "MSG-1", [new ReadingItem("001", "5.6", null, null)]);
-        var sink = new HttpReadingSink(client);
-        var outcome = await sink.IngestAsync(reading);
-        outcome.Stored.ShouldBe(1);
-        (await StoredValueAsync(env.Db, env.GluItemId)).ShouldBe("5.6");
-
-        // Agent gửi lại đúng bản tin (mất mạng lúc chờ phản hồi) → server báo đã nhận, không ghi lần hai.
-        var again = await client.SendReadingAsync(reading, TestContext.Current.CancellationToken);
-        again.Duplicate.ShouldBeTrue();
-        again.Stored.ShouldBe(1);
-        await using var connection = await env.Db.OpenAsync(TestContext.Current.CancellationToken);
-        (await connection.ExecuteScalarAsync<int>("SELECT count(*) FROM result_history")).ShouldBe(1);
-
-        // Máy hỏi chỉ định: mẫu đã có kết quả GLU → không còn kênh nào cần chạy.
-        (await client.OrderQueryAsync(env.InstrumentId, env.Barcode, TestContext.Current.CancellationToken)).ShouldBeEmpty();
+        // Máy hỏi chỉ định: mẫu chưa có kết quả → còn kênh 001 cần chạy.
+        (await client.OrderQueryAsync(env.InstrumentId, env.Barcode, TestContext.Current.CancellationToken)).ShouldBe(["001"]);
 
         await client.SendStatusAsync([new InstrumentStatusReport(env.InstrumentId, "Connected", "Đã kết nối", At, 1, 0)], TestContext.Current.CancellationToken);
     }
@@ -137,9 +123,8 @@ public sealed class AgentApiTests(ServerFixture fixture) : IClassFixture<ServerF
         var bad = await Should.ThrowAsync<HttpRequestException>(() => Client(factory, a.AgentKey + "x").MeAsync());
         bad.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
 
-        // Agent phòng khám B gửi kết quả cho máy của phòng khám A → bị từ chối, CSDL A không đổi.
-        var reading = new InstrumentReading(a.InstrumentId, a.Barcode, false, At, "MSG-X", [new ReadingItem("001", "9.9", null, null)]);
-        var forbidden = await Should.ThrowAsync<HttpRequestException>(() => Client(factory, b.AgentKey).SendReadingAsync(reading));
+        // Agent phòng khám B hỏi chỉ định của máy phòng khám A → bị từ chối.
+        var forbidden = await Should.ThrowAsync<HttpRequestException>(() => Client(factory, b.AgentKey).OrderQueryAsync(a.InstrumentId, a.Barcode));
         forbidden.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await StoredValueAsync(a.Db, a.GluItemId)).ShouldBeNull();
     }

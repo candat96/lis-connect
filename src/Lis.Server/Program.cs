@@ -1,6 +1,7 @@
 using Lis.Server;
 using Lis.Server.AgentApi;
 using Lis.Server.Api;
+using Lis.Server.RawMessages;
 using Lis.Server.Tenancy;
 
 // Lệnh quản trị (chạy rồi thoát):
@@ -47,7 +48,14 @@ builder.Services.AddSingleton<AgentChannelHub>();
 builder.Services.AddSingleton<AgentCommandSweeper>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AgentCommandSweeper>());
 // Đồng hồ lấy từ DI (test thay được); TenantRegistry bọc nó thành giờ phòng khám cho mọi dịch vụ chia ngày / tính tuổi.
-builder.Services.AddSingleton(sp => new TenantRegistry(tenantTemplate, sp.GetRequiredService<TimeProvider>(), localUtcOffset));
+builder.Services.AddSingleton(sp =>
+{
+    var rawLog = sp.GetRequiredService<ILoggerFactory>().CreateLogger("Lis.Server.RawMessages");
+    return new TenantRegistry(tenantTemplate, sp.GetRequiredService<TimeProvider>(), localUtcOffset, message => rawLog.LogInformation("{Message}", message));
+});
+// Bản tin thô: phục hồi khi khởi động và mỗi 60 giây, dọn bản tin quá 90 ngày mỗi giờ.
+builder.Services.AddSingleton<RawMessageWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RawMessageWorker>());
 builder.Services.AddSingleton<ClinicProvisioner>();
 builder.Services.AddSingleton(new SetupGuard(options.SetupKey));
 
@@ -90,6 +98,7 @@ api.MapCatalogApi();
 api.MapInstrumentsApi();
 api.MapAgentsApi();
 api.MapSamplesApi();
+api.MapRawMessagesApi();
 
 // Giao diện web: sau các route (route khớp được ưu tiên), chỉ chạy khi có thư mục web.
 app.UseWebApp(options.WebRoot);

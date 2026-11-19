@@ -390,47 +390,6 @@ public sealed class MasterStore(string connectionString)
     }
 
     /// <summary>
-    /// Giữ chỗ cho một bản tin trước khi ghi. Trả về true nếu bản tin này chưa từng được nhận
-    /// (hoặc lần giữ chỗ trước bị bỏ dở quá 2 phút — server chết giữa chừng); false khi agent gửi
-    /// lại: kèm kết quả lần trước nếu đã ghi xong, null nếu một request khác đang ghi dở.
-    /// </summary>
-    public async Task<(bool IsNew, string? PreviousOutcome)> ReserveReadingAsync(Guid clinicId, string readingKey)
-    {
-        await using var connection = await OpenAsync();
-        var inserted = await connection.ExecuteAsync(
-            """
-            INSERT INTO agent_reading (clinic_id, reading_key) VALUES (@clinicId, @readingKey)
-            ON CONFLICT (clinic_id, reading_key) DO UPDATE SET created_at = now()
-            WHERE agent_reading.outcome IS NULL AND agent_reading.created_at < now() - interval '2 minutes'
-            """,
-            new { clinicId, readingKey });
-        if (inserted == 1)
-        {
-            return (true, null);
-        }
-
-        var previous = await connection.ExecuteScalarAsync<string?>(
-            "SELECT outcome::text FROM agent_reading WHERE clinic_id = @clinicId AND reading_key = @readingKey", new { clinicId, readingKey });
-        return (false, previous);
-    }
-
-    public async Task CompleteReadingAsync(Guid clinicId, string readingKey, string outcomeJson)
-    {
-        await using var connection = await OpenAsync();
-        await connection.ExecuteAsync(
-            "UPDATE agent_reading SET outcome = @outcomeJson::jsonb WHERE clinic_id = @clinicId AND reading_key = @readingKey",
-            new { clinicId, readingKey, outcomeJson });
-    }
-
-    /// <summary>Ghi thất bại → bỏ giữ chỗ để lần gửi lại được xử lý như mới.</summary>
-    public async Task ReleaseReadingAsync(Guid clinicId, string readingKey)
-    {
-        await using var connection = await OpenAsync();
-        await connection.ExecuteAsync(
-            "DELETE FROM agent_reading WHERE clinic_id = @clinicId AND reading_key = @readingKey AND outcome IS NULL", new { clinicId, readingKey });
-    }
-
-    /// <summary>
     /// Khoá <c>pg_advisory_lock</c> trên CSDL master, giữ đến khi huỷ kết quả trả về: mọi tiến trình dùng chung master
     /// (nhiều request, nhiều bản server) xếp hàng qua cùng một khoá.
     /// </summary>

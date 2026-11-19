@@ -49,7 +49,6 @@ public sealed class ClinicClockTests(ServerFixture fixture) : IClassFixture<Serv
         var instruments = tenant.Instruments;
         var instrumentId = await instruments.SaveAsync(new InstrumentInfo(Guid.Empty, "AU thử", "AU480", "beckman-au", null, null, "XN-01", true));
         await instruments.SaveChannelAsync(new ChannelMap(Guid.Empty, instrumentId, "001", gluId, null, null, false, true));
-        var agentKey = await host.AddAgentKeyAsync(clinic, "Agent thử", "XN-01");
         var actor = (await tenant.Users.ListAsync()).Single(u => u.Username == "admin").Id;
 
         var orders = new OrderService(tenant.Db, clock);
@@ -81,11 +80,9 @@ public sealed class ClinicClockTests(ServerFixture fixture) : IClassFixture<Serv
         var manualItem = await ItemOf(manual.Samples[0].SampleId);
         (await web.PutAsJsonAsync($"/api/results/items/{manualItem}", new { value = "5" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        // Máy gửi qua /agent/v1/readings, cùng giá trị.
+        // Máy gửi, cùng giá trị — đi qua IngestService như đường bản tin thô ở server.
         var reading = new InstrumentReading(instrumentId, machine.Samples[0].Barcode, false, clock.GetUtcNow(), "MSG-GIO", [new ReadingItem("001", "5", null, null)]);
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/agent/v1/readings") { Content = JsonContent.Create(reading) };
-        request.Headers.Add(ServerClient.KeyHeader, agentKey);
-        (await host.Anonymous.SendAsync(request, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await host.TenantOf(clinic).Ingest.IngestAsync(reading)).Stored.ShouldBe(1);
 
         var byHand = await StoredOf(manualItem);
         var byMachine = await StoredOf(await ItemOf(machine.Samples[0].SampleId));

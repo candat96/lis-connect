@@ -105,6 +105,8 @@ public sealed class ApiHost : IAsyncDisposable
 
     public Lis.Server.AgentApi.AgentChannelHub Hub => _factory.Services.GetRequiredService<Lis.Server.AgentApi.AgentChannelHub>();
 
+    public Lis.Server.RawMessages.RawMessageWorker RawWorker => _factory.Services.GetRequiredService<Lis.Server.RawMessages.RawMessageWorker>();
+
     public Lis.Server.AgentApi.AgentCommandSweeper Sweeper => _factory.Services.GetRequiredService<Lis.Server.AgentApi.AgentCommandSweeper>();
 
     public AgentCommandStore AgentCommands => _factory.Services.GetRequiredService<AgentCommandStore>();
