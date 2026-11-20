@@ -96,7 +96,7 @@ public sealed class UnmatchedService(Db db, TimeProvider clock) : IUnmatchedServ
         await db.InTransactionAsync(async (connection, transaction) =>
         {
             var unmatched = await connection.QuerySingleOrDefaultAsync<UnmatchedRow>(
-                "SELECT id, instrument_id, channel_code, value, unit, instrument_flag, raw_ref, resolved_at FROM unmatched_result WHERE id = @unmatchedId FOR UPDATE",
+                "SELECT id, instrument_id, channel_code, value, unit, instrument_flag, raw_ref, received_at, resolved_at FROM unmatched_result WHERE id = @unmatchedId FOR UPDATE",
                 new { unmatchedId }, transaction)
                 ?? throw new InvalidOperationException("Không tìm thấy dòng Chưa ghép");
 
@@ -129,7 +129,7 @@ public sealed class UnmatchedService(Db db, TimeProvider clock) : IUnmatchedServ
 
             await InstrumentValuePipeline.WriteAsync(
                 connection, transaction, _writer, clock, item, sampleApprovedAt, channel, unmatched.InstrumentId, reading, unmatched.RawRef,
-                ReasonAssigned, ReasonAssigned, actorId);
+                ReasonAssigned, ReasonAssigned, actorId, measuredAt: unmatched.ReceivedAt);
 
             await connection.ExecuteAsync(
                 "UPDATE unmatched_result SET resolved_at = @now, resolved_by = @actorId, resolved_item_id = @orderItemId WHERE id = @unmatchedId",
@@ -194,6 +194,7 @@ public sealed class UnmatchedService(Db db, TimeProvider clock) : IUnmatchedServ
         public string? Unit { get; init; }
         public string? InstrumentFlag { get; init; }
         public string? RawRef { get; init; }
+        public DateTimeOffset ReceivedAt { get; init; }
         public DateTimeOffset? ResolvedAt { get; init; }
     }
 }

@@ -56,12 +56,15 @@ internal enum InstrumentWriteKind
 /// </summary>
 internal static class InstrumentValuePipeline
 {
+    /// <summary>Lý do chờ thay khi bản tin cũ đến sau mà kết quả hiện tại do bản tin mới hơn ghi.</summary>
+    internal const string ReasonOlderArrivedLate = "Bản tin cũ đến sau — kết quả hiện tại từ bản tin mới hơn";
+
     private const string ReasonPendingDropped = "Máy gửi kết quả mới, bỏ giá trị chờ thay cũ";
 
     public static async Task<InstrumentWriteKind> WriteAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, ResultWriter writer, TimeProvider clock,
         ItemContext item, DateTimeOffset? sampleApprovedAt, ChannelMap? channel, Guid instrumentId, ReadingItem reading, string? rawRef,
-        string storeReason, string pendingReason, Guid? actorId, ValueWriteMode mode = ValueWriteMode.Live, string? conflictReason = null)
+        string storeReason, string pendingReason, Guid? actorId, ValueWriteMode mode = ValueWriteMode.Live, string? conflictReason = null, DateTimeOffset? measuredAt = null)
     {
         var service = await ResultWriter.LoadServiceAsync(connection, transaction, item.ServiceId);
         if (service.IsPanel)
@@ -119,7 +122,7 @@ internal static class InstrumentValuePipeline
 
             await ResultWriter.MarkPendingAsync(
                 connection, transaction, existing.Id, currentValue, computed.Value ?? "", adjusted, computed.Flag, instrumentId, rawRef,
-                reading.InstrumentFlag, pendingReason, actorId, now);
+                reading.InstrumentFlag, pendingReason, actorId, now, measuredAt);
             return InstrumentWriteKind.PendingReplacement;
         }
 
@@ -143,7 +146,7 @@ internal static class InstrumentValuePipeline
                     await connection.ExecuteAsync(
                         """
                         UPDATE result SET pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL,
-                            pending_instrument_flag = NULL, pending_flag = NULL
+                            pending_instrument_flag = NULL, pending_flag = NULL, pending_reason = NULL, pending_at = NULL, pending_measured_at = NULL
                         WHERE id = @resultId
                         """,
                         new { resultId = existing.Id }, transaction);
@@ -174,8 +177,31 @@ internal static class InstrumentValuePipeline
             // không đọc được thành giá trị ("***.*" → computed.Value null, pending_value lưu "").
             await ResultWriter.MarkPendingAsync(
                 connection, transaction, resultId, existing?.Value, computed.Value ?? "", adjusted, computed.Flag, instrumentId, rawRef,
-                reading.InstrumentFlag, pendingReason, actorId, now);
+                reading.InstrumentFlag, pendingReason, actorId, now, measuredAt);
             return InstrumentWriteKind.PendingReplacement;
+        }
+
+        if (mode == ValueWriteMode.Live && existing is { Source: "may", Value: { Length: > 0 } liveValue }
+            && await IsWrittenByNewerMessageAsync(connection, transaction, existing.RawRef, rawRef))
+        {
+            // Bản tin cũ đến sau (server chết rồi phục hồi, nhiều lô...) không đè giá trị do bản tin mới hơn ghi.
+            if (liveValue == computed.Value && NormalFlag(existing.InstrumentFlag) == NormalFlag(reading.InstrumentFlag))
+            {
+                return InstrumentWriteKind.OlderThanCurrent;
+            }
+
+            if (existing.PendingValue is not null && existing.PendingRawRef != rawRef)
+            {
+                await ResultWriter.InsertHistoryAsync(
+                    connection, transaction, existing.Id, "giai-ma-lai-khac", liveValue, computed.Value ?? adjusted,
+                    ReasonOlderArrivedLate, actorId: null, now);
+                return InstrumentWriteKind.Conflict;
+            }
+
+            await ResultWriter.MarkPendingAsync(
+                connection, transaction, existing.Id, liveValue, computed.Value ?? "", adjusted, computed.Flag, instrumentId, rawRef,
+                reading.InstrumentFlag, ReasonOlderArrivedLate, actorId, now, measuredAt);
+            return InstrumentWriteKind.OlderThanCurrent;
         }
 
         if (mode == ValueWriteMode.Live && existing is { PendingValue: not null })
@@ -184,7 +210,7 @@ internal static class InstrumentValuePipeline
             await connection.ExecuteAsync(
                 """
                 UPDATE result SET pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL,
-                    pending_instrument_flag = NULL, pending_flag = NULL
+                    pending_instrument_flag = NULL, pending_flag = NULL, pending_reason = NULL, pending_at = NULL, pending_measured_at = NULL
                 WHERE id = @resultId
                 """,
                 new { resultId = existing.Id }, transaction);

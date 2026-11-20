@@ -133,21 +133,13 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
                    coalesce(psv.code, sv.code) AS top_code,
                    coalesce(sc.sort_order, 0) AS child_sort_order,
                    r.id AS result_id, r.value, r.unit, r.ref_low, r.ref_high, r.ref_text, r.flag, r.status,
-                   r.pending_value, r.source, r.pending_instrument_flag, ph.reason AS pending_reason, ph.at AS pending_at
+                   r.pending_value, r.source, r.pending_instrument_flag, r.pending_reason, r.pending_at, r.pending_measured_at
             FROM order_item oi
             JOIN service sv ON sv.id = oi.service_id
             LEFT JOIN order_item poi ON poi.id = oi.parent_item_id
             LEFT JOIN service psv ON psv.id = poi.service_id
             LEFT JOIN service_child sc ON sc.parent_id = poi.service_id AND sc.child_id = oi.service_id
             LEFT JOIN result r ON r.order_item_id = oi.id
-            -- Bản chờ thay: dòng lịch sử máy/hệ thống tạo ra nó (nguồn: máy gửi lại / giải mã lại, và giờ).
-            LEFT JOIN LATERAL (
-                SELECT h.reason, h.at FROM result_history h
-                WHERE r.pending_value IS NOT NULL AND h.result_id = r.id AND h.action = 'thay-the' AND h.actor_id IS NULL
-                  AND h.new_value IS NOT DISTINCT FROM r.pending_value
-                ORDER BY h.at DESC, h.id DESC
-                LIMIT 1
-            ) ph ON true
             WHERE oi.sample_id = @sampleId
             """,
             new { sampleId })).ToList();
@@ -405,6 +397,7 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
         public string? PendingInstrumentFlag { get; init; }
         public string? PendingReason { get; init; }
         public DateTimeOffset? PendingAt { get; init; }
+        public DateTimeOffset? PendingMeasuredAt { get; init; }
 
         public ResultRow ToRow() => new(
             OrderItemId,
@@ -424,6 +417,7 @@ public sealed class SampleResultsQuery(Db db, TimeProvider clock)
             Source,
             PendingValue is null ? null : PendingInstrumentFlag,
             PendingValue is null ? null : PendingReason,
-            PendingValue is null ? null : PendingAt);
+            PendingValue is null ? null : PendingAt,
+            PendingValue is null ? null : PendingMeasuredAt);
     }
 }

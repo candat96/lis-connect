@@ -27,7 +27,8 @@ public sealed record ResultRow(
     string? Source,
     string? PendingInstrumentFlag = null,
     string? PendingReason = null,
-    DateTimeOffset? PendingAt = null);
+    DateTimeOffset? PendingAt = null,
+    DateTimeOffset? PendingMeasuredAt = null);
 
 /// <summary>Một mẫu kèm người bệnh, trạng thái duyệt và bảng chỉ số. <see cref="ApprovedBy"/> là "Tự duyệt" khi mẫu được tự duyệt.</summary>
 public sealed record SampleResults(
@@ -297,7 +298,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
                     flag = @flag, source = @source, instrument_id = pending_instrument_id, raw_ref = pending_raw_ref,
                     instrument_flag = @instrumentFlag, status = @status,
                     pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL, pending_instrument_flag = NULL,
-                    pending_flag = NULL,
+                    pending_flag = NULL, pending_reason = NULL, pending_at = NULL, pending_measured_at = NULL,
                     updated_at = @now, updated_by = @actorId
                 WHERE id = @resultId
                 """,
@@ -342,7 +343,7 @@ public sealed class ResultService(Db db, TimeProvider clock) : IResultService
             await connection.ExecuteAsync(
                 """
                 UPDATE result SET pending_value = NULL, pending_instrument_id = NULL, pending_raw_ref = NULL,
-                    pending_instrument_flag = NULL, pending_flag = NULL
+                    pending_instrument_flag = NULL, pending_flag = NULL, pending_reason = NULL, pending_at = NULL, pending_measured_at = NULL
                 WHERE id = @resultId
                 """,
                 new { resultId }, transaction);

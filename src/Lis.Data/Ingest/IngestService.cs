@@ -172,7 +172,7 @@ public sealed class IngestService(Db db, TimeProvider clock)
 
             var kind = await InstrumentValuePipeline.WriteAsync(
                 connection, transaction, _writer, clock, context, sample.ApprovedAt, channel, reading.InstrumentId, item, reading.RawRef,
-                ReasonStored, mode == ValueWriteMode.Redecode ? ReasonRedecodePending : ReasonPending, actorId: null, mode, ReasonRedecodeConflict);
+                ReasonStored, mode == ValueWriteMode.Redecode ? ReasonRedecodePending : ReasonPending, actorId: null, mode, ReasonRedecodeConflict, reading.ReceivedAt);
 
             switch (kind)
             {

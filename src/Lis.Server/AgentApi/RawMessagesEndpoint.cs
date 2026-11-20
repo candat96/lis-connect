@@ -112,9 +112,20 @@ public static class RawMessagesEndpoint
                 return Results.Problem("Không lưu được bản tin — gửi lại sau", statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
-            results.Add(stored.Inserted
-                ? new RawMessageResult(messageId, Saved, await DecodeAsync(tenant, messageId, log, stopping))
-                : stored.Result!);
+            if (stored.Inserted)
+            {
+                results.Add(new RawMessageResult(messageId, Saved, await DecodeAsync(tenant, messageId, log, stopping)));
+            }
+            else if (stored.Result is { Status: Duplicate, DecodeStatus: RawMessageStatus.Waiting })
+            {
+                // Bản tin trùng mà còn cho-giai-ma (server chết giữa lưu và giải mã): giải mã ngay tại chỗ, đúng thứ tự trong lô, để bản
+                // tin cũ này không bị worker chạy SAU các bản mới hơn của cùng mẫu. dang-giai-ma thì lượt khác đang giữ: bỏ qua.
+                results.Add(new RawMessageResult(messageId, Duplicate, await DecodeAsync(tenant, messageId, log, stopping)));
+            }
+            else
+            {
+                results.Add(stored.Result!);
+            }
         }
 
         return Results.Ok(new RawMessagesResponse(results));

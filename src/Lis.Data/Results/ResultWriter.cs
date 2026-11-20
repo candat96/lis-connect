@@ -245,12 +245,13 @@ internal sealed class ResultWriter(Db db)
     public static async Task MarkPendingAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, Guid resultId, string? currentValue,
         string pendingValue, string historyNewValue, ResultFlag pendingFlag, Guid instrumentId, string? rawRef, string? instrumentFlag,
-        string reason, Guid? actorId, DateTimeOffset now)
+        string reason, Guid? actorId, DateTimeOffset now, DateTimeOffset? measuredAt = null)
     {
         await connection.ExecuteAsync(
             """
             UPDATE result SET pending_value = @pendingValue, pending_instrument_id = @instrumentId, pending_raw_ref = @rawRef,
-                pending_instrument_flag = @instrumentFlag, pending_flag = @pendingFlag
+                pending_instrument_flag = @instrumentFlag, pending_flag = @pendingFlag,
+                pending_reason = @reason, pending_at = @now, pending_measured_at = @measuredAt
             WHERE id = @resultId
             """,
             new
@@ -261,6 +262,9 @@ internal sealed class ResultWriter(Db db)
                 rawRef,
                 instrumentFlag = string.IsNullOrEmpty(instrumentFlag) ? null : instrumentFlag,
                 pendingFlag = pendingFlag.ToString(),
+                reason,
+                now,
+                measuredAt = measuredAt?.ToUniversalTime(),
             },
             transaction);
 

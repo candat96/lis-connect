@@ -38,6 +38,8 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
     private const string KindAuto = "tu-dong";
     private const string KindRedo = "giai-ma-lai";
 
+    private const string UnrecognizedNote = "Không nhận ra bản tin — kiểm giao thức / tốc độ baud của máy";
+
     private const string RedecodeEmptyNote = "Giải mã lại không ra kết quả nào — giữ nguyên dòng Chưa ghép/QC cũ. Kiểm cấu hình máy.";
 
     /// <summary>Số lần thử lại tối đa khi gặp deadlock / lỗi tạm thời, nghỉ <see cref="RetryStep"/> × lần thử.</summary>
@@ -78,10 +80,10 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
                 try
                 {
                     var summary = await db.InTransactionAsync(
-                        (connection, transaction) => RunAsync(message, claim.PreviousStatus, claim.ClaimedAt, kind, actorId, state, connection, transaction), ct);
+                        (connection, transaction) => RunAsync(message, claim.PreviousStatus, claim.ClaimedAt, claim.Attempts, kind, actorId, state, connection, transaction), ct);
                     if (kind == KindAuto && summary.Unmatched > 0 && learning is not null)
                     {
-                        await TryLearnAsync(message.InstrumentId);
+                        await TryLearnAsync(message.InstrumentId, id);
                     }
 
                     break;
@@ -100,7 +102,7 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
                 catch (Exception ex) when (!ct.IsCancellationRequested)
                 {
                     // Kể cả OperationCanceledException mà token KHÔNG bị huỷ (hết giờ nội bộ…): là lỗi, không phải thành công.
-                    await RecordErrorAsync(message, claim.ClaimedAt, kind, actorId, state.Config, ex);
+                    await RecordErrorAsync(message, claim.ClaimedAt, kind, actorId, state.Config, ex, claim.Attempts);
                     break;
                 }
             }
@@ -109,7 +111,7 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
         {
             // Token đã huỷ (tắt máy chủ): lỗi nào kéo theo (kể cả không phải OperationCanceledException, vd kết nối đứt) cũng xử lý như
             // tắt máy — trả trạng thái như trước (có hàng rào), không ghi loi.
-            await RevertAsync(id, claim.PreviousStatus!, claim.ClaimedAt);
+            await RevertAsync(id, claim.PreviousStatus!, claim.ClaimedAt, claim.Attempts);
             ct.ThrowIfCancellationRequested();
             throw;
         }
@@ -179,7 +181,7 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
     }
 
     /// <summary>Kết quả claim: dòng + trạng thái trước + dấu thời gian claim; hoặc <see cref="Skipped"/> khi không được chạy.</summary>
-    internal sealed record ClaimResult(RawMessageRow? Row, string? PreviousStatus, DateTime ClaimedAt, RawMessageRow? Skipped);
+    internal sealed record ClaimResult(RawMessageRow? Row, string? PreviousStatus, DateTime ClaimedAt, RawMessageRow? Skipped, int Attempts = 0);
 
     /// <summary>
     /// Bước 1-2: khoá dòng, kiểm tra được phép chạy, đặt <c>dang-giai-ma</c> + <c>decode_started_at</c> + loại lượt, tăng
@@ -200,26 +202,26 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
             return new ClaimResult(null, null, default, row);
         }
 
-        var claimedAt = await connection.ExecuteScalarAsync<DateTime>(new CommandDefinition(
+        var claimed = await connection.QuerySingleAsync<(DateTime StartedAt, int Attempts)>(new CommandDefinition(
             """
             UPDATE raw_message
             SET decode_status = 'dang-giai-ma', decode_started_at = @now, decode_kind = @kind, decode_attempts = decode_attempts + 1
             WHERE id = @id
-            RETURNING decode_started_at
+            RETURNING decode_started_at AS StartedAt, decode_attempts AS Attempts
             """,
             new { id, kind, now = clock.GetUtcNow().UtcDateTime }, transaction, cancellationToken: ct));
         await transaction.CommitAsync(ct);
-        return new ClaimResult(row, row.DecodeStatus, DateTime.SpecifyKind(claimedAt, DateTimeKind.Utc), null);
+        return new ClaimResult(row, row.DecodeStatus, DateTime.SpecifyKind(claimed.StartedAt, DateTimeKind.Utc), null, claimed.Attempts);
     }
 
     /// <summary>Một lượt thử của giao dịch chính: hàng rào → khoá mẫu theo thứ tự → (giải mã lại: thay dòng QC/Chưa ghép) → ingest → kết thúc.</summary>
     private async Task<Summary> RunAsync(
-        RawMessageRow message, string? previousStatus, DateTime claimedAt, string kind, Guid? actorId, RunState state, NpgsqlConnection connection,
+        RawMessageRow message, string? previousStatus, DateTime claimedAt, int attempts, string kind, Guid? actorId, RunState state, NpgsqlConnection connection,
         NpgsqlTransaction transaction)
     {
         var locked = await connection.ExecuteScalarAsync<Guid?>(
-            "SELECT id FROM raw_message WHERE id = @id AND decode_status = 'dang-giai-ma' AND decode_started_at = @claimedAt FOR UPDATE",
-            new { id = message.Id, claimedAt }, transaction);
+            "SELECT id FROM raw_message WHERE id = @id AND decode_status = 'dang-giai-ma' AND decode_started_at = @claimedAt AND decode_attempts = @attempts FOR UPDATE",
+            new { id = message.Id, claimedAt, attempts }, transaction);
         if (locked is null)
         {
             throw new ClaimLostException();
@@ -235,7 +237,7 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
         {
             var stored = new Totals();
             await FinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, config, RawMessageStatus.StoredOnly,
-                Json(0, stored, [], [], false, [], null));
+                Json(0, stored, [], [], false, [], null), attempts);
             return new Summary(RawMessageStatus.StoredOnly, 0);
         }
 
@@ -250,7 +252,7 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
             // ra kết quả) — cấu hình máy sai, bộ giải mã lỗi…: không xoá gì, không ingest, báo loi. Bản tin vốn không có kết quả
             // (chỉ câu hỏi chỉ định, byte rời) thì đi đường tính trạng thái thường bên dưới.
             var emptyJson = Json(0, totals, decoded.QueryBarcodes, decoded.Notes, decoded.Abandoned, decoded.Discarded, RedecodeEmptyNote);
-            await FinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, config, RawMessageStatus.Error, emptyJson);
+            await FinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, config, RawMessageStatus.Error, emptyJson, attempts);
             return new Summary(RawMessageStatus.Error, 0);
         }
 
@@ -303,6 +305,13 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
             // Dữ liệu bị bỏ ở đâu đó trong bản tin nhưng vẫn ra kết quả: giữ làm cảnh báo (Discarded), không phải lỗi.
             status = RawMessageStatus.Decoded;
         }
+        else if (!OnlyLooseBytes(message.Bytes) && message.Partial && decoded.QueryBarcodes.Count == 0)
+        {
+            // Bản tin dở dang (bộ gom xả sau im lặng), driver không mở lượt nào: không ra kết quả, không ra câu hỏi, mà có nội dung thật
+            // — gần như chắc chắn chọn sai giao thức / baud. Phải hiện ở "Cần chú ý".
+            status = RawMessageStatus.Error;
+            error = UnrecognizedNote;
+        }
         else if (OnlyLooseBytes(message.Bytes) || !decoded.Abandoned)
         {
             // Không có kết quả: chỉ câu hỏi chỉ định, byte rời (CR sau FS, khoảng trắng, ENQ/EOT lẻ), khung Beckman AU DB/DE…
@@ -319,8 +328,15 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
         // Dòng Chưa ghép đã xử lý mà giải mã lại ra giá trị khác: giữ nguyên dòng đó, báo bằng resolvedMismatch + cảnh báo.
         var warnings = decoded.Discarded.Concat(totals.ResolvedMismatches.Select(m =>
             $"Dòng Chưa ghép đã xử lý (mẫu {m.Barcode}, kênh {m.Channel}) có giá trị {m.OldValue}, giải mã lại ra {m.NewValue} — kiểm tra lại")).ToList();
-        var resultJson = Json(decoded.Readings.Count, totals, decoded.QueryBarcodes, decoded.Notes, decoded.Abandoned, warnings, error);
-        await FinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, config, status, resultJson);
+        if (kind == KindRedo && totals.SupersededUnmatched + totals.SupersededQc > totals.Unmatched + totals.Qc)
+        {
+            warnings.Add(
+                $"Giải mã lại ra ít dòng hơn lượt trước ({totals.SupersededUnmatched + totals.SupersededQc} → {totals.Unmatched + totals.Qc}) — kiểm cấu hình máy");
+        }
+
+        IReadOnlyList<string> notes = error == UnrecognizedNote ? [.. decoded.Notes, UnrecognizedNote] : decoded.Notes;
+        var resultJson = Json(decoded.Readings.Count, totals, decoded.QueryBarcodes, notes, decoded.Abandoned, warnings, error);
+        await FinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, config, status, resultJson, attempts);
         return new Summary(status, totals.Unmatched);
     }
 
@@ -352,9 +368,9 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
     /// <summary>Ghi trạng thái cuối + dòng vết. Kèm hàng rào lượt chạy: không ghi được (lượt đã mất quyền) thì ném <see cref="ClaimLostException"/>.</summary>
     private static async Task FinishAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, Guid id, DateTime claimedAt, string kind, Guid? actorId,
-        InstrumentConfig config, string status, string resultJson)
+        InstrumentConfig config, string status, string resultJson, int? attempts = null)
     {
-        if (!await TryFinishAsync(connection, transaction, id, claimedAt, kind, actorId, config, status, resultJson))
+        if (!await TryFinishAsync(connection, transaction, id, claimedAt, kind, actorId, config, status, resultJson, attempts))
         {
             throw new ClaimLostException();
         }
@@ -362,15 +378,16 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
 
     private static async Task<bool> TryFinishAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, Guid id, DateTime claimedAt, string kind, Guid? actorId,
-        InstrumentConfig config, string status, string resultJson)
+        InstrumentConfig config, string status, string resultJson, int? attempts = null)
     {
         var updated = await connection.ExecuteAsync(
             """
             UPDATE raw_message
             SET decode_status = @status, decode_result = @resultJson::jsonb, decoder_version = @version, decoded_at = now(), decode_attempts = 0
             WHERE id = @id AND decode_status = 'dang-giai-ma' AND decode_started_at = @claimedAt
+                AND (@attempts::int IS NULL OR decode_attempts = @attempts::int)
             """,
-            new { id, status, resultJson, version = RawMessageDecoder.Version, claimedAt }, transaction);
+            new { id, status, resultJson, version = RawMessageDecoder.Version, claimedAt, attempts }, transaction);
         if (updated == 0)
         {
             return false;
@@ -390,13 +407,14 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
     /// Giao dịch riêng sau khi giao dịch chính đã rollback: ghi <c>loi</c> + vết, KÈM hàng rào lượt chạy. Không có reading nào
     /// được giữ. Lượt đã mất quyền (đã xong, đã bị phục hồi, hoặc lượt khác đã claim) thì chỉ ghi log, không ghi gì.
     /// </summary>
-    internal async Task RecordErrorAsync(RawMessageRow message, DateTime claimedAt, string kind, Guid? actorId, InstrumentConfig? config, Exception ex)
+    internal async Task RecordErrorAsync(
+        RawMessageRow message, DateTime claimedAt, string kind, Guid? actorId, InstrumentConfig? config, Exception ex, int? attempts = null)
     {
         var used = config ?? new InstrumentConfig(null, null, null);
         var resultJson = Json(0, new Totals(), [], [], false, [], ex.Message);
         var wrote = await db.InTransactionAsync(async (connection, transaction) =>
         {
-            if (!await TryFinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, used, RawMessageStatus.Error, resultJson))
+            if (!await TryFinishAsync(connection, transaction, message.Id, claimedAt, kind, actorId, used, RawMessageStatus.Error, resultJson, attempts))
             {
                 return false;
             }
@@ -415,26 +433,45 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
     }
 
     /// <summary>Tắt máy chủ giữa lượt: trả trạng thái về như trước lượt này (chỉ khi vẫn đúng lượt đã claim) và không tính là một lần gián đoạn.</summary>
-    private async Task RevertAsync(Guid id, string previousStatus, DateTime claimedAt)
+    private async Task RevertAsync(Guid id, string previousStatus, DateTime claimedAt, int attempts)
     {
         await using var connection = await db.OpenAsync();
         var reverted = await connection.ExecuteAsync(
             """
             UPDATE raw_message SET decode_status = @previousStatus, decode_attempts = GREATEST(decode_attempts - 1, 0)
-            WHERE id = @id AND decode_status = 'dang-giai-ma' AND decode_started_at = @claimedAt
+            WHERE id = @id AND decode_status = 'dang-giai-ma' AND decode_started_at = @claimedAt AND decode_attempts = @attempts
             """,
-            new { id, previousStatus, claimedAt });
+            new { id, previousStatus, claimedAt, attempts });
         if (reverted == 0)
         {
             log?.Invoke($"Bản tin {id}: tắt máy chủ giữa lượt nhưng đã mất quyền chạy — không trả trạng thái.");
         }
     }
 
-    private async Task TryLearnAsync(Guid instrumentId)
+    private async Task TryLearnAsync(Guid instrumentId, Guid messageId)
     {
         try
         {
-            await learning!.AutoLearnAsync(instrumentId);
+            var notes = await learning!.AutoLearnAsync(instrumentId);
+            if (notes.Count == 0)
+            {
+                return;
+            }
+
+            // Việc tự động ghi kết quả vào phiếu người bệnh phải có dấu vết: log server + ghi chú của bản tin.
+            foreach (var note in notes)
+            {
+                log?.Invoke($"Bản tin {messageId}: {note}");
+            }
+
+            await using var connection = await db.OpenAsync();
+            await connection.ExecuteAsync(
+                """
+                UPDATE raw_message
+                SET decode_result = jsonb_set(decode_result, '{notes}', COALESCE(decode_result->'notes', '[]'::jsonb) || @added::jsonb)
+                WHERE id = @messageId AND decode_status <> 'dang-giai-ma' AND decode_result IS NOT NULL
+                """,
+                new { messageId, added = JsonSerializer.Serialize(notes.Select(Clean)) });
         }
         catch (Exception ex)
         {
@@ -462,6 +499,9 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
             "SELECT protocol_family AS Family, model AS Model, driver_config::text AS DriverConfig FROM instrument WHERE id = @instrumentId",
             new { instrumentId }, transaction);
 
+    /// <summary>jsonb không nhận ký tự NUL (lỗi 22P05): bỏ khỏi mọi chuỗi trước khi ghi.</summary>
+    private static string Clean(string value) => value.Replace("\0", "");
+
     private static string Json(
         int readings, Totals t, IReadOnlyList<string> queries, IReadOnlyList<string> notes, bool abandoned, IReadOnlyList<string> warnings, string? error) =>
         JsonSerializer.Serialize(new
@@ -477,12 +517,16 @@ public sealed class RawMessageProcessor(Db db, IngestService ingest, IChannelMap
             supersededUnmatched = t.SupersededUnmatched,
             supersededQc = t.SupersededQc,
             olderThanCurrent = t.OlderThanCurrent,
-            queries,
-            notes,
-            warnings,
-            resolvedMismatch = t.ResolvedMismatches.Select(m => new { unmatchedId = m.UnmatchedId, barcode = m.Barcode, channel = m.Channel, oldValue = m.OldValue, newValue = m.NewValue }),
+            queries = queries.Select(Clean),
+            notes = notes.Select(Clean),
+            warnings = warnings.Select(Clean),
+            resolvedMismatch = t.ResolvedMismatches.Select(m => new
+            {
+                unmatchedId = m.UnmatchedId, barcode = Clean(m.Barcode), channel = Clean(m.Channel), oldValue = m.OldValue is null ? null : Clean(m.OldValue),
+                newValue = m.NewValue is null ? null : Clean(m.NewValue),
+            }),
             abandoned,
-            error,
+            error = error is null ? null : Clean(error),
         });
 
     private sealed record Summary(string Status, int Unmatched);
