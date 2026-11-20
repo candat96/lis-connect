@@ -73,4 +73,4 @@ export function formatSize(bytes: number): string {
 export const purgeDate = (storedAt: string): Dayjs => dayjs(storedAt).add(KEEP_DAYS, 'day');
 
 /** Câu xác nhận dùng chung cho mọi lần giải mã lại. */
-export const REDECODE_SAFETY = 'Mẫu đã duyệt chỉ nhận giá trị chờ thay, không bị ghi đè. Kết quả đã có mà khác cũng vào chờ thay để người duyệt chọn.';
+export const REDECODE_SAFETY = 'Mẫu đã duyệt chỉ nhận giá trị chờ thay, không bị ghi đè. Kết quả đã có mà khác cũng vào chờ thay để người duyệt chọn. Chỉ số còn trống trên mẫu chưa duyệt được ghi thẳng; dòng Chưa ghép / QC chưa xử lý của chính bản tin này được thay bằng kết quả mới.';

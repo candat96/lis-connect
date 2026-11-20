@@ -143,7 +143,7 @@ export function RawMessageDrawer({ id, onClose }: { id: string | null; onClose: 
             <Alert
               type="error" showIcon
               message={result?.error || result?.note || 'Giải mã lỗi'}
-              description={`Bản tin lỗi chưa đưa được kết quả nào vào hệ thống. Máy chủ sẽ xoá bản tin này ngày ${purgeDate(m.storedAt).format('DD/MM/YYYY')} (giữ ${90} ngày) — kiểm cấu hình máy rồi giải mã lại trước ngày đó.`}
+              description={`Lượt giải mã này không đưa được kết quả nào vào hệ thống (kết quả của lượt trước, nếu có, vẫn giữ nguyên). Máy chủ sẽ xoá bản tin này ngày ${purgeDate(m.storedAt).format('DD/MM/YYYY')} (giữ 90 ngày) — kiểm cấu hình máy rồi giải mã lại trước ngày đó.`}
             />
           )}
           {m.decodeStatus === 'can-xem-lai' && (

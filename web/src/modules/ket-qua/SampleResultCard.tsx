@@ -31,11 +31,17 @@ const ACTION: Record<string, string> = {
 const NO_CHANGE_ACTIONS = new Set(['giai-ma-lai-khac']);
 
 /** Câu giải thích thẻ chờ thay: nguồn (máy gửi lại / giải mã lại), giờ, cờ máy. */
-export function pendingTooltip(row: Pick<ResultRow, 'pendingReason' | 'pendingAt' | 'pendingInstrumentFlag'>): string {
-  const source = row.pendingReason?.startsWith('Giải mã lại') ? 'Giải mã lại bản tin ra giá trị này' : 'Máy gửi lại giá trị này';
-  const at = row.pendingAt ? ` lúc ${dayjs(row.pendingAt).format('HH:mm DD/MM/YYYY')}` : '';
+export function pendingTooltip(row: Pick<ResultRow, 'pendingReason' | 'pendingAt' | 'pendingMeasuredAt' | 'pendingInstrumentFlag'>): string {
+  const reason = row.pendingReason ?? '';
+  let source: string;
+  if (reason.startsWith('Giải mã lại')) source = 'Giải mã lại bản tin ra giá trị này';
+  else if (reason.startsWith('Bản tin cũ')) source = 'Bản tin CŨ HƠN đến sau — giá trị hiện tại là của lần đo mới hơn, thường nên giữ';
+  else if (reason.toLowerCase().includes('chưa ghép')) source = 'Gán từ dòng chưa ghép ra giá trị này';
+  else source = 'Máy gửi lại giá trị này';
+  const measured = row.pendingMeasuredAt ? ` · đo lúc ${dayjs(row.pendingMeasuredAt).format('HH:mm DD/MM/YYYY')}` : '';
+  const at = row.pendingAt ? ` · ghi nhận lúc ${dayjs(row.pendingAt).format('HH:mm DD/MM/YYYY')}` : '';
   const flag = row.pendingInstrumentFlag ? ` · cờ máy: ${row.pendingInstrumentFlag}` : '';
-  return `${source}${at}${flag}. Bấm "Dùng" để thay giá trị hiện tại, hoặc ✕ để bỏ.`;
+  return `${source}${measured}${at}${flag}. Bấm "Dùng" để thay giá trị hiện tại, hoặc ✕ để bỏ.`;
 }
 
 const PENDING_BLOCKS_APPROVE = 'Mẫu còn giá trị chờ thay';

@@ -28,10 +28,10 @@ export const useIsAdmin = () => useSessionStore((s) => s.user?.roles.includes('q
 const hasAnyRole = (roles: string[] | undefined, allowed: string[]) => roles?.some((r) => allowed.includes(r)) ?? false;
 /** Nhập, sửa, duyệt kết quả: Quản trị, Kỹ thuật viên, Trưởng khoa. */
 export const useCanEditResults = () => useSessionStore((s) => hasAnyRole(s.user?.roles, ['quan-tri', 'ky-thuat-vien', 'truong-khoa']));
-/** Huỷ duyệt: Quản trị, Trưởng khoa. */
 /** Giải mã thử / giải mã lại bản tin thô: Quản trị, Trưởng khoa (máy chủ cũng chặn). */
 export const useCanRedecode = () => useSessionStore((s) => hasAnyRole(s.user?.roles, ['quan-tri', 'truong-khoa']));
 
+/** Huỷ duyệt: Quản trị, Trưởng khoa. */
 export const useCanUnapprove = () => useSessionStore((s) => hasAnyRole(s.user?.roles, ['quan-tri', 'truong-khoa']));
 
 // Phiên đăng nhập giữ ở localStorage: mở lại trình duyệt không phải đăng nhập lại cho tới khi

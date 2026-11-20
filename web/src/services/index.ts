@@ -84,7 +84,10 @@ export interface ResultRow {
   pendingInstrumentFlag: string | null;
   /** Lý do lúc tạo bản chờ thay: máy gửi lại cho mẫu đã duyệt / giải mã lại ra giá trị khác. */
   pendingReason: string | null;
+  /** Lúc tạo bản chờ thay trên máy chủ. */
   pendingAt: string | null;
+  /** Lúc máy đo / nhận xong bản tin sinh ra bản chờ thay (có thể sớm hơn `pendingAt` nhiều nếu giải mã lại). */
+  pendingMeasuredAt: string | null;
 }
 
 export interface SampleDetail {
@@ -435,7 +438,7 @@ export interface DecodeResult {
   abandoned?: boolean;
   error?: string | null;
   note?: string | null;
-  interrupted?: number;
+  interrupted?: boolean;
 }
 
 export interface RawMessageRow {
