@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Lis.Server\Lis.Server.csproj" />
     <ProjectReference Include="..\..\src\Lis.Agent\Lis.Agent.csproj" />
+    <ProjectReference Include="..\..\tools\Lis.Simulator\Lis.Simulator.csproj" />
   </ItemGroup>
 
   <ItemGroup>
