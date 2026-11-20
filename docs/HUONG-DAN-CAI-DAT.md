@@ -424,7 +424,7 @@ Nên làm lúc vắng mẫu.
 | Máy hiện "Lỗi kết nối" (COM) | Tên cổng COM; cổng đang bị phần mềm khác giữ (kể cả app LIS Windows cũ) |
 | Máy hiện "Đang chờ máy" mãi (TCP) | IP + cổng khai trên máy xét nghiệm; Windows Firewall trên máy tính agent |
 | Log có "Máy → LIS" nhưng toàn ký tự lạ | Sai baud / bit dữ liệu / parity, hoặc chọn sai giao thức |
-| Log có "Nhận kết quả … không ghép được" | Mẫu chưa có chỉ định trong LIS, hoặc mã kênh chưa map (mục 5.5) |
+| Kết quả không lên phiếu, có dòng "Chưa ghép" | Mẫu chưa có chỉ định trong LIS, hoặc mã kênh chưa map (mục 5.5). Xem web → **Kết quả** → **Chưa ghép** và **Bản tin thô** |
 | Máy gửi mà kết quả không lên phiếu | Web → **Bản tin thô**, lọc **Cần chú ý** (mục 20 của HUONG-DAN/04) |
 | Mất mạng | Agent vẫn nhận từ máy và giữ bản tin trên đĩa (`C:\ProgramData\LIS Agent\cho-gui\ban-tin`), có mạng tự gửi lại, không ghi trùng |
 | Bản tin kẹt trên đĩa, log agent báo 413 | `client_max_body_size` của `location /agent/v1/raw-messages` dưới 24m (mục 6) |
