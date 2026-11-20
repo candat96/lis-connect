@@ -81,7 +81,9 @@ public sealed class RawMessageWorkerTests(ServerFixture fixture) : IClassFixture
         await worker.PurgeAllAsync(Ct);
 
         (await healthy.Scalar<string>("SELECT decode_status FROM raw_message WHERE id = @waiting", new { waiting })).ShouldBe("da-giai-ma");
-        logger.Entries.ShouldNotContain(e => e.Level == LogLevel.Error);
+        // Master dùng chung giữa các lớp test: phòng khám của lớp khác có thể đã bị xoá CSDL và worker ghi lỗi cho nó (đúng hành vi).
+        // Ở đây chỉ cần: phòng khám hỏng nâng cấp (wk0) bị bỏ qua không log lỗi, phòng khám lành (wk3) không lỗi.
+        logger.Entries.ShouldNotContain(e => e.Level == LogLevel.Error && (e.Text.Contains("wk0") || e.Text.Contains("wk3")));
     }
 
     [Fact]
