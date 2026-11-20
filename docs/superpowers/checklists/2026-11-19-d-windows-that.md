@@ -1,14 +1,14 @@
 # Danh sách kiểm Windows thật: giải mã ở server, bản tin thô (phần D)
 
 Chủ dự án làm trên máy Windows 10/11 thật, nối máy xét nghiệm thật (BC-5380, AU480, Access 2) hoặc bộ giả lập khi chưa có máy. Đánh dấu `- [x]` khi đạt; không đạt thì ghi vào ô
-**Ghi chú** (kèm ảnh nếu có). Đạt đủ các mục 1–12 thì phần D mới coi là xong. Mục 1–3 cần máy thật; các mục sau dùng được bộ giả lập `tools/Lis.Simulator` nếu máy thật bận.
+**Ghi chú** (kèm ảnh nếu có). Đạt đủ các mục 1–15 thì phần D mới coi là xong. Mục 1–3 cần máy thật; các mục sau dùng được bộ giả lập `tools/Lis.Simulator` nếu máy thật bận.
 
 ## Chuẩn bị
 
 1. **Bản agent 0.4.0.** Chạy `bash scripts/publish-agent.sh dist/agent` (`<Version>` trong `src/Lis.Agent/Lis.Agent.csproj` là `0.4.0`). Ghi SHA-256 của `dist/agent/LisAgent.exe`: ______
 2. **Server mới.** Chạy với `PUBLIC_URL=http://<ip-lan>:5080` và `AGENT_DIST_DIR=<đường dẫn tuyệt đối tới dist/agent>`. Migration chạy xong (bảng `raw_message`, `raw_message_decode`; bảng master `agent_reading` đã bỏ).
    Đăng nhập web bằng tài khoản **Quản trị**.
-3. **Nếu có agent 0.3.0 đang chạy:** nâng cấp theo `docs/HUONG-DAN-CAI-DAT.md` mục 6.1 (mục 11 của danh sách này thử đúng việc này).
+3. **Nếu có agent 0.3.0 đang chạy:** nâng cấp theo `docs/HUONG-DAN-CAI-DAT.md` mục 6.1: gửi bù hết hàng chờ, cập nhật agent, rồi mới nâng server (mục 11 của danh sách này thử đúng việc này).
 4. **Ba máy khai trên web** (**Máy & map kênh**), agent phụ trách là agent vừa cài, map kênh đủ: BC-5380 (**HL7 MLLP**), Access 2 (**ASTM E1394**), AU480 (**Beckman AU**; trên máy AU đã **bật BCC, chọn Class B**,
    cấu hình online khai trên web khớp màn Online của máy).
 5. **Mẫu có barcode.** Có sẵn ít nhất ba mẫu có chỉ định đúng chỉ số của từng máy (tạo bằng `seed-demo`; phòng khám tạo từ web thì chạy câu SQL `facility` ở `docs/HUONG-DAN-CAI-DAT.md` mục 5.6 trước).
@@ -27,7 +27,8 @@ Cách làm:
 Kết quả mong đợi:
 - Bản tin trạng thái **Đã giải mã**; không có dòng "Dở dang 1 B" nối đuôi sau bản tin (CR đuôi khung đã gộp).
 - Mọi giá trị khớp bản in; không chỉ số nào thiếu hay lệch số lẻ; kênh chưa map (nếu có) hiện ở bảng chưa map.
-- Lần gửi lại giống hệt: không nhân đôi kết quả (**Giữ nguyên**), không tạo chờ thay.
+- Lần gửi lại giống hệt cho mẫu **chưa duyệt**: đường tự động ghi lại giá trị, ngăn chi tiết bản tin hiện "ghi N kết quả" (không phải "Giữ nguyên"); số dòng kết quả của mẫu không nhân đôi, không tạo chờ thay.
+  Nếu bản tin cũ hơn kết quả đang có trên phiếu thì giá trị không bị đè (hiện tại bị bỏ; sau vòng sửa A sẽ thành chờ thay).
 
 - [ ] Đạt
 
@@ -44,7 +45,7 @@ Cách làm:
 Kết quả mong đợi:
 - Một bản tin AU là trọn một mẫu, trạng thái **Đã giải mã**, mọi chỉ số khớp bản in.
 - Không có cảnh báo "BCC sai" ở **Cần chú ý** khi máy chạy bình thường. Có thì ghi lại: có thể cáp nhiễu hoặc cấu hình online lệch.
-- Chỉ số chưa biết mã: tự dò map sau **2 mẫu** khớp, có dòng ghi trong Log agent.
+- Chỉ số chưa biết mã: tự dò map sau **2 mẫu** khớp. Dòng "Tự map kênh X → Y …" hiện ở **ngăn chi tiết của bản tin** (mục ghi chú `notes` của lượt giải mã), không còn ở Log agent.
 
 - [ ] Đạt
 
@@ -184,15 +185,21 @@ Ghi chú: ______________________________________________
 
 ## 11. Nâng cấp agent 0.3.0 lên 0.4.0 và dọn `cho-gui` dạng cũ
 
-Cách làm (chỉ khi đang có agent 0.3.0; không có thì cài 0.3.0 từ bản trước để thử):
-1. Với agent 0.3.0, cho máy gửi một mẫu rồi **ngắt mạng** để có tệp kết quả đã giải mã trong `cho-gui\<mã máy>\*.json`.
-2. Nâng server lên bản mới. Cho thấy agent 0.3.0 không gửi được (không có kết quả mới).
-3. Web → **Agent** → **Điều khiển** → **Cập nhật lên 0.4.0**. Xem Log agent sau khi khởi động.
-4. Dọn theo `docs/HUONG-DAN/04-xu-ly-su-co.md` mục 22 (dừng dịch vụ, xoá **chỉ** thư mục mã máy, **giữ** `ban-tin`, chạy lại).
-5. Thử **Ghép nối lại** bằng khoá mới (sau khi thu hồi một agent thử): agent vẫn không gửi cho tới khi **Restart** dịch vụ.
+Cách làm (chỉ khi đang có agent 0.3.0; không có thì cài 0.3.0 từ bản trước để thử). Làm hai lượt.
+
+Lượt đúng thứ tự (không mất dữ liệu):
+1. Với agent 0.3.0 và server cũ, cho máy gửi một mẫu rồi **ngắt mạng** để có tệp kết quả trong `cho-gui\<mã định danh máy>\*.json`. Cắm mạng, bấm **Gửi bù ngay** tới khi **Chờ gửi** về 0 và kết quả có trên phiếu.
+2. Đặt 0.4.0 vào `AGENT_DIST_DIR` của server cũ, web → **Agent** → **Điều khiển** → **Cập nhật lên 0.4.0**. Cho máy gửi một mẫu: server cũ trả 404, tệp bản tin **vẫn nằm** trong `cho-gui\ban-tin\<mã máy>`.
+3. Nâng server. Bản tin đang giữ lên đủ, **Chờ gửi** về 0.
+
+Lượt thử đường xấu (nâng server trước):
+4. Với agent 0.3.0 còn hàng chờ, nâng server. Cho thấy agent 0.3.0 không gửi được. Cập nhật lên 0.4.0, xem Log agent sau khi khởi động.
+5. Dọn theo `docs/HUONG-DAN/04-xu-ly-su-co.md` mục 22 (dừng dịch vụ, xoá **chỉ** các thư mục tên 32 ký tự hex, **giữ** `ban-tin`, chạy lại).
+6. Thử **Ghép nối lại** bằng khoá mới (sau khi thu hồi một agent thử): agent vẫn không gửi cho tới khi **Restart** dịch vụ.
 
 Kết quả mong đợi:
-- Sau khi nâng cấp, log có cảnh báo "Có kết quả chờ gửi dạng cũ — bản này không gửi được nữa" mỗi lần khởi động, tới khi dọn.
+- Lượt đúng thứ tự: không tệp nào mất, mọi kết quả lên phiếu, không cảnh báo dạng cũ.
+- Lượt đường xấu: sau khi nâng cấp, log có cảnh báo "Có kết quả chờ gửi dạng cũ — bản này không gửi được nữa" mỗi lần khởi động, tới khi dọn.
 - Sau khi dọn: hết cảnh báo; thư mục `ban-tin` còn nguyên; bản tin mới gửi bình thường.
 - Sau ghép nối lại bằng khoá mới: bản tin chờ chỉ gửi sau khi khởi động lại dịch vụ (ghi lại thời gian thực tế: ______).
 
@@ -216,6 +223,52 @@ Kết quả mong đợi:
 
 Ghi chú: ______________________________________________
 
+## 13. Đường truyền lên chậm
+
+Cách làm:
+1. Giới hạn băng thông lên của máy Windows agent (khoảng 1 Mbps, bằng công cụ giới hạn băng thông hoặc router). Tắt mạng agent, cho máy (hoặc bộ giả lập) gửi nhiều mẫu để hàng chờ có hàng chục bản tin tới vài MB, bật mạng.
+2. Theo dõi cột **Chờ gửi** và Log agent trong 10 phút.
+
+Kết quả mong đợi:
+- **Chờ gửi** giảm dần về 0. Nếu đứng yên và log agent lặp lại lỗi hết giờ (30 giây) cho cùng một lô thì ghi lại: đây là lỗi đã biết (review cuối I2, nằm ở
+  [backlog](../plans/2026-11-19-d-backlog.md)), chưa sửa. Cách tạm: giảm số mẫu dồn lại, hoặc tăng băng thông.
+
+- [ ] Đạt
+
+Ghi chú: ______________________________________________
+
+## 14. Chuyển máy sang agent khác khi còn hàng chờ
+
+Cách làm:
+1. Trên agent A, ngắt mạng, cho máy gửi vài mẫu để **Chờ gửi** > 0. Cắm mạng lại, bấm **Gửi bù ngay** và đợi **Chờ gửi** về **0**.
+2. Chỉ khi đã về 0: **Sửa máy** → đổi **Agent phụ trách** sang agent B.
+3. (Đối chứng, chỉ để biết hậu quả) lặp lại bước 1 nhưng **không** đợi về 0 mà chuyển máy ngay.
+
+Kết quả mong đợi:
+- Bước 2: mọi bản tin lên đủ trước khi chuyển; máy chạy bình thường qua agent B.
+- Bước 3: bản tin còn trên đĩa agent A bị server báo "không thuộc agent" và nằm đó (agent thử lại 5 phút một lần), web **không** có cột nào hiện số này. Đây là lý do
+  phải kiểm **Chờ gửi** bằng 0 trước khi chuyển máy. Muốn lấy lại: gán máy về agent A, đợi gửi hết, rồi mới chuyển. Chuyển máy về A sau khi B đã gửi bản mới thì
+  bản cũ có thể lên sau bản mới (lỗi đã biết, backlog).
+
+- [ ] Đạt
+
+Ghi chú: ______________________________________________
+
+## 15. Tệp `.tmp` sau mất điện
+
+Cách làm:
+1. Dừng dịch vụ **LIS Agent**. Trong `cho-gui\ban-tin\<mã máy>` có một tệp `.tmp` đầy đủ nội dung bản tin (chép một tệp `.json` hợp lệ rồi đổi đuôi thành `.tmp`, tên đúng dạng `<20 chữ số>-<32 chữ số hex>.json.tmp`).
+2. Chạy lại dịch vụ. Xem thư mục và Log agent.
+
+Kết quả mong đợi:
+- Hiện tại agent **bỏ qua** tệp `.tmp` và xoá sau 1 ngày, **không** gửi (lỗi đã biết, backlog: sau mất điện bản tin đã ACK có thể chỉ còn ở `.tmp`). Ghi lại hành vi thực tế.
+- Sau khi sửa, kỳ vọng: `.tmp` đọc được trọn bản tin thì đổi thành `.json` và gửi; hỏng thì đổi `.loi`, không xoá.
+- Vì vậy sau mất điện đột ngột, IT nên xem `.tmp` còn lại trong thư mục này trước khi bỏ qua.
+
+- [ ] Đạt (hành vi đúng như mô tả)
+
+Ghi chú: ______________________________________________
+
 ---
 
 ## Bảng tổng hợp
@@ -234,6 +287,9 @@ Ghi chú: ______________________________________________
 | 10 | Tệp `.loi` không chặn hàng | [ ] | | | |
 | 11 | Nâng cấp 0.3.0 → 0.4.0, dọn `cho-gui` cũ, khởi động lại sau ghép nối lại | [ ] | | | |
 | 12 | nginx: 24m cho bản tin, giải mã lại khoảng lớn | [ ] | | | |
+| 13 | Đường truyền lên chậm | [ ] | | | |
+| 14 | Chuyển máy sang agent khác khi còn hàng chờ | [ ] | | | |
+| 15 | Tệp `.tmp` sau mất điện | [ ] | | | |
 
-Khi đủ các mục 1–12 đạt: ghi "Đã thử Windows thật <ngày>" vào ledger của phần D. Các điểm chưa làm gom ở
+Khi đủ các mục 1–15 đạt: ghi "Đã thử Windows thật <ngày>" vào ledger của phần D. Các điểm chưa làm gom ở
 [2026-11-19-d-backlog.md](../plans/2026-11-19-d-backlog.md).

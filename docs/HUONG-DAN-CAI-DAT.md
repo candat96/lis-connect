@@ -1,7 +1,7 @@
 # Hướng dẫn khởi tạo, cài đặt và kết nối LIS Connect (bản web)
 
 Tài liệu này đi từ máy chủ trống tới lúc máy xét nghiệm gửi kết quả vào phiếu. Đọc theo thứ tự; mỗi bước có
-cách kiểm tra đã xong chưa. Cập nhật: 16/11/2026.
+cách kiểm tra đã xong chưa. Cập nhật: 20/11/2026.
 
 ## 1. Hệ thống gồm những gì
 
@@ -245,7 +245,7 @@ Web → **Log agent**, chọn máy. Cho máy chạy / gửi lại một mẫu:
 - Dòng **Sự kiện** "Đã kết nối …": cổng đã thông.
 - Dòng **Máy → LIS**: máy đã gửi dữ liệu (đọc được nội dung bản tin; bật *Hiện hex* để xem từng byte).
 - Dòng **LIS → Máy**: agent đã trả lời máy.
-- Dòng **Sự kiện** "Nhận kết quả mẫu …: N kênh → …": bản tin đã được xử lý, cho biết bao nhiêu giá trị vào phiếu.
+- Kết quả ghi vào phiếu **không** còn hiện ở Log agent (agent 0.4.0 chỉ chuyển bản tin, máy chủ mới giải mã). Xem ở web → **Bản tin thô**: trạng thái và số kết quả của bản tin.
 
 Không thấy dòng nào: xem mục 7.
 
@@ -394,16 +394,20 @@ systemd / NSSM), **sao lưu CSDL hằng ngày** (`pg_dump` từng CSDL phòng kh
 ### 6.1. Nâng cấp từ agent 0.3.0 lên 0.4.0 (bắt buộc)
 
 Server mới **bỏ** `POST /agent/v1/readings` và bảng `agent_reading`: agent 0.3.0 trở về trước gửi kết quả đã giải mã vào đường đó nên
-sẽ **không gửi được gì** sau khi server nâng cấp. Làm theo thứ tự:
+sẽ **không gửi được gì** sau khi server nâng cấp. Làm đúng thứ tự dưới đây để không mất kết quả nào:
 
-1. Dựng bản agent mới (`bash scripts/publish-agent.sh`, phiên bản `0.4.0` trong `Lis.Agent.csproj`) và đặt vào `AGENT_DIST_DIR` của server.
-2. Nâng server lên bản mới (migration tự chạy: bảng `raw_message`, `raw_message_decode`; bỏ `agent_reading` ở CSDL master).
-3. Ngay sau đó, từng agent: web → **Agent** → **Điều khiển** → **Cập nhật lên 0.4.0**. Hoặc cài lại bằng tệp cài mới.
-4. Trong khoảng giữa bước 2 và 3, máy xét nghiệm vẫn gửi vào agent cũ; agent cũ giữ kết quả đã giải mã trong `cho-gui\<mã máy>\*.json` và
-   **không gửi được**. Agent 0.4.0 **không gửi lại** các tệp dạng cũ này, mỗi lần khởi động ghi cảnh báo "Có kết quả chờ gửi dạng cũ". Cách dọn xem
-   [HUONG-DAN/04-xu-ly-su-co.md](HUONG-DAN/04-xu-ly-su-co.md), mục 22; kết quả trong các tệp đó phải nhập lại từ máy hoặc bản in.
-   Vì vậy nên nâng cấp lúc vắng mẫu và cập nhật agent ngay sau server.
-5. Kiểm tra: **Bản tin thô** có dòng mới sau một lần máy gửi; cột **Phiên bản** ở bảng agent là `0.4.0`.
+1. **Gửi bù hết hàng chờ trên 0.3.0.** Khi server còn là bản cũ: web → **Agent** → **Điều khiển** → **Gửi bù ngay**, lặp lại tới khi cột **Chờ gửi** của mọi máy về 0.
+   Đừng nâng server khi còn số này, vì kết quả còn trên đĩa agent cũ sẽ không gửi được nữa.
+2. **Cập nhật agent lên 0.4.0 trước.** Dựng bản mới (`bash scripts/publish-agent.sh`, phiên bản `0.4.0` trong `Lis.Agent.csproj`), đặt vào `AGENT_DIST_DIR` của **server cũ**,
+   rồi từng agent: web → **Agent** → **Điều khiển** → **Cập nhật lên 0.4.0** (hoặc cài lại bằng tệp cài mới). Server cũ chưa có `POST /agent/v1/raw-messages` nên trả 404;
+   agent 0.4.0 gặp 404 thì **giữ bản tin trên đĩa** (`cho-gui\ban-tin`) và gửi lại sau, không mất.
+3. **Nâng server lên bản mới** (migration tự chạy: bảng `raw_message`, `raw_message_decode`; bỏ `agent_reading` ở CSDL master). Agent 0.4.0 gửi nốt các bản tin đang giữ.
+4. Nếu lỡ nâng server trước khi gửi bù hết: kết quả còn trong `cho-gui\<mã máy>\*.json` của agent cũ **không gửi được**. Agent 0.4.0 **không gửi lại** các tệp dạng cũ này,
+   mỗi lần khởi động ghi cảnh báo "Có kết quả chờ gửi dạng cũ". Cách dọn xem [HUONG-DAN/04-xu-ly-su-co.md](HUONG-DAN/04-xu-ly-su-co.md), mục 22;
+   kết quả trong các tệp đó phải nhập lại từ máy hoặc bản in.
+5. Kiểm tra: **Bản tin thô** có dòng mới sau một lần máy gửi; cột **Phiên bản** ở bảng agent là `0.4.0`; **Chờ gửi** về 0.
+
+Nên làm lúc vắng mẫu.
 
 ## 7. Khi không chạy
 

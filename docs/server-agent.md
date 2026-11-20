@@ -238,8 +238,9 @@ bản tin tự xong và ghi vết). Vì vậy nên thu hẹp khoảng thời gia
 `/api/raw-messages/redecode` (mẫu nginx ở mục 6 của [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md)).
 
 **Không tương thích ngược:** `POST /agent/v1/readings` và bảng master `agent_reading` đã bỏ (migration master `0005`). Agent 0.3.0 trở về
-trước gọi `/readings` sẽ không gửi được kết quả. Phải nâng agent lên 0.4.0 trước hoặc cùng lúc với server mới (nút **Cập nhật lên 0.4.0**
-trong bảng điều khiển agent, hoặc cài lại bằng tệp cài).
+trước gọi `/readings` sẽ không gửi được kết quả. Thứ tự nâng cấp không mất dữ liệu: (1) **Gửi bù ngay** trên agent 0.3.0 tới khi hàng chờ về 0;
+(2) đặt bản 0.4.0 vào `AGENT_DIST_DIR` của **server cũ** rồi cập nhật agent (nút **Cập nhật lên 0.4.0**, hoặc cài lại bằng tệp cài); agent 0.4.0 gặp 404 từ server cũ thì giữ bản tin trên đĩa;
+(3) nâng server. Chi tiết ở mục 6.1 của [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md).
 
 ## Cài đặt trên web
 

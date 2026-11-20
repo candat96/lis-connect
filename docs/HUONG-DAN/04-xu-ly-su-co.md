@@ -238,10 +238,13 @@ Máy đã gửi nhưng kết quả không lên phiếu: vào **Bản tin thô** 
 |---|---|---|
 | **Lỗi** | Bộ giải mã không đọc được (sai giao thức, bản tin dở dang, checksum sai), hoặc ghi kết quả lỗi | Mở bản tin, đọc dòng lỗi. Sai giao thức: sửa họ giao thức ở **Máy & map kênh** rồi **Giải mã lại**. Checksum sai: máy hoặc đường truyền nhiễu, xem lại cáp / baud |
 | **Cần xem lại** | Giải mã bị gián đoạn (máy chủ tắt giữa chừng), máy chủ không tự chạy lại | Mở bản tin, bấm **Giải mã lại** |
-| **Không có kết quả** | Bản tin chỉ có câu hỏi chỉ định hoặc byte rời | Bình thường |
-| **Chỉ lưu** | Máy đặt "Chỉ nghe" hoặc chưa chọn giao thức | Chọn giao thức ở **Máy & map kênh**, rồi **Giải mã lại** nếu cần kết quả cũ |
+| **Không có kết quả** | Bản tin chỉ có câu hỏi chỉ định hoặc byte rời | Bình thường. Không hiện ở **Cần chú ý** |
+| **Chỉ lưu** | Máy đặt "Chỉ nghe" hoặc chưa chọn giao thức | Bình thường, không hiện ở **Cần chú ý**. Muốn có kết quả: chọn giao thức ở **Máy & map kênh**, rồi **Giải mã lại** |
 | **Đã giải mã** có cảnh báo | Driver bỏ dữ liệu không đọc được, hoặc dòng "Chưa ghép" đã gán ra giá trị khác khi giải mã lại | Đọc cảnh báo trong ngăn chi tiết |
-| **Đang giải mã** quá vài phút | Máy chủ đang bận hoặc vừa khởi động lại | Máy chủ tự phục hồi mỗi 60 giây: bản tin về **Chờ giải mã** (tự chạy lại) hoặc **Cần xem lại** |
+| **Đang giải mã** quá vài phút | Máy chủ đang bận hoặc vừa khởi động lại | Máy chủ tự phục hồi mỗi 60 giây: bản tin về **Chờ giải mã** (tự chạy lại) hoặc **Cần xem lại**. Hai trạng thái này không phải lỗi |
+
+Bộ lọc **Cần chú ý** chỉ gồm: **Lỗi**, **Cần xem lại**, **Đã giải mã** có cảnh báo, và bản tin có dòng **Chưa ghép** đã gán ra giá trị khác khi giải mã lại.
+**Không có kết quả**, **Chỉ lưu**, **Đang giải mã** và **Chờ giải mã** không nằm trong bộ lọc này; muốn xem thì lọc theo trạng thái.
 
 **Giải mã lại sau khi sửa map kênh:**
 1. **Máy & map kênh** → thêm hoặc sửa map cho các mã kênh còn thiếu.
@@ -260,13 +263,13 @@ thường không dùng được. Bản tin chờ trong `cho-gui\ban-tin` đượ
 
 ## 22. Dọn kết quả chờ gửi dạng cũ trong `cho-gui`
 
-Agent 0.3.0 và cũ hơn để lại các tệp kết quả **đã giải mã** ở `C:\ProgramData\LIS Agent\cho-gui\<mã máy>\*.json`. Agent 0.4.0 **không gửi** tệp dạng này nữa; mỗi lần khởi động nó ghi
+Agent 0.3.0 và cũ hơn để lại các tệp kết quả **đã giải mã** ở `C:\ProgramData\LIS Agent\cho-gui\<mã định danh máy, 32 ký tự hex>\*.json`. Agent 0.4.0 **không gửi** tệp dạng này nữa; mỗi lần khởi động nó ghi
 cảnh báo "Có kết quả chờ gửi dạng cũ — bản này không gửi được nữa" cho tới khi dọn.
 
 1. Dừng dịch vụ **LIS Agent** (`services.msc`).
 2. Mở `C:\ProgramData\LIS Agent\cho-gui\`.
-3. **Chỉ** xoá (hoặc chép đi lưu) các thư mục con có tên là **mã máy** (dạng `XN-01`).
-4. **Giữ nguyên** thư mục `ban-tin` (hàng chờ bản tin thô mới).
+3. **Chỉ** xoá (hoặc chép đi lưu) các thư mục con có tên là **mã định danh máy**: chuỗi 32 ký tự chữ số và chữ a–f, ví dụ `3f2a9c1e7b4d4a6f8c0e5d2b9a1c7e30`. Đó **không** phải mã máy kiểu `XN-01`.
+4. **Giữ nguyên** thư mục `ban-tin` (hàng chờ bản tin thô mới). **Không xoá** thư mục này: bản tin chưa gửi trong đó là kết quả chưa lên server.
 5. Chạy lại dịch vụ.
 
 Kết quả trong các tệp cũ đó phải nhập lại từ máy xét nghiệm hoặc bản in nếu cần, vì agent mới không gửi lại chúng.
