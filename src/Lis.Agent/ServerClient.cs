@@ -33,9 +33,22 @@ public sealed class ServerClient(HttpClient http)
     /// <summary>Tải thân tệp cài (HttpClient.Timeout chỉ tính tới khi có tiêu đề) tối đa chừng này.</summary>
     internal static readonly TimeSpan BodyTimeout = TimeSpan.FromMinutes(5);
 
+    /// <summary>Hết giờ mặc định mỗi yêu cầu (<see cref="HttpClient.Timeout"/> để vô hạn, từng yêu cầu tự đặt hạn riêng).</summary>
+    internal static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>Riêng lô bản tin thô: đường lên chậm + server giải mã đồng bộ cả lô có thể mất hơn 30 giây.</summary>
+    internal static readonly TimeSpan RawMessagesTimeout = TimeSpan.FromSeconds(120);
+
+    private static CancellationTokenSource WithTimeout(CancellationToken ct, TimeSpan timeout)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(timeout);
+        return cts;
+    }
+
     public static HttpClient CreateHttp(string serverUrl, string agentKey)
     {
-        var client = new HttpClient { BaseAddress = new Uri(serverUrl.TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(30) };
+        var client = new HttpClient { BaseAddress = new Uri(serverUrl.TrimEnd('/') + "/"), Timeout = Timeout.InfiniteTimeSpan };
         client.DefaultRequestHeaders.Add(KeyHeader, agentKey);
         return client;
     }
@@ -48,21 +61,27 @@ public sealed class ServerClient(HttpClient http)
 
     /// <summary>Đẩy một lô bản tin thô (<c>POST agent/v1/raw-messages</c>); byte đi dưới dạng base64.</summary>
     public async Task<RawMessagesResponse> SendRawMessagesAsync(IReadOnlyList<RawMessage> messages, CancellationToken ct = default) =>
-        await PostAsync<RawMessagesResponse>("agent/v1/raw-messages", new { messages }, ct);
+        await PostAsync<RawMessagesResponse>("agent/v1/raw-messages", new { messages }, ct, RawMessagesTimeout);
 
     public async Task<IReadOnlyList<string>> OrderQueryAsync(Guid instrumentId, string barcode, CancellationToken ct = default) =>
         (await PostAsync<OrderQueryResponse>("agent/v1/order-queries", new { instrumentId, barcode }, ct)).ChannelCodes;
 
     public async Task SendLogsAsync(IReadOnlyList<AgentLogLine> entries, CancellationToken ct = default)
     {
-        using var response = await http.PostAsJsonAsync("agent/v1/logs", new { entries }, Json, ct);
-        await EnsureOkAsync(response, ct);
+        using var timeout = WithTimeout(ct, RequestTimeout);
+        using var response = await http.PostAsJsonAsync("agent/v1/logs", new { entries }, Json, timeout.Token);
+        await EnsureOkAsync(response, timeout.Token);
     }
 
-    public async Task SendStatusAsync(IReadOnlyList<InstrumentStatusReport> instruments, CancellationToken ct = default)
+    /// <param name="pendingOrphan">Số bản tin trong hàng chờ thuộc máy không còn gán cho agent này (server hiện bỏ qua trường lạ).</param>
+    public async Task SendStatusAsync(IReadOnlyList<InstrumentStatusReport> instruments, CancellationToken ct = default, int pendingOrphan = 0)
     {
-        using var response = await http.PostAsJsonAsync("agent/v1/status", new { instruments, agentVersion = AgentVersion.Current, machineName = Environment.MachineName }, Json, ct);
-        await EnsureOkAsync(response, ct);
+        using var timeout = WithTimeout(ct, RequestTimeout);
+        using var response = await http.PostAsJsonAsync(
+            "agent/v1/status",
+            new { instruments, agentVersion = AgentVersion.Current, machineName = Environment.MachineName, pendingOrphan },
+            Json, timeout.Token);
+        await EnsureOkAsync(response, timeout.Token);
     }
 
     /// <summary>
@@ -71,8 +90,10 @@ public sealed class ServerClient(HttpClient http)
     /// </summary>
     public async Task<(string Sha256, string? Version)> DownloadInstallerAsync(string destination, CancellationToken ct = default)
     {
-        using var response = await http.GetAsync("agent/v1/installer", HttpCompletionOption.ResponseHeadersRead, ct);
-        await EnsureOkAsync(response, ct);
+        using var headerTimeout = WithTimeout(ct, RequestTimeout);
+        using var response = await http.GetAsync("agent/v1/installer", HttpCompletionOption.ResponseHeadersRead, headerTimeout.Token);
+        await EnsureOkAsync(response, headerTimeout.Token);
+        headerTimeout.CancelAfter(Timeout.InfiniteTimeSpan);
         var version = response.Headers.TryGetValues("X-Agent-Version", out var values) ? values.FirstOrDefault() : null;
         try
         {
@@ -110,16 +131,18 @@ public sealed class ServerClient(HttpClient http)
 
     private async Task<T> GetAsync<T>(string path, CancellationToken ct)
     {
-        using var response = await http.GetAsync(path, ct);
-        await EnsureOkAsync(response, ct);
-        return (await response.Content.ReadFromJsonAsync<T>(Json, ct))!;
+        using var timeout = WithTimeout(ct, RequestTimeout);
+        using var response = await http.GetAsync(path, timeout.Token);
+        await EnsureOkAsync(response, timeout.Token);
+        return (await response.Content.ReadFromJsonAsync<T>(Json, timeout.Token))!;
     }
 
-    private async Task<T> PostAsync<T>(string path, object body, CancellationToken ct)
+    private async Task<T> PostAsync<T>(string path, object body, CancellationToken ct, TimeSpan? limit = null)
     {
-        using var response = await http.PostAsJsonAsync(path, body, Json, ct);
-        await EnsureOkAsync(response, ct);
-        return (await response.Content.ReadFromJsonAsync<T>(Json, ct))!;
+        using var timeout = WithTimeout(ct, limit ?? RequestTimeout);
+        using var response = await http.PostAsJsonAsync(path, body, Json, timeout.Token);
+        await EnsureOkAsync(response, timeout.Token);
+        return (await response.Content.ReadFromJsonAsync<T>(Json, timeout.Token))!;
     }
 
     private static async Task EnsureOkAsync(HttpResponseMessage response, CancellationToken ct)

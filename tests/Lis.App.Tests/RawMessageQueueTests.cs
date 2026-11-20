@@ -145,7 +145,7 @@ public class RawMessageQueueTests : IDisposable
     }
 
     [Fact]
-    public async Task Queue_don_tep_tmp_mo_coi_cu_hon_1_ngay()
+    public async Task Queue_tep_tmp_hong_cu_hon_1_ngay_doi_thanh_loi_khong_xoa()
     {
         var q = new RawMessageQueue(_root);
         await q.SaveAsync(Msg(10), TestContext.Current.CancellationToken);
@@ -159,7 +159,79 @@ public class RawMessageQueueTests : IDisposable
         _ = new RawMessageQueue(_root).Instruments();
 
         File.Exists(old).ShouldBeFalse();
+        File.Exists(old[..^".tmp".Length] + ".loi").ShouldBeTrue();
         File.Exists(fresh).ShouldBeTrue();
+    }
+
+    private static string WriteValidTemp(string root, RawMessage m)
+    {
+        var dir = Path.Combine(root, m.InstrumentId.ToString("N"));
+        Directory.CreateDirectory(dir);
+        var temp = Path.Combine(dir, $"{m.Seq:D20}-{m.Id:N}.json.tmp");
+        File.WriteAllText(temp, System.Text.Json.JsonSerializer.Serialize(m, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        return temp;
+    }
+
+    [Fact]
+    public void Queue_tep_tmp_tron_ven_sau_mat_dien_duoc_cuu_thanh_json_khi_khoi_tao()
+    {
+        var m = Msg(7, [1, 2, 3]);
+        var temp = WriteValidTemp(_root, m);
+
+        var q = new RawMessageQueue(_root);
+
+        File.Exists(temp).ShouldBeFalse();
+        q.Instruments().ShouldBe([Inst]);
+        var peek = q.Peek(Inst, 10);
+        peek.Count.ShouldBe(1);
+        peek[0].Id.ShouldBe(m.Id);
+        peek[0].Bytes.ShouldBe(new byte[] { 1, 2, 3 });
+    }
+
+    [Fact]
+    public async Task Queue_tep_tmp_tron_ven_xuat_hien_sau_khi_khoi_tao_duoc_cuu_o_Instruments_va_Peek()
+    {
+        var q = new RawMessageQueue(_root);
+        await q.SaveAsync(Msg(1), TestContext.Current.CancellationToken);
+        var other = Guid.NewGuid();
+        var viaInstruments = Msg(2, inst: other);
+        WriteValidTemp(_root, viaInstruments);
+
+        q.Instruments().ShouldContain(other);
+        q.Peek(other, 10).Single().Id.ShouldBe(viaInstruments.Id);
+
+        var viaPeek = Msg(3);
+        var temp = WriteValidTemp(_root, viaPeek);
+        q.Peek(Inst, 10).Select(m => m.Seq).ShouldBe([1, 3]);
+        File.Exists(temp).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Queue_tep_tmp_tron_ven_ma_json_da_co_thi_xoa_ban_sao()
+    {
+        var q = new RawMessageQueue(_root);
+        var m = Msg(5);
+        await q.SaveAsync(m, TestContext.Current.CancellationToken);
+        var temp = WriteValidTemp(_root, m);
+
+        q.Peek(Inst, 10).Count.ShouldBe(1);
+
+        File.Exists(temp).ShouldBeFalse();
+        q.Count().ShouldBe(1);
+    }
+
+    [Fact]
+    public void Queue_tep_tmp_sai_ten_hoac_khac_may_khong_duoc_coi_la_hop_le()
+    {
+        var m = Msg(9);
+        var temp = WriteValidTemp(_root, m);
+        var wrong = Path.Combine(Path.GetDirectoryName(temp)!, $"{99:D20}-{m.Id:N}.json.tmp");
+        File.Move(temp, wrong);
+
+        _ = new RawMessageQueue(_root).Instruments();
+
+        File.Exists(wrong).ShouldBeTrue(); // còn mới: để nguyên
+        Directory.GetFiles(Path.GetDirectoryName(wrong)!, "*.json").ShouldBeEmpty();
     }
 
     [Fact]

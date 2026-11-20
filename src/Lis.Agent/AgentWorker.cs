@@ -353,8 +353,27 @@ public sealed class AgentWorker(
             .Select(i => manager.StatusOf(i.Id))
             .Select(s => new InstrumentStatusReport(s.InstrumentId, s.State.ToString(), s.Text, s.LastResultAt, s.SamplesReceived, rawQueue.Count(s.InstrumentId)))
             .ToList();
-        await server.SendStatusAsync(reports, ct);
+        await server.SendStatusAsync(reports, ct, OrphanMessageCount());
     }
+
+    /// <summary>Số bản tin trong hàng chờ của các máy không còn gán cho agent này (máy đã chuyển agent / đã xoá).</summary>
+    internal int OrphanMessageCount()
+    {
+        var assigned = _instruments.Select(i => i.Id).ToHashSet();
+        var orphans = rawQueue.Instruments().Where(id => !assigned.Contains(id)).ToList();
+        var total = orphans.Sum(rawQueue.Count);
+        if (total > 0 && clock.GetUtcNow() - _orphanWarnedAt >= OrphanWarnEvery)
+        {
+            _orphanWarnedAt = clock.GetUtcNow();
+            logger.LogWarning(
+                "Còn {Count} bản tin của {Machines} máy không còn gán cho agent này — chuyển máy về hoặc liên hệ hỗ trợ", total, orphans.Count);
+        }
+
+        return total;
+    }
+
+    private static readonly TimeSpan OrphanWarnEvery = TimeSpan.FromMinutes(5);
+    private DateTimeOffset _orphanWarnedAt;
 
     private static T? TryRead<T>(string path)
         where T : class

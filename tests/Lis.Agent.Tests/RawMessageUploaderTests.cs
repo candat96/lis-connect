@@ -490,6 +490,185 @@ public sealed class RawMessageUploaderTests : IDisposable
         _server.Requests.ShouldBe([[m1.Id, m2.Id]]);
     }
 
+    private static HttpResponseMessage TimedOut() => throw new TaskCanceledException("hết giờ", new TimeoutException());
+
+    private async Task<List<RawMessage>> AddManyAsync(int count)
+    {
+        var all = new List<RawMessage>();
+        for (var seq = 1; seq <= count; seq++)
+        {
+            all.Add(await AddAsync(seq));
+        }
+
+        return all;
+    }
+
+    [Fact]
+    public async Task Het_gio_HTTP_giam_nua_co_lo_roi_thanh_cong_lien_tiep_3_lo_thi_tang_lai()
+    {
+        await AddManyAsync(120);
+        var uploader = Uploader();
+        var calls = 0;
+        _server.Handler = request => ++calls == 1 ? TimedOut() : FakeServer.SavedAll(request);
+
+        (await uploader.FlushNowAsync(TestContext.Current.CancellationToken)).Remaining.ShouldBe(120); // hết giờ: giữ nguyên
+        (await uploader.FlushNowAsync(TestContext.Current.CancellationToken)).Remaining.ShouldBe(0);
+
+        // 50 (hết giờ) → 25, 25, 25 (3 lô liên tiếp) → nới lại 50: còn 120 - 75 = 45
+        _server.Requests.Select(r => r.Count).ShouldBe([50, 25, 25, 25, 45]);
+    }
+
+    [Fact]
+    public async Task Het_gio_lien_tiep_giam_dan_toi_thieu_1_ban_tin()
+    {
+        await AddManyAsync(60);
+        var uploader = Uploader();
+        _server.Handler = _ => TimedOut();
+
+        for (var i = 0; i < 8; i++)
+        {
+            await uploader.FlushNowAsync(TestContext.Current.CancellationToken);
+        }
+
+        _server.Requests.Select(r => r.Count).ShouldBe([50, 25, 12, 6, 3, 1, 1, 1]);
+        _queue.Count().ShouldBe(60);
+    }
+
+    [Fact]
+    public async Task Co_lo_theo_tung_may_het_gio_o_may_nay_khong_lam_nho_lo_may_kia()
+    {
+        for (var seq = 1; seq <= 60; seq++)
+        {
+            await AddAsync(seq);
+            await AddAsync(seq, OtherMachine);
+        }
+
+        var uploader = Uploader();
+        var first = true;
+        _server.Handler = request =>
+        {
+            if (first)
+            {
+                first = false;
+                return TimedOut();
+            }
+
+            return FakeServer.SavedAll(request);
+        };
+
+        await uploader.FlushNowAsync(TestContext.Current.CancellationToken); // máy đầu hết giờ → dừng lượt
+        await uploader.FlushNowAsync(TestContext.Current.CancellationToken);
+
+        var sizes = _server.Requests.Select(r => r.Count).ToList();
+        sizes[0].ShouldBe(50);
+        sizes[1].ShouldBe(25); // máy đã hết giờ: nửa lô
+        sizes.Skip(1).Count(c => c == 50).ShouldBeGreaterThan(0); // máy kia vẫn lô đầy
+        _queue.Count().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Het_gio_do_nguoi_huy_khong_giam_co_lo()
+    {
+        await AddManyAsync(3);
+        var uploader = Uploader();
+        using var cts = new CancellationTokenSource();
+        _server.Handler = _ =>
+        {
+            cts.Cancel();
+            throw new OperationCanceledException(cts.Token);
+        };
+
+        await Should.ThrowAsync<OperationCanceledException>(() => uploader.FlushNowAsync(cts.Token));
+        _server.Handler = FakeServer.SavedAll;
+        await uploader.FlushNowAsync(TestContext.Current.CancellationToken);
+        _server.Requests[^1].Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Server_tra_mot_phan_4_id_dau_thi_xoa_4_giu_6_luot_sau_gui_lai_tu_ban_thu_5()
+    {
+        var sent = await AddManyAsync(10);
+        var uploader = Uploader();
+        var first = new HashSet<Guid>(sent.Take(4).Select(m => m.Id));
+        var calls = 0;
+        _server.Handler = request => ++calls == 1 ? FakeServer.Reply(request, m => first.Contains(m.Id) ? "da-luu" : null) : FakeServer.SavedAll(request);
+
+        await uploader.TickAsync(TestContext.Current.CancellationToken);
+
+        _server.Requests[0].Count.ShouldBe(10);
+        _server.Requests[1].ShouldBe(sent.Skip(4).Select(m => m.Id).ToList());
+        _queue.Count().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Server_tra_mot_phan_roi_dung_lai_6_tep_o_lai_tren_dia()
+    {
+        var sent = await AddManyAsync(10);
+        var uploader = Uploader();
+        var first = new HashSet<Guid>(sent.Take(4).Select(m => m.Id));
+        _server.Handler = request => FakeServer.Reply(request, m => first.Contains(m.Id) ? "da-luu" : null);
+
+        await uploader.FlushNowAsync(TestContext.Current.CancellationToken);
+
+        _queue.Count().ShouldBe(6);
+        _queue.Peek(Machine, 50).Select(m => m.Id).ShouldBe(sent.Skip(4).Select(m => m.Id).ToList());
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.RequestTimeout)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task Loi_408_429_lui_nhip_ca_luot_khong_phai_rieng_may_do(HttpStatusCode code)
+    {
+        await AddAsync(1);
+        await AddAsync(1, OtherMachine);
+        var uploader = Uploader();
+        _server.Handler = _ => new HttpResponseMessage(code);
+
+        await uploader.FlushNowAsync(TestContext.Current.CancellationToken);
+
+        _server.Calls.ShouldBe(1); // dừng ngay, không thử máy kế tiếp
+        _server.Handler = FakeServer.SavedAll;
+        (await uploader.TickAsync(TestContext.Current.CancellationToken)).ShouldBe(2); // còn đang lùi nhịp cả lượt
+        _server.Calls.ShouldBe(1);
+        _clock.Advance(TimeSpan.FromSeconds(2));
+        (await uploader.TickAsync(TestContext.Current.CancellationToken)).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Peek_rong_ma_hang_con_ban_tin_thi_canh_bao_kem_ten_tep_toi_da_1_lan_moi_phut()
+    {
+        var m1 = await AddAsync(1);
+        var path = Path.Combine(_root, "cho-gui", "ban-tin", Machine.ToString("N"), $"{1:D20}-{m1.Id:N}.json");
+        var uploader = Uploader();
+
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            await uploader.FlushNowAsync(TestContext.Current.CancellationToken);
+            await uploader.FlushNowAsync(TestContext.Current.CancellationToken);
+            var warnings = _log.Warnings.Where(w => w.Contains(Path.GetFileName(path))).ToList();
+            warnings.Count.ShouldBe(1);
+            warnings[0].ShouldNotContain("X-Agent-Key");
+
+            _clock.Advance(TimeSpan.FromSeconds(61));
+            await uploader.FlushNowAsync(TestContext.Current.CancellationToken);
+            _log.Warnings.Count(w => w.Contains(Path.GetFileName(path))).ShouldBe(2);
+        }
+    }
+
+    [Fact]
+    public async Task Khong_thuoc_agent_log_canh_bao_moi_lan_thu_lai()
+    {
+        await AddAsync(1, OtherMachine);
+        var uploader = Uploader();
+        _server.Handler = request => FakeServer.Reply(request, _ => "khong-thuoc-agent");
+
+        await uploader.FlushNowAsync(TestContext.Current.CancellationToken);
+        await uploader.FlushNowAsync(TestContext.Current.CancellationToken);
+
+        _log.Warnings.Count(w => w.Contains("không thuộc agent này")).ShouldBe(2);
+        _queue.Count().ShouldBe(1);
+    }
+
     [Fact]
     public async Task Flush_chay_song_song_voi_Tick_khong_gui_trung()
     {
@@ -576,6 +755,8 @@ public sealed class RawMessageUploaderTests : IDisposable
     {
         public List<string> Errors { get; } = [];
 
+        public List<string> Warnings { get; } = [];
+
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
         public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
@@ -587,6 +768,10 @@ public sealed class RawMessageUploaderTests : IDisposable
             if (logLevel >= Microsoft.Extensions.Logging.LogLevel.Error)
             {
                 Errors.Add(formatter(state, exception));
+            }
+            else if (logLevel == Microsoft.Extensions.Logging.LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
             }
         }
     }
@@ -680,5 +865,68 @@ public sealed class RawMessageUploaderTests : IDisposable
     {
         public Task<IReadOnlyList<string>> ChannelsToRunAsync(Guid instrumentId, string barcode, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<string>>([]);
+    }
+}
+
+/// <summary>Báo lên server số bản tin của máy không còn gán (<c>pendingOrphan</c>) và hạn HTTP riêng từng yêu cầu.</summary>
+public sealed class OrphanReportTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "lis-orphan-" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+        {
+            Directory.Delete(_root, true);
+        }
+    }
+
+    private static RawMessage Msg(Guid machine, long seq) =>
+        new(Guid.CreateVersion7(), machine, seq, "p", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, [1, 2], false);
+
+    [Fact]
+    public async Task Dem_ban_tin_cua_may_khong_con_gan_cho_agent()
+    {
+        var queue = new RawMessageQueue(_root);
+        var gone = Guid.NewGuid();
+        var gone2 = Guid.NewGuid();
+        for (var seq = 1; seq <= 3; seq++)
+        {
+            await queue.SaveAsync(Msg(gone, seq), TestContext.Current.CancellationToken);
+        }
+
+        await queue.SaveAsync(Msg(gone2, 1), TestContext.Current.CancellationToken);
+        var worker = new AgentWorker(
+            null!, null!, null!, Microsoft.Extensions.Logging.Abstractions.NullLogger<AgentWorker>.Instance, TimeProvider.System,
+            null!, null!, queue, null!);
+
+        worker.OrphanMessageCount().ShouldBe(4); // chưa có máy nào gán cho agent
+    }
+
+    [Fact]
+    public async Task Status_gui_kem_pendingOrphan_va_khong_lam_lo_khoa_agent()
+    {
+        string? body = null;
+        var handler = new CaptureHandler(r => body = r.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+        var http = ServerClient.CreateHttp("http://may-chu.thu", "khoa-bi-mat-123");
+        http.Timeout.ShouldBe(Timeout.InfiniteTimeSpan);
+        var client = new ServerClient(new HttpClient(handler) { BaseAddress = http.BaseAddress });
+
+        await client.SendStatusAsync([], TestContext.Current.CancellationToken, pendingOrphan: 7);
+
+        using var doc = JsonDocument.Parse(body!);
+        doc.RootElement.GetProperty("pendingOrphan").GetInt32().ShouldBe(7);
+        body!.ShouldNotContain("khoa-bi-mat-123");
+        ServerClient.RawMessagesTimeout.ShouldBe(TimeSpan.FromSeconds(120));
+        ServerClient.RequestTimeout.ShouldBe(TimeSpan.FromSeconds(30));
+    }
+
+    private sealed class CaptureHandler(Action<HttpRequestMessage> capture) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            capture(request);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+        }
     }
 }

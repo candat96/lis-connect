@@ -62,6 +62,20 @@ public sealed class RawMessageUploader(RawMessageQueue queue, ServerClient clien
         public DateTimeOffset RetryAt;
     }
 
+    /// <summary>Cỡ lô hiện tại của một máy (đường truyền chậm thì nhỏ lại) và số lô liên tiếp đã xong.</summary>
+    private sealed class BatchSizer
+    {
+        public int Limit = BatchMessages;
+        public int Streak;
+    }
+
+    /// <summary>Số lô thành công liên tiếp trước khi nới cỡ lô gấp đôi.</summary>
+    private const int GrowAfter = 3;
+
+    private static readonly TimeSpan BlockedWarnEvery = TimeSpan.FromMinutes(1);
+
+    private readonly Dictionary<Guid, BatchSizer> _sizers = [];
+    private readonly Dictionary<Guid, DateTimeOffset> _blockedWarned = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<Guid, MachineState> _machines = [];
     private DateTimeOffset _retryAt;
@@ -164,7 +178,8 @@ public sealed class RawMessageUploader(RawMessageQueue queue, ServerClient clien
         while (true)
         {
             ct.ThrowIfCancellationRequested();
-            var (batch, blocked, dropped) = TakeBatch(instrumentId, queue.Peek(instrumentId, BatchMessages));
+            var limit = _sizers.TryGetValue(instrumentId, out var sizer) ? sizer.Limit : BatchMessages;
+            var (batch, blocked, dropped) = TakeBatch(instrumentId, queue.Peek(instrumentId, limit), limit);
             if (batch.Count == 0)
             {
                 if (blocked)
@@ -178,6 +193,7 @@ public sealed class RawMessageUploader(RawMessageQueue queue, ServerClient clien
                     continue; // vừa loại bản tin quá lớn: đọc lại hàng, có thể còn bản tin gửi được phía sau
                 }
 
+                WarnIfHeadLocked(instrumentId);
                 _machines.Remove(instrumentId);
                 return Outcome.Done;
             }
@@ -196,6 +212,19 @@ public sealed class RawMessageUploader(RawMessageQueue queue, ServerClient clien
                 _revoked = true;
                 logger.LogError("Server từ chối khoá agent (401) — dừng gửi bản tin thô, giữ nguyên hàng chờ trên đĩa");
                 return Outcome.Revoked;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // Hết giờ HTTP: lô quá nặng cho đường truyền (hoặc server giải mã lâu) — gửi lại đúng lô đó mãi thì không bao giờ xong.
+                var smaller = Shrink(instrumentId);
+                FailAll($"Hết giờ khi gửi {batch.Count} bản tin của máy {instrumentId:N} (lô sau tối đa {smaller} bản tin)");
+                return Outcome.Failed;
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests)
+            {
+                // 408 / 429: server (hoặc proxy) quá tải — lùi cả lượt như lỗi mạng, không phải lỗi riêng của máy này.
+                FailAll($"Server báo quá tải ({(int)ex.StatusCode!.Value}) khi gửi {batch.Count} bản tin của máy {instrumentId:N}");
+                return Outcome.Failed;
             }
             catch (HttpRequestException ex) when (ex.StatusCode is { } code && (int)code is >= 400 and < 500)
             {
@@ -266,13 +295,15 @@ public sealed class RawMessageUploader(RawMessageQueue queue, ServerClient clien
             if (progressed)
             {
                 _machines.Remove(instrumentId);
+                Grow(instrumentId);
             }
 
             if (notOwned)
             {
                 _machines[instrumentId] = new MachineState { RetryAt = clock.GetUtcNow() + NotOwnedPause };
                 logger.LogWarning(
-                    "Server báo máy {Instrument} không thuộc agent này — giữ bản tin, thử lại sau {Minutes} phút", instrumentId.ToString("N"), NotOwnedPause.TotalMinutes);
+                    "Server báo máy {Instrument} không thuộc agent này — giữ bản tin, thử lại sau {Minutes} phút (còn {Count} bản tin; chuyển máy về agent này hoặc liên hệ hỗ trợ)",
+                    instrumentId.ToString("N"), NotOwnedPause.TotalMinutes, queue.Count(instrumentId));
                 return Outcome.Done;
             }
 
@@ -294,8 +325,9 @@ public sealed class RawMessageUploader(RawMessageQueue queue, ServerClient clien
     /// Chọn các bản tin gửi được theo thứ tự. Bản tin quá lớn không bao giờ gửi được: đổi <c>.loi</c> ngay (<c>dropped</c>); đổi tên lỗi IO thì
     /// dừng ở đó (<c>blocked</c>) để các bản sau không đi trước nó.
     /// </summary>
-    private (List<RawMessage> Batch, bool Blocked, bool Dropped) TakeBatch(Guid instrumentId, IReadOnlyList<RawMessage> candidates)
+    private (List<RawMessage> Batch, bool Blocked, bool Dropped) TakeBatch(Guid instrumentId, IReadOnlyList<RawMessage> candidates, int limit)
     {
+        var byteLimit = BatchBytes * limit / BatchMessages;
         var batch = new List<RawMessage>();
         var blocked = false;
         var dropped = false;
@@ -321,7 +353,7 @@ public sealed class RawMessageUploader(RawMessageQueue queue, ServerClient clien
                 }
             }
 
-            if (batch.Count > 0 && (batch.Count >= BatchMessages || bytes + message.Bytes.Length > BatchBytes))
+            if (batch.Count > 0 && (batch.Count >= limit || bytes + message.Bytes.Length > byteLimit))
             {
                 break;
             }
@@ -331,6 +363,61 @@ public sealed class RawMessageUploader(RawMessageQueue queue, ServerClient clien
         }
 
         return (batch, blocked, dropped);
+    }
+
+    /// <summary>Hết giờ: nửa cỡ lô của máy (tối thiểu 1 bản tin). Trả cỡ mới.</summary>
+    private int Shrink(Guid instrumentId)
+    {
+        if (!_sizers.TryGetValue(instrumentId, out var sizer))
+        {
+            _sizers[instrumentId] = sizer = new BatchSizer();
+        }
+
+        sizer.Limit = Math.Max(1, sizer.Limit / 2);
+        sizer.Streak = 0;
+        return sizer.Limit;
+    }
+
+    /// <summary>Một lô xong: đủ <see cref="GrowAfter"/> lô liên tiếp thì nới gấp đôi (tối đa 50 bản tin / 12 MB).</summary>
+    private void Grow(Guid instrumentId)
+    {
+        if (!_sizers.TryGetValue(instrumentId, out var sizer))
+        {
+            return;
+        }
+
+        if (++sizer.Streak < GrowAfter)
+        {
+            return;
+        }
+
+        sizer.Streak = 0;
+        sizer.Limit = Math.Min(BatchMessages, sizer.Limit * 2);
+        if (sizer.Limit >= BatchMessages)
+        {
+            _sizers.Remove(instrumentId);
+        }
+    }
+
+    /// <summary>Peek trả rỗng mà hàng còn bản tin = tệp đầu hàng đang bị khoá: báo (tối đa 1 lần/phút/máy) để biết vì sao hàng đứng yên.</summary>
+    private void WarnIfHeadLocked(Guid instrumentId)
+    {
+        var count = queue.Count(instrumentId);
+        if (count == 0)
+        {
+            return;
+        }
+
+        var now = clock.GetUtcNow();
+        if (_blockedWarned.TryGetValue(instrumentId, out var last) && now - last < BlockedWarnEvery)
+        {
+            return;
+        }
+
+        _blockedWarned[instrumentId] = now;
+        logger.LogWarning(
+            "Hàng chờ máy {Instrument} còn {Count} bản tin nhưng chưa đọc được tệp đầu hàng ({File}) — tệp có thể đang bị khoá (diệt vi-rút / sao lưu)",
+            instrumentId.ToString("N"), count, queue.FirstFileName(instrumentId) ?? "?");
     }
 
     /// <summary>Xoá tệp đã được server xác nhận. Antivirus có thể đang giữ tệp: lỗi này để nhịp sau (server sẽ trả <c>trung</c>).</summary>

@@ -215,8 +215,6 @@ public sealed class CommandDispatcherTests : IDisposable
             log.Add("StopAll xong");
         }
 
-        public Task<int> RetryPendingNowAsync() => Task.FromResult(0);
-
         public Task<PortLease> BorrowPortAsync(string portName, CancellationToken ct = default) => Task.FromResult(new PortLease([]));
     }
 

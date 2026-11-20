@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace Lis.Connections.RawMessages;
@@ -7,6 +8,10 @@ namespace Lis.Connections.RawMessages;
 /// đọc theo <see cref="RawMessage.Seq"/>; tệp hỏng đổi thành <c>.loi</c> và không chặn hàng. Tệp đang bị khoá thì
 /// <see cref="Peek"/> dừng tại đó (không nhảy qua), để bản tin sau không đến server trước bản tin trước.
 /// </summary>
+/// <remarks>
+/// Mất điện giữa lúc ghi: tệp <c>.json.tmp</c> đọc được trọn bản tin thì được đổi thành <c>.json</c> (lúc khởi tạo, <see cref="Instruments"/>, <see cref="Peek"/>) —
+/// xấu nhất là trùng Id, server trả <c>trung</c>, không bao giờ mất bản tin máy đã được ACK. <c>.tmp</c> hỏng và cũ hơn 1 ngày → <c>.json.loi</c> (không xoá).
+/// </remarks>
 public class RawMessageQueue : IRawMessageSink
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = false };
@@ -14,10 +19,13 @@ public class RawMessageQueue : IRawMessageSink
 
     private readonly string root;
 
+    /// <summary>Tệp <c>.tmp</c> đang được <see cref="SaveAsync"/> ghi trong tiến trình này — việc cứu tệp mồ côi không được đụng vào.</summary>
+    private readonly ConcurrentDictionary<string, byte> writing = new(StringComparer.Ordinal);
+
     public RawMessageQueue(string root)
     {
         this.root = root;
-        DeleteStaleTempFiles();
+        RecoverTempFiles(root);
     }
 
     private string DirectoryOf(Guid instrumentId) => Path.Combine(root, instrumentId.ToString("N"));
@@ -30,14 +38,37 @@ public class RawMessageQueue : IRawMessageSink
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, FileName(message));
         var temp = path + ".tmp";
-        await using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+        writing[temp] = 0;
+        try
         {
-            await JsonSerializer.SerializeAsync(stream, message, Json, ct);
-            await stream.FlushAsync(ct);
-            stream.Flush(flushToDisk: true);
-        }
+            await using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+            {
+                await JsonSerializer.SerializeAsync(stream, message, Json, ct);
+                await stream.FlushAsync(ct);
+                stream.Flush(flushToDisk: true);
+            }
 
-        File.Move(temp, path, overwrite: true);
+            // Không có API .NET để ghi thẳng thao tác đổi tên xuống đĩa (MoveFileEx WRITE_THROUGH / flush thư mục) nên không làm:
+            // nếu mất điện ngay sau đây thì tệp .tmp (đã flush) được cứu lại thành .json ở lần mở sau (RecoverTempFiles).
+            File.Move(temp, path, overwrite: true);
+        }
+        finally
+        {
+            writing.TryRemove(temp, out _);
+        }
+    }
+
+    /// <summary>Tên tệp <c>.json</c> đầu hàng (theo <c>Seq</c>) của máy; <c>null</c> nếu không có.</summary>
+    public string? FirstFileName(Guid instrumentId)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(DirectoryOf(instrumentId), "*.json").Order(StringComparer.Ordinal).Select(Path.GetFileName).FirstOrDefault();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Tối đa <paramref name="max"/> bản tin của máy, theo <c>Seq</c> tăng dần; dừng tại tệp đầu tiên đang bị khoá.</summary>
@@ -49,6 +80,8 @@ public class RawMessageQueue : IRawMessageSink
         {
             return result;
         }
+
+        RecoverTempFiles(dir);
 
         foreach (var file in Directory.GetFiles(dir, "*.json").Order(StringComparer.Ordinal))
         {
@@ -101,7 +134,7 @@ public class RawMessageQueue : IRawMessageSink
 
     public IReadOnlyList<Guid> Instruments()
     {
-        DeleteStaleTempFiles();
+        RecoverTempFiles(root);
         try
         {
             return Directory.GetDirectories(root)
@@ -155,24 +188,29 @@ public class RawMessageQueue : IRawMessageSink
         return max;
     }
 
-    /// <summary>Tệp <c>.tmp</c> mồ côi (tắt máy giữa lúc ghi) quá 1 ngày thì xoá. Không bao giờ ném lỗi.</summary>
-    private void DeleteStaleTempFiles()
+    /// <summary>
+    /// Cứu tệp <c>.json.tmp</c> mồ côi dưới <paramref name="folder"/> (tắt máy / mất điện giữa lúc ghi). Đọc được trọn bản tin hợp lệ → đổi thành <c>.json</c>
+    /// (đã có <c>.json</c> cùng tên thì tệp tạm chỉ là bản sao, xoá). Hỏng và cũ hơn 1 ngày → <c>.json.loi</c>. Không bao giờ ném lỗi.
+    /// </summary>
+    private void RecoverTempFiles(string folder)
     {
         try
         {
-            if (!Directory.Exists(root))
+            if (!Directory.Exists(folder))
             {
                 return;
             }
 
-            foreach (var temp in Directory.EnumerateFiles(root, "*.tmp", SearchOption.AllDirectories))
+            foreach (var temp in Directory.EnumerateFiles(folder, "*.json.tmp", SearchOption.AllDirectories).ToList())
             {
+                if (writing.ContainsKey(temp))
+                {
+                    continue;
+                }
+
                 try
                 {
-                    if (DateTime.UtcNow - File.GetLastWriteTimeUtc(temp) > StaleTemp)
-                    {
-                        File.Delete(temp);
-                    }
+                    RecoverTempFile(temp);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -183,6 +221,40 @@ public class RawMessageQueue : IRawMessageSink
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // thư mục vừa bị xoá
+        }
+    }
+
+    private static void RecoverTempFile(string temp)
+    {
+        var target = temp[..^".tmp".Length];
+        var valid = false;
+        try
+        {
+            using var stream = new FileStream(temp, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var message = JsonSerializer.Deserialize<RawMessage>(stream, Json);
+            valid = message is { Bytes: not null }
+                && string.Equals(Path.GetFileName(target), FileName(message), StringComparison.Ordinal)
+                && string.Equals(Path.GetFileName(Path.GetDirectoryName(target)), message.InstrumentId.ToString("N"), StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is JsonException or FormatException or ArgumentException)
+        {
+            // hỏng / dở dang
+        }
+
+        if (valid)
+        {
+            if (File.Exists(target))
+            {
+                File.Delete(temp);
+            }
+            else
+            {
+                File.Move(temp, target, overwrite: false);
+            }
+        }
+        else if (DateTime.UtcNow - File.GetLastWriteTimeUtc(temp) > StaleTemp)
+        {
+            File.Move(temp, target + ".loi", overwrite: true);
         }
     }
 
