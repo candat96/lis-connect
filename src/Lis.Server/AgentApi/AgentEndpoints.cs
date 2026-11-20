@@ -18,7 +18,7 @@ public sealed record OrderQueryResponse(IReadOnlyList<string> ChannelCodes);
 public sealed record InstrumentStatusReport(
     Guid InstrumentId, string State, string Text, DateTimeOffset? LastResultAt, int SamplesReceived, int PendingToRetry);
 
-public sealed record StatusRequest(IReadOnlyList<InstrumentStatusReport> Instruments, string? AgentVersion = null, string? MachineName = null);
+public sealed record StatusRequest(IReadOnlyList<InstrumentStatusReport> Instruments, string? AgentVersion = null, string? MachineName = null, int? PendingOrphan = null);
 
 /// <summary>Agent đổi mã ghép nối (hiện trên web, dán vào ô nhập hoặc nằm trong tên tệp cài) lấy khoá.</summary>
 public sealed record PairRequest(string? PairingSecret, string? MachineName, string? AgentVersion);
@@ -165,7 +165,8 @@ public static class AgentEndpoints
         {
             await master.TouchAgentAsync(
                 Identity(http).Agent.Id, JsonSerializer.Serialize(request.Instruments, Json),
-                Clean(request.MachineName, MaxMachineName), Clean(request.AgentVersion, MaxAgentVersion));
+                Clean(request.MachineName, MaxMachineName), Clean(request.AgentVersion, MaxAgentVersion),
+                request.PendingOrphan is { } orphan ? Math.Max(0, orphan) : null);
             return Results.NoContent();
         });
     }

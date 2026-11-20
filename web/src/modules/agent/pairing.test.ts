@@ -6,7 +6,7 @@ const now = new Date('2026-11-19T08:00:00.000Z');
 
 const agent = (over: Partial<Agent>): Agent => ({
   id: 'a1', name: 'Máy XN 1', workstationCode: 'W1', lastSeenAt: null, online: false, instruments: [],
-  paired: false, pairedAt: null, machineName: null, version: null, pairingExpiresAt: null, channel: false, ports: null, portsScannedAt: null,
+  paired: false, pairedAt: null, machineName: null, version: null, pairingExpiresAt: null, channel: false, ports: null, portsScannedAt: null, pendingOrphan: 0,
   ...over,
 });
 

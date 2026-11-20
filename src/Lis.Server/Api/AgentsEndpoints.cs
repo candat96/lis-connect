@@ -20,7 +20,7 @@ public sealed record AgentInstrumentView(Guid Id, string Name, JsonElement? Stat
 public sealed record AgentView(
     Guid Id, string Name, string WorkstationCode, string? LastSeenAt, bool Online, IReadOnlyList<AgentInstrumentView> Instruments,
     bool Paired, string? PairedAt, string? MachineName, string? Version, string? PairingExpiresAt,
-    bool Channel, JsonElement? Ports, string? PortsScannedAt);
+    bool Channel, JsonElement? Ports, string? PortsScannedAt, int PendingOrphan);
 
 public sealed record AgentLogView(
     string Id, string At, Guid AgentId, Guid? InstrumentId, string? InstrumentName, string Direction, string? Session, string? Hex, string? Note);
@@ -81,7 +81,7 @@ public static class AgentsEndpoints
                 a.Agent.Id, a.Agent.Name, a.Agent.WorkstationCode, a.Agent.LastSeenAt is { } last ? ApiFormat.Iso(last) : null, online, mine,
                 a.PairedAt is not null, a.PairedAt is { } paired ? ApiFormat.Iso(paired) : null, a.MachineName, a.AgentVersion,
                 a.PairingExpiresAt is { } expires ? ApiFormat.Iso(expires) : null,
-                channel, PortsOf(a.LastPortsJson), a.LastPortsAt is { } scanned ? ApiFormat.Iso(scanned) : null);
+                channel, PortsOf(a.LastPortsJson), a.LastPortsAt is { } scanned ? ApiFormat.Iso(scanned) : null, a.PendingOrphan);
         }));
     }
 

@@ -319,6 +319,8 @@ export interface Agent {
   /** Cổng COM ở lần quét cuối (null = chưa quét). */
   ports: AgentPort[] | null;
   portsScannedAt: string | null;
+  /** Số bản tin thô agent còn giữ trên đĩa thuộc máy không còn gán cho nó (đã chuyển agent khác / đã xoá). */
+  pendingOrphan: number;
 }
 
 /** Một cổng COM agent thấy trên máy tính của nó. */

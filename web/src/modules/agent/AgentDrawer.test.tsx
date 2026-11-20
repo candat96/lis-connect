@@ -22,7 +22,7 @@ const NAME = 'Máy tính XN tầng 2';
 const agent = (over: Partial<Agent> = {}): Agent => ({
   id: 'a1', name: NAME, workstationCode: 'W-a1', lastSeenAt: new Date().toISOString(), online: true, instruments: [],
   paired: true, pairedAt: '2026-11-19T07:00:00.000Z', machineName: 'PC-XN-02', version: '0.2.0', pairingExpiresAt: null,
-  channel: true, ports: null, portsScannedAt: null,
+  channel: true, ports: null, portsScannedAt: null, pendingOrphan: 0,
   ...over,
 });
 
@@ -136,6 +136,13 @@ describe('AgentDrawer', () => {
     const row = (await screen.findByText('BC-5380')).closest('tr')!;
     fireEvent.click(within(row as HTMLElement).getByRole('button', { name: /Nối lại/ }));
     await waitFor(() => expect(send).toHaveBeenCalledWith('a1', 'reconnect-instrument', { instrumentId: 'i1' }));
+  });
+
+  it('agent còn bản tin của máy không còn gán → cảnh báo', async () => {
+    vi.spyOn(agentService, 'list').mockResolvedValue([agent({ pendingOrphan: 7 })]);
+    vi.spyOn(instrumentService, 'list').mockResolvedValue([]);
+    renderDrawer();
+    expect(await screen.findByText(/Agent còn giữ 7 bản tin của máy không còn gán/)).toBeInTheDocument();
   });
 
   it('bản cài trên server mới hơn → có nút cập nhật', async () => {

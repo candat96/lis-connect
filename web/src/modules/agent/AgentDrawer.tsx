@@ -156,6 +156,11 @@ export function AgentDrawer({ agentId, onClose }: Props) {
           />
 
           {!paired && <Alert type="info" showIcon message="Agent chưa ghép nối — ghép nối xong mới điều khiển được." />}
+          {agent.pendingOrphan > 0 && (
+            <Alert type="warning" showIcon
+              message={`Agent còn giữ ${agent.pendingOrphan} bản tin của máy không còn gán cho nó`}
+              description="Kết quả trong các bản tin này chưa lên máy chủ. Gán lại máy đó cho agent này (máy & map kênh) để agent gửi nốt, rồi mới chuyển máy đi; hoặc liên hệ hỗ trợ nếu máy đã xoá." />
+          )}
           {paired && !channel && (
             <Alert type="warning" showIcon icon={<DisconnectOutlined />}
               message={`${disabledHint} — các lệnh tạm tắt`}

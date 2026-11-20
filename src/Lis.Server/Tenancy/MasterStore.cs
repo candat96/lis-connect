@@ -15,7 +15,7 @@ public sealed record AgentInfo(Guid Id, Guid ClinicId, string Name, string Works
 /// <summary>Agent kèm trạng thái các máy nó báo về lần cuối (JSON mảng <c>InstrumentStatusReport</c>; null khi chưa báo).</summary>
 public sealed record AgentWithStatus(
     AgentInfo Agent, string? LastStatusJson, DateTimeOffset? PairedAt = null, string? MachineName = null, string? AgentVersion = null,
-    DateTimeOffset? PairingExpiresAt = null, string? LastPortsJson = null, DateTimeOffset? LastPortsAt = null);
+    DateTimeOffset? PairingExpiresAt = null, string? LastPortsJson = null, DateTimeOffset? LastPortsAt = null, int PendingOrphan = 0);
 
 /// <summary>Mã ghép nối vừa tạo: <see cref="Secret"/> chỉ có lúc này (server chỉ lưu bản băm); hết hạn lúc <see cref="ExpiresAt"/>.</summary>
 public sealed record PairingTicket(string Secret, DateTimeOffset ExpiresAt);
@@ -126,13 +126,13 @@ public sealed class MasterStore(string connectionString)
                    a.last_status::text AS LastStatus, a.paired_at AS PairedAt, a.machine_name AS MachineName, a.agent_version AS AgentVersion,
                    (SELECT max(p.expires_at) FROM agent_pairing p
                     WHERE p.agent_id = a.id AND p.used_at IS NULL AND p.expires_at > @now) AS PairingExpiresAt,
-                   a.last_ports::text AS LastPortsJson, a.last_ports_at AS LastPortsAt
+                   a.last_ports::text AS LastPortsJson, a.last_ports_at AS LastPortsAt, a.pending_orphan AS PendingOrphan
             FROM agent a WHERE a.clinic_id = @clinicId ORDER BY a.name
             """,
             new { clinicId, now = now.ToUniversalTime() });
         return rows.Select(r => new AgentWithStatus(
             new AgentInfo(r.Id, r.ClinicId, r.Name, r.WorkstationCode, r.LastSeenAt), r.LastStatus,
-            r.PairedAt, r.MachineName, r.AgentVersion, r.PairingExpiresAt, r.LastPortsJson, r.LastPortsAt)).ToList();
+            r.PairedAt, r.MachineName, r.AgentVersion, r.PairingExpiresAt, r.LastPortsJson, r.LastPortsAt, r.PendingOrphan)).ToList();
     }
 
     /// <summary>
@@ -377,16 +377,17 @@ public sealed class MasterStore(string connectionString)
     }
 
     /// <summary>Agent báo "còn sống"; cột nào truyền null thì giữ giá trị cũ.</summary>
-    public async Task TouchAgentAsync(Guid agentId, string? statusJson, string? machineName = null, string? agentVersion = null)
+    public async Task TouchAgentAsync(Guid agentId, string? statusJson, string? machineName = null, string? agentVersion = null, int? pendingOrphan = null)
     {
         await using var connection = await OpenAsync();
         await connection.ExecuteAsync(
             """
             UPDATE agent SET last_seen_at = now(), last_status = coalesce(@statusJson::jsonb, last_status),
-                             machine_name = coalesce(@machineName, machine_name), agent_version = coalesce(@agentVersion, agent_version)
+                             machine_name = coalesce(@machineName, machine_name), agent_version = coalesce(@agentVersion, agent_version),
+                             pending_orphan = coalesce(@pendingOrphan, pending_orphan)
             WHERE id = @agentId
             """,
-            new { agentId, statusJson, machineName, agentVersion });
+            new { agentId, statusJson, machineName, agentVersion, pendingOrphan });
     }
 
     /// <summary>
@@ -446,6 +447,7 @@ public sealed class MasterStore(string connectionString)
         public DateTimeOffset? PairingExpiresAt { get; init; }
         public string? LastPortsJson { get; init; }
         public DateTimeOffset? LastPortsAt { get; init; }
+        public int PendingOrphan { get; init; }
         public DateTimeOffset? LastSeenAt { get; init; }
         public string? LastStatus { get; init; }
         public string ClinicCode { get; init; } = "";
