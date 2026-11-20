@@ -40,8 +40,22 @@ public class BoundaryTests
 
         var boundaries = Feed(new Hl7MllpDriver(), frame);
 
-        // Khung = VT + văn bản + FS + CR: ranh giới nằm sau FS, CR đuôi là byte rời.
-        boundaries.ShouldBe([new DriverBoundary(frame.Length - 1, false)]);
+        // Khung = VT + văn bản + FS + CR: CR đuôi thuộc khung (cùng khúc), ranh giới nằm sau CR.
+        boundaries.ShouldBe([new DriverBoundary(frame.Length, false)]);
+    }
+
+    [Fact]
+    public void Hl7_CR_duoi_den_o_khuc_sau_thi_ranh_gioi_sau_FS_va_CR_la_byte_roi()
+    {
+        var frame = Hl7Frame();
+        var driver = new Hl7MllpDriver();
+
+        var first = Feed(driver, frame[..^1]);
+        var second = Feed(driver, frame[^1..]);
+
+        first.ShouldBe([new DriverBoundary(frame.Length - 1, false)]);
+        second.ShouldBeEmpty();
+        driver.IsReceiving.ShouldBeFalse();
     }
 
     [Fact]
@@ -52,7 +66,7 @@ public class BoundaryTests
 
         var boundaries = Feed(new Hl7MllpDriver(), Cat([0x41], first, second));
 
-        boundaries.ShouldBe([new DriverBoundary(1 + first.Length - 1, false), new DriverBoundary(1 + first.Length + second.Length - 1, false)]);
+        boundaries.ShouldBe([new DriverBoundary(1 + first.Length, false), new DriverBoundary(1 + first.Length + second.Length, false)]);
     }
 
     [Fact]
@@ -63,7 +77,7 @@ public class BoundaryTests
 
         var boundaries = Feed(new Hl7MllpDriver(), Cat(half, frame));
 
-        boundaries.ShouldBe([new DriverBoundary(half.Length, true), new DriverBoundary(half.Length + frame.Length - 1, false)]);
+        boundaries.ShouldBe([new DriverBoundary(half.Length, true), new DriverBoundary(half.Length + frame.Length, false)]);
     }
 
     [Fact]

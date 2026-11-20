@@ -81,7 +81,7 @@ public class RawModeRunnerTests : IDisposable
         await WaitUntilAsync(() => { lock (events) return events.Contains("gui"); });
 
         lock (events) events.ShouldBe(["luu", "gui"]);
-        raw.Saved.Single().Bytes.ShouldBe(frame[..^1]); // CR sau FS là byte rời
+        raw.Saved.Single().Bytes.ShouldBe(frame); // CR đuôi cùng khúc thuộc khung
         raw.Saved.Single().Partial.ShouldBeFalse();
         raw.Saved.Single().InstrumentId.ShouldBe(Bc.Id);
     }
@@ -111,13 +111,14 @@ public class RawModeRunnerTests : IDisposable
         await using var runner = Runner(link, new Sink(), raw);
         runner.Start();
         var frame = Frame(Oru);
-        // CR sau FS ở khung đầu là byte rời, dồn vào bản tin sau.
+        // Khung đầu chia hai khúc, CR đuôi đến riêng ở khúc thứ ba → là byte rời, dồn vào bản tin sau.
         link.Incoming.Writer.TryWrite(frame[..20]);
-        link.Incoming.Writer.TryWrite(frame[20..]);
+        link.Incoming.Writer.TryWrite(frame[20..^1]);
+        link.Incoming.Writer.TryWrite(frame[^1..]);
         link.Incoming.Writer.TryWrite(frame);
         await WaitUntilAsync(() => raw.Saved.Count == 2);
         raw.Saved[0].Bytes.ShouldBe(frame[..^1]);
-        raw.Saved[1].Bytes.ShouldBe(frame.Skip(frame.Length - 1).Concat(frame[..^1]).ToArray());
+        raw.Saved[1].Bytes.ShouldBe(frame.Skip(frame.Length - 1).Concat(frame).ToArray());
     }
 
     [Fact]
@@ -151,7 +152,7 @@ public class RawModeRunnerTests : IDisposable
 
         // Không ghi được đĩa: không ACK, ngắt kết nối; hết lỗi thì lưu lại rồi nối lại, bản tin nào cũng có trên đĩa.
         await WaitUntilAsync(() => raw.Saved.Count >= 1);
-        raw.Saved[0].Bytes.ShouldBe(frame[..^1]); // CR sau FS là byte rời
+        raw.Saved[0].Bytes.ShouldBe(frame);
         raw.Attempts.ShouldBeGreaterThanOrEqualTo(3);
 
         // Runner vẫn sống: máy gửi lại thì nhận và ACK.
@@ -187,13 +188,13 @@ public class RawModeRunnerTests : IDisposable
 
         link.Written.ShouldBeEmpty();
         lock (_statuses) _statuses.ShouldContain(s => s.State == LinkState.Error && s.Text.Contains("đĩa"));
-        raw.Saved[0].Bytes.ShouldBe(frame[..^1]);
+        raw.Saved[0].Bytes.ShouldBe(frame);
 
         // Máy gửi lại bản tin -> được lưu rồi ACK.
         await WaitUntilAsync(() => runner.Status.State == LinkState.Connected);
         link.Incoming.Writer.TryWrite(frame);
         await WaitUntilAsync(() => link.Written.Count == 1);
-        raw.Saved.Count(m => m.Bytes.SequenceEqual(frame[..^1])).ShouldBe(2);
+        raw.Saved.Count(m => m.Bytes.SequenceEqual(frame)).ShouldBe(2);
         lock (events) events.Last().ShouldBe("gui");
         stop.Cancel();
     }

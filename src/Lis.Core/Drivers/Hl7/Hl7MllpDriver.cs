@@ -80,10 +80,18 @@ public sealed class Hl7MllpDriver : IInstrumentDriver
 
             if (b == EndBlock)
             {
-                // CR sau FS là phần đuôi khung; gặp ở vòng sau khi !_inFrame thì bỏ qua.
                 _inFrame = false;
                 HandleMessage(Decode(_frame.ToArray()), now, output);
-                output.Boundaries.Add(new DriverBoundary(index + 1, Abandoned: false));
+                // CR đuôi khung: nằm cùng khúc thì gộp vào bản tin (khỏi sinh bản tin thô 1 byte "dở dang");
+                // đến ở khúc sau thì bỏ qua ở nhánh !_inFrame như byte rời.
+                var end = index + 1;
+                if (end < data.Length && data[end] == CarriageReturn)
+                {
+                    end++;
+                    index++;
+                }
+
+                output.Boundaries.Add(new DriverBoundary(end, Abandoned: false));
                 _frame.Clear();
                 continue;
             }
