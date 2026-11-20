@@ -230,8 +230,8 @@ Cách làm:
 2. Theo dõi cột **Chờ gửi** và Log agent trong 10 phút.
 
 Kết quả mong đợi:
-- **Chờ gửi** giảm dần về 0. Nếu đứng yên và log agent lặp lại lỗi hết giờ (30 giây) cho cùng một lô thì ghi lại: đây là lỗi đã biết (review cuối I2, nằm ở
-  [backlog](../plans/2026-11-19-d-backlog.md)), chưa sửa. Cách tạm: giảm số mẫu dồn lại, hoặc tăng băng thông.
+- **Chờ gửi** giảm dần về 0. Agent chờ tối đa 120 giây mỗi lô; gặp hết giờ thì tự giảm cỡ lô một nửa (tối thiểu 1 bản tin) và nới lại sau 3 lô thành công.
+  Log agent có thể có vài dòng "hết giờ" rồi lô nhỏ dần — đó là đúng. Nếu **Chờ gửi** đứng yên quá 10 phút thì ghi lại log.
 
 - [ ] Đạt
 
@@ -246,9 +246,10 @@ Cách làm:
 
 Kết quả mong đợi:
 - Bước 2: mọi bản tin lên đủ trước khi chuyển; máy chạy bình thường qua agent B.
-- Bước 3: bản tin còn trên đĩa agent A bị server báo "không thuộc agent" và nằm đó (agent thử lại 5 phút một lần), web **không** có cột nào hiện số này. Đây là lý do
-  phải kiểm **Chờ gửi** bằng 0 trước khi chuyển máy. Muốn lấy lại: gán máy về agent A, đợi gửi hết, rồi mới chuyển. Chuyển máy về A sau khi B đã gửi bản mới thì
-  bản cũ có thể lên sau bản mới (lỗi đã biết, backlog).
+- Bước 3: bản tin còn trên đĩa agent A bị server báo "không thuộc agent" và nằm đó (agent thử lại 5 phút một lần, log cảnh báo mỗi lần). Trong vòng 1 phút,
+  bảng điều khiển agent A (màn **Agent** → Điều khiển) hiện cảnh báo vàng "Agent còn giữ N bản tin của máy không còn gán cho nó". Muốn lấy lại: gán máy về
+  agent A, đợi **Chờ gửi** về 0, rồi mới chuyển. Nếu B đã gửi bản mới hơn của cùng mẫu, bản cũ từ A lên sau **không** đè: vào "chờ thay" với lý do
+  "Bản tin cũ đến sau" (hoặc chỉ đếm, nếu giá trị y hệt).
 
 - [ ] Đạt
 
@@ -261,9 +262,9 @@ Cách làm:
 2. Chạy lại dịch vụ. Xem thư mục và Log agent.
 
 Kết quả mong đợi:
-- Hiện tại agent **bỏ qua** tệp `.tmp` và xoá sau 1 ngày, **không** gửi (lỗi đã biết, backlog: sau mất điện bản tin đã ACK có thể chỉ còn ở `.tmp`). Ghi lại hành vi thực tế.
-- Sau khi sửa, kỳ vọng: `.tmp` đọc được trọn bản tin thì đổi thành `.json` và gửi; hỏng thì đổi `.loi`, không xoá.
-- Vì vậy sau mất điện đột ngột, IT nên xem `.tmp` còn lại trong thư mục này trước khi bỏ qua.
+- Tệp `.json.tmp` đọc được trọn bản tin thì được đổi thành `.json` ngay khi dịch vụ chạy và gửi lên như bình thường (server có thể trả "trùng" nếu bản đó đã lên — không sao).
+- Tệp `.tmp` hỏng (nội dung dở) và cũ hơn 1 ngày thì đổi thành `.json.loi`, không xoá — IT xem tay.
+- Tên tệp đúng dạng `<20 chữ số>-<32 chữ số hex>.json.tmp` (xem `RawMessageQueue`).
 
 - [ ] Đạt (hành vi đúng như mô tả)
 
