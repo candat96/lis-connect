@@ -360,3 +360,49 @@ Chưa có gợi ý thì bấm **Quét cổng COM** ở bảng điều khiển c�
 Mục **Lịch sử lệnh** ghi từng lệnh: lệnh, kết quả tóm tắt, lúc ra lệnh, người ra lệnh, trạng thái. Bấm vào dòng để xem chi tiết.
 Trạng thái gồm **Chờ agent**, **Đã gửi**, **Đang chạy**, **Xong**, **Lỗi**, **Hết hạn**, **Không rõ kết quả**.
 Cách xử lý **Hết hạn** và **Không rõ kết quả** xem [04-xu-ly-su-co.md](04-xu-ly-su-co.md), mục 15.
+
+## 10. Bản tin thô và giải mã lại
+
+Từ agent 0.4.0, agent chỉ chuyển **nguyên văn bản tin** của máy lên máy chủ; máy chủ giải mã thành kết quả. Màn **Bản tin thô** (menu bên trái)
+cho xem từng bản tin, kết quả giải mã được, và giải mã lại khi cần. Máy chủ giữ bản tin **90 ngày**; bản tin đang chờ giải mã, đang giải mã
+hoặc ở trạng thái **Cần xem lại** không bị xoá.
+
+Tài khoản Quản trị, Kỹ thuật viên, Trưởng khoa xem được màn này. **Giải mã thử** và **Giải mã lại** chỉ Quản trị và Trưởng khoa.
+
+### Danh sách
+
+- Mặc định hiện **Cần chú ý**: bản tin **Lỗi**, **Cần xem lại**, hoặc giải mã xong nhưng có cảnh báo (driver bỏ dữ liệu không đọc được) hay có dòng
+  "Chưa ghép" đã gán ra giá trị khác. Chuyển sang **Tất cả** để lọc theo máy, trạng thái, ngày. Danh sách tự làm mới mỗi 5 giây.
+- Cột **Nhận xong**, **Máy**, **Trạng thái**, **Kết quả** (tóm tắt: số kết quả ghi, chờ thay, chưa ghép…), **Cỡ** (nhãn **Dở dang** nếu bản tin bị cắt
+  vì máy im lặng quá 60 giây). ↑/↓ chọn dòng, Enter mở.
+- Trạng thái: **Chờ giải mã**, **Đang giải mã**, **Đã giải mã**, **Không có kết quả** (ví dụ chỉ là câu hỏi chỉ định), **Lỗi**, **Chỉ lưu**
+  (máy đặt "Chỉ nghe" hoặc chưa chọn giao thức), **Cần xem lại** (giải mã bị gián đoạn; không tự chạy lại).
+
+### Chi tiết một bản tin
+
+Bấm dòng để mở ngăn bên phải: nguyên văn bản tin (chữ và hex, tối đa 256 KB), kết quả giải mã, và **lịch sử giải mã** (lúc nào, ai, cách tự động hay
+giải mã lại, phiên bản bộ giải mã, kết quả). Hai nút:
+
+- **Giải mã thử:** giải mã bằng cấu hình hiện tại của máy, hiện bảng barcode, kênh, giá trị, đơn vị, cờ. **Không ghi gì.** Dùng để xem trước khi sửa map kênh có đủ chưa.
+- **Giải mã lại:** hỏi xác nhận rồi giải mã và ghi kết quả qua đường nhập thường (khớp barcode, map kênh, cờ). Quy tắc:
+  - Mẫu **đã duyệt** không bị ghi đè: giá trị khác đi vào **chờ thay** ở màn **Kết quả**, người duyệt chọn **Dùng** hoặc bỏ.
+  - Kết quả đã có mà khác cũng vào chờ thay, không ghi thẳng.
+  - Dòng QC và "Chưa ghép" chưa xử lý của chính bản tin đó được thay bằng kết quả mới (không nhân đôi). Dòng "Chưa ghép" đã xử lý giữ nguyên; nếu ra giá trị khác thì ngăn chi tiết liệt kê để kiểm tay.
+  - Bản tin cũ hơn kết quả hiện có thì không tạo chờ thay đè lên kết quả mới hơn.
+
+### Giải mã lại theo khoảng thời gian
+
+Nút **Giải mã lại theo khoảng** (đầu trang): chọn **máy** và khoảng **Bản tin nhận xong trong khoảng**. Chạy từ bản tin mới tới cũ, **tối đa 500 bản tin mỗi lần**;
+nhiều hơn thì báo lỗi, hãy thu hẹp khoảng. Xong hiện số mẫu, kết quả ghi, chờ thay, chưa ghép, xung đột. Khoảng lớn có thể chạy lâu: nếu trình duyệt báo hết
+thời gian chờ (504 từ proxy) thì máy chủ vẫn xử lý tiếp; đợi một lúc, mở lại danh sách để xem.
+
+### Khi nào dùng giải mã lại
+
+Đã sửa **map kênh** (thêm mã kênh còn thiếu, đổi chỉ số) hoặc máy chủ vừa nâng bản bộ giải mã: các bản tin trước đó nằm ở **Chưa ghép** hoặc không vào phiếu. Làm theo thứ tự:
+sửa map ở **Máy & map kênh** → **Giải mã thử** một bản tin để chắc → **Giải mã lại theo khoảng** cho máy đó. Xem
+[04-xu-ly-su-co.md](04-xu-ly-su-co.md), mục 20.
+
+### Máy Beckman AU: bật BCC trên máy
+
+Khi lưu máy Beckman AU, web nhắc: trên máy vào **Online › Protocol**, **bật BCC**, nên chọn **Class B**. Mặc định nhà máy tắt BCC; khi đó bản tin bị nhiễu
+trên đường truyền không phát hiện được và giá trị sai có thể vào hệ thống mà không ai biết. Cấu hình online khai trên web phải khớp đúng các lựa chọn trên máy.

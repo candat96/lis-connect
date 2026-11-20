@@ -220,7 +220,74 @@ Kết quả **Thử cổng** là "COM3 đang bị chương trình khác mở (LI
 
 Cổng đang do một máy xét nghiệm đã khai trên chính agent dùng thì **không** bị báo bận: agent tạm ngắt máy đó, nghe thử, rồi tự nối lại.
 
-## 19. Liên hệ hỗ trợ
+## 19. Agent gửi chậm hoặc bản tin kẹt trên đĩa
+
+Bảng điều khiển agent, cột **Chờ gửi** của máy không về 0. Nguyên nhân thường gặp, xem log agent (**Log agent**, hoặc `C:\ProgramData\LIS Agent`):
+
+- **Mất mạng / máy chủ lỗi 5xx:** agent lùi nhịp 1, 2, 4… tối đa 60 giây rồi gửi lại. Có mạng lại thì tự hết. Bấm **Gửi bù ngay** để gửi ngay.
+- **Proxy trả 413:** `client_max_body_size` của `location /agent/v1/raw-messages` dưới 24m. IT sửa theo [HUONG-DAN-CAI-DAT.md](../HUONG-DAN-CAI-DAT.md), mục 6.
+- **Server báo máy không thuộc agent này:** agent tạm bỏ qua máy đó 5 phút. Kiểm tra máy đã gán đúng **Agent phụ trách** ở **Máy & map kênh**.
+- **Tệp `.json.loi` trong `cho-gui\ban-tin\<mã máy>`:** máy chủ từ chối bản tin vì không hợp lệ (hoặc tệp hỏng, hoặc bản tin quá 4 MB). Agent không gửi lại các tệp này và không xoá,
+  để IT xem tay. Báo IT kèm tên tệp; không cần làm gì thêm để agent chạy tiếp.
+
+## 20. Bản tin lỗi / cần xem lại, giải mã lại sau khi sửa map kênh
+
+Máy đã gửi nhưng kết quả không lên phiếu: vào **Bản tin thô** (xem [02-cau-hinh.md](02-cau-hinh.md), mục 10), giữ bộ lọc **Cần chú ý**.
+
+| Thấy | Nghĩa | Làm gì |
+|---|---|---|
+| **Lỗi** | Bộ giải mã không đọc được (sai giao thức, bản tin dở dang, checksum sai), hoặc ghi kết quả lỗi | Mở bản tin, đọc dòng lỗi. Sai giao thức: sửa họ giao thức ở **Máy & map kênh** rồi **Giải mã lại**. Checksum sai: máy hoặc đường truyền nhiễu, xem lại cáp / baud |
+| **Cần xem lại** | Giải mã bị gián đoạn (máy chủ tắt giữa chừng), máy chủ không tự chạy lại | Mở bản tin, bấm **Giải mã lại** |
+| **Không có kết quả** | Bản tin chỉ có câu hỏi chỉ định hoặc byte rời | Bình thường |
+| **Chỉ lưu** | Máy đặt "Chỉ nghe" hoặc chưa chọn giao thức | Chọn giao thức ở **Máy & map kênh**, rồi **Giải mã lại** nếu cần kết quả cũ |
+| **Đã giải mã** có cảnh báo | Driver bỏ dữ liệu không đọc được, hoặc dòng "Chưa ghép" đã gán ra giá trị khác khi giải mã lại | Đọc cảnh báo trong ngăn chi tiết |
+| **Đang giải mã** quá vài phút | Máy chủ đang bận hoặc vừa khởi động lại | Máy chủ tự phục hồi mỗi 60 giây: bản tin về **Chờ giải mã** (tự chạy lại) hoặc **Cần xem lại** |
+
+**Giải mã lại sau khi sửa map kênh:**
+1. **Máy & map kênh** → thêm hoặc sửa map cho các mã kênh còn thiếu.
+2. **Bản tin thô** → mở một bản tin của máy đó → **Giải mã thử**: bảng phải có đủ kênh cần.
+3. **Giải mã lại theo khoảng** (hoặc **Giải mã lại** từng bản tin): chọn máy, khoảng thời gian. Tối đa 500 bản tin mỗi lần.
+4. Mẫu đã duyệt chỉ nhận giá trị **chờ thay**, không bị ghi đè. Vào **Kết quả**, xem biểu tượng chờ thay và chọn **Dùng** hoặc bỏ.
+5. Dòng **Chưa ghép** cũ của bản tin đó được thay bằng kết quả mới nếu chưa ai xử lý; đã xử lý thì giữ nguyên.
+
+Giải mã lại khoảng lớn bị trình duyệt báo hết thời gian chờ (504): máy chủ vẫn chạy tiếp từng bản tin. Đợi vài phút, mở lại danh sách rồi giải mã lại khoảng nhỏ hơn nếu còn bản tin chưa xong.
+
+## 21. Ghép nối lại mà agent vẫn không gửi: khởi động lại dịch vụ
+
+Khi khoá agent bị thu hồi (server trả 401) agent **dừng gửi hẳn** cho tới khi dịch vụ khởi động lại. Sau **Ghép nối lại** bằng khoá mới, kỹ thuật viên phải
+**khởi động lại dịch vụ agent**: `services.msc` → **LIS Agent** → **Restart**. Nút **Khởi động lại** trên web chỉ dùng được khi kênh lệnh còn nối, nên với agent vừa bị thu hồi
+thường không dùng được. Bản tin chờ trong `cho-gui\ban-tin` được gửi tiếp sau khi dịch vụ chạy lại.
+
+## 22. Dọn kết quả chờ gửi dạng cũ trong `cho-gui`
+
+Agent 0.3.0 và cũ hơn để lại các tệp kết quả **đã giải mã** ở `C:\ProgramData\LIS Agent\cho-gui\<mã máy>\*.json`. Agent 0.4.0 **không gửi** tệp dạng này nữa; mỗi lần khởi động nó ghi
+cảnh báo "Có kết quả chờ gửi dạng cũ — bản này không gửi được nữa" cho tới khi dọn.
+
+1. Dừng dịch vụ **LIS Agent** (`services.msc`).
+2. Mở `C:\ProgramData\LIS Agent\cho-gui\`.
+3. **Chỉ** xoá (hoặc chép đi lưu) các thư mục con có tên là **mã máy** (dạng `XN-01`).
+4. **Giữ nguyên** thư mục `ban-tin` (hàng chờ bản tin thô mới).
+5. Chạy lại dịch vụ.
+
+Kết quả trong các tệp cũ đó phải nhập lại từ máy xét nghiệm hoặc bản in nếu cần, vì agent mới không gửi lại chúng.
+
+## 23. Máy xét nghiệm báo lỗi truyền / máy gửi lại, log agent ghi "Không ghi được đĩa"
+
+Log agent có "Không ghi được đĩa — đã ngắt máy để máy tự giữ kết quả": agent không ghi được bản tin xuống `C:\ProgramData\LIS Agent\cho-gui\ban-tin` (đĩa đầy, lỗi quyền, thư mục bị khoá).
+Agent **cố ý ngắt kết nối và không trả ACK**, để máy xét nghiệm tự giữ kết quả và gửi lại, thay vì báo "đã nhận" khi chưa lưu. Máy có thể báo lỗi truyền: bình thường.
+
+1. Giải phóng đĩa (xoá `rawlog` cũ, tệp `.json.loi` đã xem xong), kiểm tra quyền ghi thư mục `C:\ProgramData\LIS Agent`.
+2. Agent tự nối lại máy; máy xét nghiệm gửi lại kết quả chưa được ACK. Nếu máy không tự gửi lại, gửi lại từ máy (in lại / truyền lại).
+3. Kiểm tra **Bản tin thô** sau đó: bản tin phải về đủ, không trùng (máy chủ chống trùng bằng mã bản tin).
+
+Với **TCP — máy nối vào agent**: sau khi máy ngắt, agent mở lại cổng nghe sau khoảng 5 giây; trong lúc đó máy nối vào bị từ chối. Máy thật thường thử lại. Bộ giả lập `Lis.Simulator send` thì chờ 6 giây giữa hai lần gửi.
+
+## 24. Máy Beckman AU: giá trị sai hoặc thiếu kênh, bật BCC
+
+Máy AU mặc định **tắt BCC**. Khi đó bản tin bị nhiễu không bị phát hiện và giá trị sai có thể vào hệ thống không ai biết; khối giữa bị mất thì kết quả thiếu kênh mà không có lỗi.
+Trên máy AU vào **Online › Protocol**, **bật BCC**, nên chọn **Class B**, rồi khai cấu hình online trên web (**Máy & map kênh**) cho khớp. Bản tin có BCC sai bị bỏ và hiện ở **Bản tin thô** (lọc **Cần chú ý**) kèm dòng "BCC sai … bỏ bản tin".
+
+## 25. Liên hệ hỗ trợ
 
 Khi báo lỗi, chuẩn bị sẵn:
 

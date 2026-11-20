@@ -249,6 +249,9 @@ Web → **Log agent**, chọn máy. Cho máy chạy / gửi lại một mẫu:
 
 Không thấy dòng nào: xem mục 7.
 
+Từ agent 0.4.0, bản tin của máy còn hiện ở web → **Bản tin thô** (nguyên văn, trạng thái giải mã, kết quả ra được, nút **Giải mã thử** / **Giải mã lại**).
+Màn này là nơi xem khi kết quả không lên phiếu; xem [HUONG-DAN/04-xu-ly-su-co.md](HUONG-DAN/04-xu-ly-su-co.md), mục 20.
+
 ### 5.5. Map kênh (mã máy gửi → chỉ số)
 
 Web → **Máy & map kênh** → chọn máy:
@@ -262,6 +265,53 @@ Web → **Máy & map kênh** → chọn máy:
 
 Phòng khám `pkstl` đã có sẵn: BC-5380 17 kênh, Access 2 30 kênh, AU480 45 chỉ số chờ dò.
 
+### 5.6. Chạy thử trọn vòng
+
+Thử một vòng đủ từ máy giả lập tới phiếu kết quả, trước khi cắm máy thật. Cần: agent đã đang kết nối, một máy xét nghiệm đã khai
+(mục 5.3), map kênh có sẵn (phòng khám `pkstl`: BC-5380 17 kênh).
+
+1. **Tạo mẫu có barcode.** Tiếp nhận chưa có trên web, nên tạo mẫu giả bằng công cụ dòng lệnh (dữ liệu giả, tên có chữ "Mẫu"/"Thử"):
+
+   ```bash
+   dotnet run --project tools/Lis.SeedTool -- seed-demo --conn "Host=localhost;Port=5432;Database=lis_pkstl;Username=lis_user;Password=<mật khẩu CSDL>"
+   ```
+
+   Lệnh báo "Chưa cài đặt thông tin cơ sở" khi phòng khám tạo từ web (`/thiet-lap`) vì CSDL chưa có dòng `facility`. Tạm thời thêm bằng `psql`
+   rồi chạy lại (việc này sẽ được sửa ở plan E, task E1):
+
+   ```sql
+   INSERT INTO facility (id, name) VALUES (1, 'Phòng khám Thử') ON CONFLICT DO NOTHING;
+   ```
+
+   Mở web → **Kết quả**, chọn một mẫu chưa có kết quả có chỉ số của máy thử (ví dụ WBC, HGB), ghi lại **barcode** của mẫu.
+
+2. **Cho máy giả lập gửi.** Máy khai kiểu **TCP — máy nối vào agent** cổng `5100` thì:
+
+   ```bash
+   dotnet run --project tools/Lis.Simulator -- send --family hl7-mllp --barcode <barcode> --result WBC=7.5 --result HGB=135 --connect 127.0.0.1:5100
+   ```
+
+   `--family` là `hl7-mllp` (BC-5380), `astm-e1394` (Access 2) hoặc `beckman-au` (AU480; kênh là số Online Test No., vd `--result 01=5.42`).
+
+   **Chờ 6 giây giữa hai lần `send`** với kiểu TCP máy nối vào agent. Sau khi máy ngắt phiên, agent ghi "Mất kết nối — thử lại sau 5 giây"
+   rồi mới mở lại cổng nghe; trong 5 giây đó máy nối vào bị từ chối ("Connection refused"). Máy thật thường giữ kết nối nên ít gặp;
+   bộ giả lập mở phiên mới mỗi lần nên gặp. Bị từ chối thì chờ 6 giây rồi chạy lại.
+
+3. **Xem Bản tin thô.** Web → **Bản tin thô**. Trong vài giây có một dòng mới của máy đó, trạng thái **Đã giải mã**, cột **Kết quả** ghi số mẫu / kết quả
+   đã ghi. Bấm dòng (hoặc ↑/↓ rồi Enter) để xem nguyên văn bản tin, bảng giải mã và lịch sử giải mã.
+
+4. **Xem Kết quả.** Web → **Kết quả**, mở mẫu đó: WBC, HGB hiện giá trị vừa gửi, trạng thái nhập từ máy.
+
+5. **Duyệt.** Duyệt mẫu (cần quyền duyệt kết quả).
+
+6. **Máy gửi lại thành "chờ thay".** Chạy lại bước 2 với **giá trị khác** (vd `--result WBC=9.1`). Mẫu đã duyệt không bị ghi đè: màn **Kết quả** hiện biểu tượng
+   chờ thay ở mẫu đó, thẻ chỉ số có dòng "Máy gửi lại … Bấm Dùng để thay giá trị hiện tại, hoặc ✕ để bỏ" và mẫu **chưa duyệt lại được** ("Mẫu còn giá trị chờ thay") cho tới khi chọn.
+   Bấm **Dùng** hoặc ✕, rồi duyệt lại.
+
+7. **(Tuỳ chọn) Giải mã lại.** Ở **Bản tin thô**, mở bản tin, bấm **Giải mã thử** (không ghi gì) rồi **Giải mã lại**. Mẫu đã duyệt chỉ nhận giá trị chờ thay.
+
+Đạt khi cả 7 bước đúng. Không đạt: xem [HUONG-DAN/04-xu-ly-su-co.md](HUONG-DAN/04-xu-ly-su-co.md), mục 20–22.
+
 ## 6. Triển khai thật: reverse proxy và HTTPS
 
 Server LIS tự phục vụ cả web, `/api` và `/agent/v1` trên một cổng, nên reverse proxy chỉ cần chuyển tiếp mọi thứ về đó
@@ -274,6 +324,27 @@ server {
   # ssl_certificate ...; ssl_certificate_key ...;
 
   client_max_body_size 8m;
+
+  # Bản tin thô của agent (agent 0.4.0 trở lên): lô tối đa 16 MB byte gốc, base64 phình thêm 1/3, cộng JSON bao quanh.
+  # Không đặt (hoặc để 8m) thì lô lớn bị nginx trả 413 trước khi tới server, agent lùi nhịp và bản tin kẹt trên đĩa.
+  location /agent/v1/raw-messages {
+    client_max_body_size 24m;
+    proxy_pass http://127.0.0.1:5080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  # Giải mã lại tới 500 bản tin chạy trong một yêu cầu: cho chờ lâu hơn mặc định 60 giây kẻo proxy trả 504
+  # (việc vẫn chạy tiếp ở server, nhưng người dùng không thấy kết quả).
+  location /api/raw-messages/redecode {
+    proxy_read_timeout 300s;
+    proxy_pass http://127.0.0.1:5080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
   location / {
     proxy_pass http://127.0.0.1:5080;
     proxy_set_header Host $host;
@@ -282,6 +353,9 @@ server {
   }
 }
 ```
+
+`client_max_body_size` của `location /agent/v1/raw-messages` phải **từ 24m trở lên**. Caddy không giới hạn thân yêu cầu theo mặc định; IIS/ARR thì
+nâng `maxAllowedContentLength` (tương đương 24 MB trở lên) cho đường này.
 
 Khi đó đặt `PUBLIC_URL=https://lis.example.vn` trong `.env` để mã ghép nối trỏ đúng địa chỉ này. Nên dùng HTTPS: dữ liệu người bệnh,
 mã ghép nối và khoá agent đi qua mạng.
@@ -317,6 +391,20 @@ header giả.
 Cần làm thêm trên máy chủ thật: chạy server như dịch vụ (Docker `restart: unless-stopped` đã có sẵn; chạy trực tiếp thì
 systemd / NSSM), **sao lưu CSDL hằng ngày** (`pg_dump` từng CSDL phòng khám + `lis_master`), và chỉ mở cổng 443 ra ngoài.
 
+### 6.1. Nâng cấp từ agent 0.3.0 lên 0.4.0 (bắt buộc)
+
+Server mới **bỏ** `POST /agent/v1/readings` và bảng `agent_reading`: agent 0.3.0 trở về trước gửi kết quả đã giải mã vào đường đó nên
+sẽ **không gửi được gì** sau khi server nâng cấp. Làm theo thứ tự:
+
+1. Dựng bản agent mới (`bash scripts/publish-agent.sh`, phiên bản `0.4.0` trong `Lis.Agent.csproj`) và đặt vào `AGENT_DIST_DIR` của server.
+2. Nâng server lên bản mới (migration tự chạy: bảng `raw_message`, `raw_message_decode`; bỏ `agent_reading` ở CSDL master).
+3. Ngay sau đó, từng agent: web → **Agent** → **Điều khiển** → **Cập nhật lên 0.4.0**. Hoặc cài lại bằng tệp cài mới.
+4. Trong khoảng giữa bước 2 và 3, máy xét nghiệm vẫn gửi vào agent cũ; agent cũ giữ kết quả đã giải mã trong `cho-gui\<mã máy>\*.json` và
+   **không gửi được**. Agent 0.4.0 **không gửi lại** các tệp dạng cũ này, mỗi lần khởi động ghi cảnh báo "Có kết quả chờ gửi dạng cũ". Cách dọn xem
+   [HUONG-DAN/04-xu-ly-su-co.md](HUONG-DAN/04-xu-ly-su-co.md), mục 22; kết quả trong các tệp đó phải nhập lại từ máy hoặc bản in.
+   Vì vậy nên nâng cấp lúc vắng mẫu và cập nhật agent ngay sau server.
+5. Kiểm tra: **Bản tin thô** có dòng mới sau một lần máy gửi; cột **Phiên bản** ở bảng agent là `0.4.0`.
+
 ## 7. Khi không chạy
 
 | Hiện tượng | Kiểm tra |
@@ -333,11 +421,14 @@ systemd / NSSM), **sao lưu CSDL hằng ngày** (`pg_dump` từng CSDL phòng kh
 | Máy hiện "Đang chờ máy" mãi (TCP) | IP + cổng khai trên máy xét nghiệm; Windows Firewall trên máy tính agent |
 | Log có "Máy → LIS" nhưng toàn ký tự lạ | Sai baud / bit dữ liệu / parity, hoặc chọn sai giao thức |
 | Log có "Nhận kết quả … không ghép được" | Mẫu chưa có chỉ định trong LIS, hoặc mã kênh chưa map (mục 5.5) |
-| Mất mạng | Agent vẫn nhận từ máy và giữ trên đĩa (`C:\ProgramData\LIS Agent\cho-gui`), có mạng tự gửi lại, không ghi trùng |
+| Máy gửi mà kết quả không lên phiếu | Web → **Bản tin thô**, lọc **Cần chú ý** (mục 20 của HUONG-DAN/04) |
+| Mất mạng | Agent vẫn nhận từ máy và giữ bản tin trên đĩa (`C:\ProgramData\LIS Agent\cho-gui\ban-tin`), có mạng tự gửi lại, không ghi trùng |
+| Bản tin kẹt trên đĩa, log agent báo 413 | `client_max_body_size` của `location /agent/v1/raw-messages` dưới 24m (mục 6) |
+| Sau khi ghép nối lại bằng khoá mới agent vẫn không gửi | Khởi động lại dịch vụ **LIS Agent** (mục 21 của HUONG-DAN/04) |
 
 Một máy tính chỉ chạy **hoặc** agent **hoặc** app LIS Windows cũ cho cùng một máy xét nghiệm — cả hai cùng giữ một cổng sẽ tranh nhau.
 
-Dữ liệu agent trên máy tính: `C:\ProgramData\LIS Agent` (`rawlog` — log đầy đủ theo ngày; `cho-gui` — bản tin chờ gửi).
+Dữ liệu agent trên máy tính: `C:\ProgramData\LIS Agent` (`rawlog` — log đầy đủ theo ngày; `cho-gui\ban-tin` — bản tin thô chờ gửi, tệp lỗi đổi thành `.json.loi`).
 
 ## 8. Chạy lại trên máy phát triển
 
@@ -353,16 +444,15 @@ Kiểm tra tự động: `dotnet test LisConnect.slnx` (cần Docker đang chạ
 
 **Đã làm trên web:** đăng nhập theo phòng khám · xem, nhập, sửa, duyệt, huỷ duyệt kết quả, xử lý giá trị máy gửi lại,
 lịch sử · thêm / sửa / xoá dịch vụ, chỉ số con, khoảng tham chiếu, quy đổi định tính · máy, kết nối, map kênh ·
-agent và khoá · log agent · nhân sự, đổi mật khẩu.
+agent và khoá · log agent · **bản tin thô** (xem nguyên văn, giải mã thử, giải mã lại; máy chủ giải mã, giữ 90 ngày) · nhân sự, đổi mật khẩu.
 
 **Chưa có trên web (vẫn làm ở app Windows cũ, hoặc đang chờ làm):**
 
 - Tiếp nhận: nhập người bệnh, chọn dịch vụ, cấp barcode, in tem.
 - In phiếu kết quả.
-- Cài đặt thông tin cơ sở, kiểu barcode, máy in. (Phòng khám tạo mới bằng `clinic add` chưa có thông tin cơ sở —
-  hiện phải khai qua app Windows.)
+- Cài đặt thông tin cơ sở, kiểu barcode, máy in. (Phòng khám tạo mới bằng `clinic add` hoặc từ web chưa có dòng `facility` —
+  tạm thêm bằng SQL ở mục 5.6, hoặc khai qua app Windows.)
 - Nhập danh mục từ Excel; hồ sơ HIS và nhận chỉ định từ HIS.
-- Agent hiện tự đọc bản tin rồi gửi kết quả đã đọc kèm dữ liệu thô; chưa chuyển sang "chỉ gửi thô, máy chủ đọc".
 
 **Cần kiểm chứng với máy thật:** ba driver (BC-5380, Access 2, AU480) mới chạy với dữ liệu giả lập; cổng COM thật và
 dịch vụ Windows và tệp cài agent chưa thử trên Windows thật (chờ task 9); khoảng tham chiếu là bản nháp.

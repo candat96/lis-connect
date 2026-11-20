@@ -11,8 +11,9 @@ Máy xét nghiệm ──COM/TCP──> Lis.Agent (dịch vụ Windows) ──HT
 
 - **Một server, nhiều phòng khám:** mỗi phòng khám một CSDL riêng; CSDL `lis_master` giữ danh sách
   phòng khám và agent (chỉ lưu bản băm của khoá). Khoá agent xác định luôn phòng khám — agent không chạm được dữ liệu nơi khác.
-- **Agent** nối máy, đẩy kết quả lên server, hỏi server khi máy hỏi chỉ định. Mất mạng: kết quả giữ
-  trên đĩa (`%ProgramData%\LIS Agent\cho-gui`) và tự gửi lại; gửi lại không ghi trùng.
+- **Agent** nối máy, đẩy **bản tin thô** (nguyên byte máy gửi) lên server, hỏi server khi máy hỏi chỉ định. **Server giải mã** bản tin
+  thành kết quả (mục "Bản tin thô và giải mã ở server"). Mất mạng: bản tin giữ trên đĩa
+  (`%ProgramData%\LIS Agent\cho-gui\ban-tin`) và tự gửi lại; gửi lại không ghi trùng.
 - Một máy tính chỉ chạy **hoặc** app Windows **hoặc** agent cho cùng một máy xét nghiệm (cùng cổng COM/TCP).
 
 ## Server
@@ -94,7 +95,7 @@ khi phát triển** để chạy console (`LisAgent.exe run`) với khoá lấy 
 và ghi `version.txt` (lấy từ `<Version>` của `Lis.Agent.csproj`). Image Docker của server đã có sẵn hai tệp này ở `/app/agent`
 (`AGENT_DIST_DIR=/app/agent`), nên dựng image xong là web cho tải được tệp cài.
 
-Dữ liệu agent: `%ProgramData%\LIS Agent` (log thô `rawlog`, kết quả chờ gửi `cho-gui`, cấu hình máy lần
+Dữ liệu agent: `%ProgramData%\LIS Agent` (log thô `rawlog`, bản tin chờ gửi `cho-gui\ban-tin`, cấu hình máy lần
 cuối lấy được — dùng khi bật máy mà chưa có mạng).
 
 ## Kênh lệnh (điều khiển agent từ web)
@@ -181,11 +182,64 @@ location /agent/v1/channel {
 |---|---|
 | `GET /me` | phòng khám, tên agent, mã máy trạm |
 | `GET /instruments` | các máy gán cho máy trạm này (cấu hình kết nối, driver) |
-| `POST /readings` | một bản tin kết quả → ghi vào phiếu, tự dò map kênh; gửi lại trả `duplicate: true` |
+| `POST /raw-messages` | lô bản tin thô (tối đa 50 bản tin, 16 MB byte gốc mỗi lô) → server lưu rồi giải mã; kết quả từng bản tin: `da-luu` / `trung` / `khong-thuoc-agent` / `khong-hop-le` |
 | `POST /order-queries` | máy hỏi chỉ định theo barcode → các mã kênh cần chạy |
 | `POST /status` | trạng thái kết nối từng máy (web hiển thị) |
 | `POST /logs` | log thô: mọi byte đi/về với máy (hex) + sự kiện, gửi theo lô mỗi giây; server giữ 14 ngày |
 | `GET /channel` (WebSocket) | kênh lệnh, xem mục trên |
+
+### Bản tin thô và giải mã ở server
+
+Từ agent 0.4.0, agent **không giải mã** nữa. Driver chỉ cắt dòng byte của máy thành từng **bản tin** theo ranh giới lượt truyền
+(một khung HL7, một lượt ASTM từ ENQ tới EOT, một mẫu Beckman AU). Agent ghi bản tin xuống đĩa, rồi mới gửi lên server. Server lưu
+nguyên văn và giải mã bằng chính driver đó. Lợi ích: sửa map kênh hoặc lỗi bộ giải mã xong thì **giải mã lại** được, không phải
+nhờ máy gửi lại.
+
+**Phía agent.**
+- Hàng chờ ở `%ProgramData%\LIS Agent\cho-gui\ban-tin\<mã máy>\<seq>-<id>.json`. Ghi nguyên tử (tệp `.tmp`, flush, đổi tên).
+  Tệp chỉ bị xoá khi server trả `da-luu` hoặc `trung`.
+- Với ASTM, agent gửi ACK khung cuối trước khi máy gửi EOT, nên bản tin được ghi đĩa **trước** khi agent gửi bất kỳ byte nào sau
+  ranh giới. Không ghi được đĩa (đầy, lỗi quyền) thì agent **ngắt kết nối máy, không ACK**: máy tự giữ kết quả và gửi lại khi agent
+  lưu được. Log agent ghi "Không ghi được đĩa — đã ngắt máy để máy tự giữ kết quả".
+- Gửi theo thứ tự `Seq` từng máy; một bản tin chưa được xác nhận thì các bản sau nó chờ. `khong-hop-le` đổi tệp thành `.json.loi`
+  (rời hàng gửi, giữ lại để xem tay). Bản tin lớn hơn 4 MB không gửi, đổi `.loi` luôn.
+- Lỗi 4xx của một máy: lùi nhịp 1, 2, 4… tối đa 60 giây, chỉ máy đó. Mất mạng / 5xx: lùi nhịp cả lượt. `khong-thuoc-agent`: tạm bỏ
+  qua máy đó 5 phút.
+- Server trả **401** (khoá bị thu hồi) thì agent dừng gửi hẳn cho tới khi **khởi động lại dịch vụ**, kể cả khi đã ghép nối lại bằng khoá mới.
+
+**Phía server.**
+- `POST /agent/v1/raw-messages` lưu vào bảng `raw_message`, chống trùng bằng `id` (UUID do agent sinh), rồi giải mã ngay và trả
+  `status` + `decodeStatus`. Máy không gán cho máy trạm của agent thì `khong-thuoc-agent`. Giải mã lỗi vẫn trả 200: bản tin đã
+  lưu, agent không gửi lại. Chỉ lỗi CSDL tạm thời khi **lưu** mới trả 503 để agent gửi lại.
+- Mọi kết quả, kể cả giải mã lại, đi qua `IngestService` (khớp barcode, map kênh, cờ, "chờ thay" khi mẫu đã duyệt).
+- Mỗi lô tối đa 50 bản tin và 16 MB byte gốc (base64 phình thêm 1/3, nên thân yêu cầu tới khoảng 22 MB). Quá thì 413.
+- `RawMessageWorker` chạy lúc khởi động và mỗi 60 giây: phục hồi bản tin giải mã dở (server tắt giữa chừng) và giải mã các bản tin
+  `cho-giai-ma` còn sót; mỗi giờ xoá bản tin đã xong quá **90 ngày**. Không xoá bản tin đang `cho-giai-ma`, `dang-giai-ma`, `can-xem-lai`.
+
+**Trạng thái giải mã** (`raw_message.decode_status`):
+
+| Trạng thái | Nghĩa |
+|---|---|
+| `cho-giai-ma` | Đã lưu, chưa chạy (hoặc đang chờ chạy lại sau khi server tắt giữa chừng) |
+| `dang-giai-ma` | Đang chạy |
+| `da-giai-ma` | Ra ít nhất một kết quả |
+| `khong-co-ket-qua` | Giải mã xong, không ra kết quả (câu hỏi chỉ định, byte rời) |
+| `loi` | Driver ném lỗi, bản tin dở dang, hoặc ghi kết quả lỗi |
+| `chi-luu` | Máy chọn "Chỉ nghe" hoặc chưa chọn giao thức: chỉ lưu |
+| `can-xem-lai` | Giải mã bị gián đoạn (giải mã lại bị ngắt, hoặc lượt tự động gián đoạn 3 lần); không tự chạy lại |
+
+**Giải mã lại** (`POST /api/raw-messages/redecode`, chỉ Quản trị và Trưởng khoa): chọn bản tin cụ thể hoặc một máy trong khoảng thời gian,
+tối đa **500 bản tin mỗi lần**, chạy tuần tự từ mới tới cũ. Mỗi lượt để lại vết (ai, lúc nào, phiên bản bộ giải mã, kết quả) ở
+`raw_message_decode`. Mẫu đã duyệt không bị ghi đè: giá trị khác đi vào **chờ thay** để người duyệt chọn. Giải mã thử
+(`POST /api/raw-messages/{id}/preview`) cùng quyền, không ghi gì.
+
+Giải mã lại 500 bản tin chạy trong một yêu cầu HTTP. Proxy có thể trả **504** trước khi xong, nhưng việc vẫn chạy tiếp ở server (từng
+bản tin tự xong và ghi vết). Vì vậy nên thu hẹp khoảng thời gian, hoặc tăng `proxy_read_timeout` cho
+`/api/raw-messages/redecode` (mẫu nginx ở mục 6 của [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md)).
+
+**Không tương thích ngược:** `POST /agent/v1/readings` và bảng master `agent_reading` đã bỏ (migration master `0005`). Agent 0.3.0 trở về
+trước gọi `/readings` sẽ không gửi được kết quả. Phải nâng agent lên 0.4.0 trước hoặc cùng lúc với server mới (nút **Cập nhật lên 0.4.0**
+trong bảng điều khiển agent, hoặc cài lại bằng tệp cài).
 
 ## Cài đặt trên web
 

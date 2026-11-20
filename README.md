@@ -129,4 +129,6 @@ dotnet run --project tools/Lis.Simulator -- send --family hl7-mllp --barcode 261
 dotnet run --project tools/Lis.Simulator -- query --family beckman-au --barcode 2611100 --class-b --com COM3 --baud 9600
 ```
 
+Máy kiểu "TCP — máy nối vào agent": sau khi một phiên đóng, agent mở lại cổng nghe sau 5 giây, nên giữa hai lần `send` chờ 6 giây (hoặc chạy lại khi "Connection refused"). Chạy thử trọn vòng: [docs/HUONG-DAN-CAI-DAT.md](docs/HUONG-DAN-CAI-DAT.md), mục 5.6.
+
 Riêng Beckman AU, bố cục cột phải khớp màn Online trên máy: `--class-b --bcc --test-digits 2|3 --sample-id-length N` hoặc `--au-config '{...}'` (cùng JSON với `driver_config` của máy). Test vòng tròn (bản tin của giả lập đưa qua driver thật) ở `tests/Lis.Simulator.Tests`.
