@@ -273,7 +273,7 @@ public sealed class SamplesEndpointsTests(ServerFixture fixture) : IClassFixture
         Props(rows[0]).ShouldBe(
         [
             "orderItemId", "resultId", "valueType", "choices", "serviceCode", "serviceName", "isPanelHeader", "depth", "value", "unit",
-            "refText", "flag", "status", "pendingValue", "source",
+            "refText", "flag", "status", "pendingValue", "source", "pendingInstrumentFlag", "pendingReason", "pendingAt",
         ]);
         rows.Select(r => (r.GetProperty("serviceCode").GetString(), r.GetProperty("depth").GetInt32(), r.GetProperty("isPanelHeader").GetBoolean()))
             .ShouldBe([("GLU", 0, false), ("TPTTBM", 0, true), ("WBC", 1, false), ("HBSAG", 1, false), ("GHICHU", 0, false)]);
