@@ -104,6 +104,7 @@ api.MapInstrumentsApi();
 api.MapAgentsApi();
 api.MapSamplesApi();
 api.MapRawMessagesApi();
+api.MapReceptionApi();
 
 // Giao diện web: sau các route (route khớp được ưu tiên), chỉ chạy khi có thư mục web.
 app.UseWebApp(options.WebRoot);

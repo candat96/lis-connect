@@ -3,6 +3,7 @@ using Lis.Data;
 using Lis.Data.Auth;
 using Lis.Data.Catalog;
 using Lis.Data.Ingest;
+using Lis.Data.Orders;
 using Lis.Data.Instruments;
 using Lis.Data.RawMessages;
 using Lis.Data.Results;
@@ -24,6 +25,7 @@ public sealed class TenantServices
         Ingest = new IngestService(Db, clinicClock);
         Learning = new ChannelMapLearning(Db, Instruments, new UnmatchedService(Db, clinicClock));
         OrderQueries = new OrderQueryService(Db);
+        Orders = new OrderService(Db, clinicClock);
         Users = new UserStore(Db);
         Catalog = new CatalogStore(Db);
         Auth = new AuthService(Db, new PasswordHasher(), clock);
@@ -43,6 +45,9 @@ public sealed class TenantServices
     public ChannelMapLearning Learning { get; }
 
     public OrderQueryService OrderQueries { get; }
+
+    /// <summary>Tiếp nhận: tìm người bệnh, tạo chỉ định + mẫu + barcode (cùng quy tắc với <c>Lis.App</c>).</summary>
+    public OrderService Orders { get; }
 
     public UserStore Users { get; }
 

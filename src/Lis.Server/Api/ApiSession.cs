@@ -87,6 +87,10 @@ public static class ApiSession
     public static void RequireRedecoder(this RequestContext ctx) =>
         Require(ctx, "Chỉ Trưởng khoa hoặc Quản trị được giải mã bản tin", Roles.QuanTri, Roles.TruongKhoa);
 
+    /// <summary>Tiếp nhận người bệnh, tạo chỉ định và mẫu: Tiếp nhận, Quản trị.</summary>
+    public static void RequireReception(this RequestContext ctx) =>
+        Require(ctx, "Tài khoản không có quyền tiếp nhận", Roles.TiepNhan, Roles.QuanTri);
+
     /// <summary>Theo dõi máy, xem log: Quản trị, Kỹ thuật viên, Trưởng khoa.</summary>
     public static void RequireLabStaff(this RequestContext ctx) =>
         Require(ctx, "Tài khoản không có quyền xem mục này", Roles.QuanTri, Roles.KyThuatVien, Roles.TruongKhoa);

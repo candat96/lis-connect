@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Lis.Core.Auth;
 using Lis.Data;
 using Lis.Data.Auth;
+using Lis.Data.Facility;
 using Lis.Server.Api;
 using Npgsql;
 
@@ -155,6 +156,9 @@ public sealed class ClinicProvisioner(MasterStore master, TenantRegistry tenants
             {
                 throw new ProvisioningException($"Migrate CSDL {dbName} thất bại: {migration.Error}");
             }
+
+            // Phòng khám tạo từ web chưa có dòng cơ sở; OrderService cần nó để sinh barcode. Dòng có sẵn (Lis.App cài) giữ nguyên.
+            await new FacilityStore(tenants.For(probe).Db).EnsureDefaultAsync(name);
 
             if (seed is not null)
             {

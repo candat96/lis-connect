@@ -46,6 +46,18 @@ public sealed class FacilityStore(Db db) : IFacilityStore
         return row?.ToFacilityInfo();
     }
 
+    /// <summary>
+    /// Bảo đảm có dòng cơ sở mặc định (tên cho trước, quy tắc barcode mặc định của bảng). Dòng đã có thì
+    /// giữ nguyên, không ghi đè cấu hình nào — phòng khám tạo từ web chưa có dòng này, còn
+    /// <c>Lis.App</c> đã cài sẵn.
+    /// </summary>
+    public async Task EnsureDefaultAsync(string name)
+    {
+        await using var connection = await db.OpenAsync();
+        await connection.ExecuteAsync(
+            "INSERT INTO facility (id, name) VALUES (1, @name) ON CONFLICT (id) DO NOTHING", new { name });
+    }
+
     public async Task SaveAsync(FacilityInfo facility)
     {
         await using var connection = await db.OpenAsync();
