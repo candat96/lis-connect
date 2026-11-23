@@ -1,4 +1,4 @@
-import { ApiOutlined, AppstoreOutlined, ClusterOutlined, DownOutlined, FileSearchOutlined, FileTextOutlined, KeyOutlined, TeamOutlined, ExperimentOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ShopOutlined } from '@ant-design/icons';
+import { ApiOutlined, AppstoreOutlined, ClusterOutlined, DownOutlined, FileSearchOutlined, FileTextOutlined, KeyOutlined, TeamOutlined, ExperimentOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ShopOutlined, UserAddOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { Avatar, Button, Dropdown, Flex, Grid, Layout, Menu, Spin, Typography } from 'antd';
 import { Suspense, useState } from 'react';
@@ -10,6 +10,7 @@ import { ChangePasswordModal } from './ChangePasswordModal';
 
 // Các màn đã có trên web. Màn chưa chuyển (Tiếp nhận, Tài khoản, Cài đặt) vẫn dùng app Windows.
 export const NAV = [
+  { key: '/tiep-nhan', label: 'Tiếp nhận', icon: <UserAddOutlined />, roles: ['quan-tri', 'tiep-nhan'] },
   { key: '/ket-qua', label: 'Kết quả', icon: <ExperimentOutlined /> },
   { key: '/danh-muc', label: 'Danh mục', icon: <AppstoreOutlined /> },
   { key: '/may', label: 'Máy & map kênh', icon: <ApiOutlined /> },
@@ -35,7 +36,8 @@ export function MainLayout() {
   const [passwordOpen, setPasswordOpen] = useState(false);
   const isAdmin = useIsAdmin();
   // Mục chỉ dành cho Quản trị thì ẩn với vai trò khác (máy chủ vẫn chặn nếu gõ thẳng đường dẫn).
-  const nav = NAV.filter((n) => !('adminOnly' in n) || isAdmin).map(({ key, label, icon }) => ({ key, label, icon }));
+  const roles = user?.roles ?? [];
+  const nav = NAV.filter((n) => (!('adminOnly' in n) || isAdmin) && (!('roles' in n) || (n.roles ?? []).some((r) => roles.includes(r)))).map(({ key, label, icon }) => ({ key, label, icon }));
 
   if (!token || !user) return <Navigate to="/dang-nhap" replace state={{ next: pathname }} />;
 

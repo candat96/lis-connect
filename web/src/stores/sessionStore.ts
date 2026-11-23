@@ -28,6 +28,9 @@ export const useIsAdmin = () => useSessionStore((s) => s.user?.roles.includes('q
 const hasAnyRole = (roles: string[] | undefined, allowed: string[]) => roles?.some((r) => allowed.includes(r)) ?? false;
 /** Nhập, sửa, duyệt kết quả: Quản trị, Kỹ thuật viên, Trưởng khoa. */
 export const useCanEditResults = () => useSessionStore((s) => hasAnyRole(s.user?.roles, ['quan-tri', 'ky-thuat-vien', 'truong-khoa']));
+/** Tiếp nhận người bệnh, tạo chỉ định: Tiếp nhận, Quản trị. */
+export const useCanReceive = () => useSessionStore((s) => hasAnyRole(s.user?.roles, ['quan-tri', 'tiep-nhan']));
+
 /** Giải mã thử / giải mã lại bản tin thô: Quản trị, Trưởng khoa (máy chủ cũng chặn). */
 export const useCanRedecode = () => useSessionStore((s) => hasAnyRole(s.user?.roles, ['quan-tri', 'truong-khoa']));
 

@@ -537,6 +537,54 @@ export const rawMessageService = {
     api<RedecodeTotals>('/raw-messages/redecode', { method: 'POST', body }),
 };
 
+// ---- Tiếp nhận tối giản (người bệnh + chỉ định + mẫu có barcode) ----
+export interface PatientHit {
+  id: string;
+  code: string;
+  fullName: string;
+  dob: string | null;
+  birthYear: number | null;
+  sex: 'M' | 'F' | 'O';
+  phone: string | null;
+}
+
+export interface NewPatientInput {
+  fullName: string;
+  dob?: string | null;
+  birthYear?: number | null;
+  sex: 'M' | 'F' | 'O';
+  phone?: string | null;
+  address?: string | null;
+}
+
+export interface NewOrderInput {
+  patientId?: string | null;
+  patient?: NewPatientInput | null;
+  serviceIds: string[];
+  orderingDoctor?: string | null;
+  orderingDept?: string | null;
+  diagnosis?: string | null;
+}
+
+export interface CreatedSample {
+  sampleId: string;
+  barcode: string;
+  specimenName: string;
+  serviceNames: string[];
+}
+
+export interface OrderCreated {
+  orderId: string;
+  patientId: string;
+  patientCode: string;
+  samples: CreatedSample[];
+}
+
+export const receptionService = {
+  findPatients: (q: string) => api<PatientHit[]>('/reception/patients', { query: { q } }),
+  createOrder: (input: NewOrderInput) => api<OrderCreated>('/reception/orders', { method: 'POST', body: input }),
+};
+
 // ---- Nhân sự (tài khoản đăng nhập) ----
 export const ROLE_OPTIONS = [
   { value: 'quan-tri', label: 'Quản trị', hint: 'toàn quyền: cài đặt máy, agent, danh mục, nhân sự' },

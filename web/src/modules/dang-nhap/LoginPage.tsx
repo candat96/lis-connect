@@ -18,7 +18,11 @@ interface LoginForm {
   password: string;
 }
 
-const safeNext = (n: unknown) => (typeof n === 'string' && n.startsWith('/') && !n.startsWith('//') && !n.startsWith('/dang-nhap') ? n : '/ket-qua');
+const safeNext = (n: unknown, roles: string[] = []) =>
+  typeof n === 'string' && n.startsWith('/') && !n.startsWith('//') && !n.startsWith('/dang-nhap')
+    ? n
+    // Tiếp nhận (không phải Quản trị) vào thẳng màn Tiếp nhận; còn lại màn Kết quả.
+    : roles.includes('tiep-nhan') && !roles.includes('quan-tri') ? '/tiep-nhan' : '/ket-qua';
 
 /** Đường sóng của thiết kế: một hình, hai lớp lệch góc. */
 const WAVE =
@@ -49,9 +53,8 @@ export default function LoginPage() {
   const [last] = useState(readLastLogin);
   // Máy chủ mới dựng, chưa có phòng khám nào: chỉ đường sang trang thiết lập.
   const setup = useQuery({ queryKey: ['setup-status'], queryFn: setupService.status, retry: false, staleTime: 0 });
-  const next = safeNext((location.state as { next?: unknown } | null)?.next);
 
-  if (token) return <Navigate to={next} replace />;
+  if (token) return <Navigate to={safeNext((location.state as { next?: unknown } | null)?.next, useSessionStore.getState().user?.roles)} replace />;
 
   const onFinish = async (v: LoginForm) => {
     setLoading(true);
@@ -61,7 +64,7 @@ export default function LoginPage() {
     try {
       const session = await authService.login(values.clinicCode, values.username, values.password);
       setSession(session.token, session.user, session.clinic);
-      navigate(next, { replace: true });
+      navigate(safeNext((location.state as { next?: unknown } | null)?.next, session.user.roles), { replace: true });
     } catch (e) {
       setError((e as Error).message);
     } finally {

@@ -6,6 +6,7 @@ import { MainLayout } from '@/layouts/MainLayout';
 
 const LoginPage = lazy(() => import('@/modules/dang-nhap/LoginPage'));
 const SetupPage = lazy(() => import('@/modules/thiet-lap/SetupPage'));
+const ReceptionPage = lazy(() => import('@/modules/tiep-nhan/ReceptionPage'));
 const ResultsPage = lazy(() => import('@/modules/ket-qua/ResultsPage'));
 const CatalogPage = lazy(() => import('@/modules/danh-muc/CatalogPage'));
 const InstrumentsPage = lazy(() => import('@/modules/may/InstrumentsPage'));
@@ -23,6 +24,7 @@ export default function App() {
             <Route path="/dang-nhap" element={<LoginPage />} />
             <Route path="/thiet-lap" element={<SetupPage />} />
             <Route element={<MainLayout />}>
+              <Route path="/tiep-nhan" element={<ReceptionPage />} />
               <Route path="/ket-qua" element={<ResultsPage />} />
               <Route path="/danh-muc" element={<CatalogPage />} />
               <Route path="/may" element={<InstrumentsPage />} />

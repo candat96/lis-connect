@@ -17,3 +17,5 @@ dist/
 
 # Cấu hình thật
 .env
+
+.claude/worktrees/
